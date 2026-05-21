@@ -1,6 +1,6 @@
 # skills-mcp
 
-> Your scattered AI skills, one MCP server. Point it at a folder, get tools every MCP client (Claude Code, Claude Desktop, Codex, Cursor, Cline, …) can call. Run `skills-mcp gather` and it pulls every skill from `~/.claude/skills`, `~/.factory/skills`, `~/.cursor/skills`, … into one place — then optionally deletes the originals so they stop auto-loading into context.
+> Your scattered AI skills, one MCP server. Point it at a folder, get tools every MCP client (Claude Code, Claude Desktop, Codex, Cursor, Cline, …) can call. Run `skills-mcp gather` and it pulls every skill from `~/.claude/skills`, `~/.factory/skills`, `~/.cursor/skills`, … into one place — then optionally deletes the originals so they stop auto-loading into context. Run `skills-mcp add` to install skills from any git repo or local path.
 
 [![CI](https://github.com/anand-92/skills-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anand-92/skills-mcp/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -44,35 +44,6 @@ flowchart LR
     Server -- "resources + tools" --> Client
 ```
 
-Each subfolder of your skills root that contains a `SKILL.md` becomes one skill. Sibling files (e.g. `resources/example.json`) are exposed alongside it.
-
-## Skill directory layout
-
-```
-~/my-skills/
-├── code-review/
-│   ├── SKILL.md
-│   └── resources/
-│       └── checklist.md
-├── triage-incidents/
-│   └── SKILL.md
-└── write-pr-description/
-    └── SKILL.md
-```
-
-A minimal `SKILL.md` is just Markdown — front-matter is optional but recommended:
-
-```markdown
----
-name: code-review
-description: Review a diff for correctness, security, and style.
----
-
-# Code review
-
-When the user asks for a PR review, walk through the diff file-by-file and ...
-```
-
 ## Install
 
 Requires **Python 3.10+**.
@@ -95,31 +66,11 @@ uv sync          # or: pip install -e .
 
 ## Quick start
 
-### I already have skills scattered across AI tools
-
 ```bash
 skills-mcp gather --dry-run     # see the plan
 skills-mcp gather               # copy into ~/my-skills, then asks about deleting originals
-SKILLS_ROOT=~/my-skills skills-mcp     # serve
-```
-
-### I'm starting from scratch
-
-```bash
-# 1. Drop a SKILL.md somewhere
-mkdir -p ~/my-skills/hello && cat > ~/my-skills/hello/SKILL.md <<'EOF'
----
-name: hello
-description: Say hi.
----
-Say hi to the user in a friendly tone.
-EOF
-
-# 2. See what the server will expose
-SKILLS_ROOT=~/my-skills skills-mcp list
-
-# 3. Run the server
-SKILLS_ROOT=~/my-skills skills-mcp
+SKILLS_ROOT=~/my-skills skills-mcp list   # verify discovery
+SKILLS_ROOT=~/my-skills skills-mcp        # serve
 ```
 
 The server speaks MCP over stdio, so it is normally launched by your MCP client (see snippets below) rather than by hand. Use `skills-mcp list` whenever you want to debug what is being discovered without booting the full server.
@@ -211,6 +162,44 @@ Useful flags:
 
 Sources scanned by default (under both `$HOME` and `.`): `.claude`, `.claude-code`, `.factory`, `.codex`, `.cursor`, `.junie`, `.aider`, `.continue`, `.windsurf`, `.codeium`, `.zed`, `.agent`, `.agents`, `.anthropic`, `.openai`, `.cline`, `.roo`, `.roocode` (each looked up under `.../skills/`).
 
+## `skills-mcp add` — install skills from a git repo or local path
+
+Found a repo full of skills on GitHub? Or a teammate shared a local folder? `skills-mcp add` clones (or uses a local path), discovers every `SKILL.md` inside it, and copies the skills into your destination folder (default: `~/my-skills`).
+
+```bash
+# GitHub shorthand
+skills-mcp add anand-92/skills-mcp
+
+# Full git URL
+skills-mcp add https://github.com/owner/repo.git
+
+# Local directory
+skills-mcp add ./my-local-skills
+
+# List what a repo contains without installing
+skills-mcp add owner/repo --list
+
+# Install only specific skills
+skills-mcp add owner/repo --skill code-review --skill sql-review
+
+# Custom destination
+skills-mcp add owner/repo --dest ~/work-skills
+
+# Overwrite existing and skip the confirmation prompt
+skills-mcp add owner/repo --force --yes
+```
+
+Useful flags:
+
+| Flag | What it does |
+| --- | --- |
+| `--dest PATH` | Destination directory (default: `~/my-skills`). |
+| `--skill NAME` | Install only a specific skill by slug or name. Repeatable. |
+| `--list` / `-l` | List available skills in the source without installing. |
+| `--force` / `-f` | Overwrite existing destination skill folders. |
+| `--yes` / `-y` | Skip the confirmation prompt before installing. |
+| `--main-file NAME` | Marker filename for a skill folder (default: `SKILL.md`). |
+
 ## Configuration
 
 Every option is an environment variable. All are optional.
@@ -224,16 +213,6 @@ Every option is an environment variable. All are optional.
 | `SKILLS_LOG_LEVEL` | `INFO` | Server log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). |
 
 See [`.env.example`](.env.example) for a copy-pasteable template.
-
-### What gets exposed
-
-For a skill folder like `my-skills/translate/` containing `SKILL.md` and `resources/glossary.md`, the server registers:
-
-- **Resource** `skill://translate/SKILL.md` — the skill prompt itself.
-- **Resource** `skill://translate/resources/glossary.md` — every sibling file under the skill folder.
-- **Tool** `show_skills` — returns a plain-text list of every available skill slug and the skills root path. The model calls this once to discover what's available, then reads the relevant `skill://<slug>/SKILL.md` resource to load the full instructions.
-
-The skill's `name` and `description` are taken from the YAML frontmatter at the top of `SKILL.md` when present; otherwise the folder name and the first prose paragraph are used.
 
 ### Multi-root example
 
@@ -319,24 +298,6 @@ In `~/.copilot/mcp.json`:
 
 > **Tip:** if `skills-mcp` is not on the client's `PATH` (common with `uv tool install`), use the absolute path, e.g. `~/.local/bin/skills-mcp` or `uv run --project /path/to/skills-mcp skills-mcp`.
 
-## Authoring a skill
-
-There is no required schema beyond "a folder with a `SKILL.md` in it". A good skill:
-
-- **Names itself** in front-matter so clients can list it cleanly.
-- **Describes when to use it** in one or two sentences — that text is what the model reads to decide whether to invoke the skill.
-- **Keeps prompts focused.** One skill, one job.
-- **Pulls in supporting files via `resources/`** rather than hard-coding long examples inline.
-
-Example with a supporting file:
-
-```
-~/my-skills/translate/
-├── SKILL.md
-└── resources/
-    └── glossary.md
-```
-
 ## Security notes
 
 - The server reads every file under `SKILLS_ROOT`. Anything in those folders is visible to the connected MCP client and, through it, to the model. **Do not put secrets, `.env` files, or credentials inside a skills root.**
@@ -360,6 +321,7 @@ skills-mcp                 # run the MCP server (default)
 skills-mcp serve           # ditto, explicit
 skills-mcp list            # print discovered skills and exit
 skills-mcp gather [...]    # consolidate skills from known dot-folders
+skills-mcp add [...]       # install skills from a git repo or local path
 skills-mcp --version
 ```
 
