@@ -390,7 +390,13 @@ def _claude_desktop_config_path() -> Path | None:
 	"""Return the Claude Desktop MCP config path for the current platform."""
 	system = sys.platform
 	if system == "darwin":
-		return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+		return (
+			Path.home()
+			/ "Library"
+			/ "Application Support"
+			/ "Claude"
+			/ "claude_desktop_config.json"
+		)
 	if system == "win32":
 		appdata = os.environ.get("APPDATA")
 		if appdata:
