@@ -231,7 +231,7 @@ For a skill folder like `my-skills/translate/` containing `SKILL.md` and `resour
 
 - **Resource** `skill://translate/SKILL.md` — the skill prompt itself.
 - **Resource** `skill://translate/resources/glossary.md` — every sibling file under the skill folder.
-- **Tool** `show_skills` — returns a markdown list of every available skill with its name, description, slug, and file path. The model calls this once to discover what's available, then reads the relevant `skill://<slug>/SKILL.md` resource to load the full instructions.
+- **Tool** `show_skills` — returns a plain-text list of every available skill slug and the skills root path. The model calls this once to discover what's available, then reads the relevant `skill://<slug>/SKILL.md` resource to load the full instructions.
 
 The skill's `name` and `description` are taken from the YAML frontmatter at the top of `SKILL.md` when present; otherwise the folder name and the first prose paragraph are used.
 
@@ -290,6 +290,21 @@ env = { SKILLS_ROOT = "/Users/you/my-skills" }
 ### Cursor
 
 In `~/.cursor/mcp.json` (or `.cursor/mcp.json` per-project):
+
+```json
+{
+  "mcpServers": {
+    "skills": {
+      "command": "skills-mcp",
+      "env": { "SKILLS_ROOT": "/Users/you/my-skills" }
+    }
+  }
+}
+```
+
+### VS Code / Copilot
+
+In `~/.copilot/mcp.json`:
 
 ```json
 {
