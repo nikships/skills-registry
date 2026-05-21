@@ -25,7 +25,10 @@ log = logging.getLogger("skills_mcp.gather")
 
 # Dot folders we scan for skills under $HOME and the current working dir.
 # Order matters: earlier entries "win" duplicate-slug ties when ``on_conflict=skip``.
+# Sourced from https://github.com/vercel-labs/skills (supported-agents table)
+# plus a handful of additional tool-specific folders.
 KNOWN_DOT_DIRS: tuple[str, ...] = (
+	# Most popular / historically present first (wins on skip conflicts)
 	".claude",
 	".claude-code",
 	".factory",
@@ -44,6 +47,48 @@ KNOWN_DOT_DIRS: tuple[str, ...] = (
 	".cline",
 	".roo",
 	".roocode",
+	".gemini",
+	".antigravity",
+	# Remaining agents from vercel-labs/skills
+	".aider-desk",
+	".augment",
+	".bob",
+	".codeartsdoer",
+	".codebuddy",
+	".codemaker",
+	".codestudio",
+	".commandcode",
+	".copilot",
+	".cortex",
+	".crush",
+	".deepagents",
+	".devin",
+	".firebender",
+	".forge",
+	".goose",
+	".hermes",
+	".iflow",
+	".kilocode",
+	".kiro",
+	".kode",
+	".mcpjam",
+	".mux",
+	".opencode",
+	".openclaw",
+	".openhands",
+	".pi",
+	".qoder",
+	".qwen",
+	".rovodev",
+	".tabnine",
+	".trae",
+	".trae-cn",
+	".vibe",
+	".zencoder",
+	".neovate",
+	".pochi",
+	".adal",
+	".snowflake",
 )
 
 # Subdirectories within those dot-folders that may hold skills.
