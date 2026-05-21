@@ -232,6 +232,11 @@ def main(argv: list[str] | None = None) -> int:
 
 	_register_gather(subparsers)
 
+	# `add` subcommand — install skills from a remote repo or local path.
+	from .add import register_subparser as _register_add
+
+	_register_add(subparsers)
+
 	args = parser.parse_args(argv)
 
 	logging.basicConfig(
@@ -244,6 +249,11 @@ def main(argv: list[str] | None = None) -> int:
 		from .gather import cmd_gather
 
 		return cmd_gather(args)
+
+	if args.command == "add":
+		from .add import cmd_add
+
+		return cmd_add(args)
 
 	if args.list or args.command == "list":
 		return _cmd_list()
