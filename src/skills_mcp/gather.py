@@ -558,19 +558,20 @@ def cmd_gather(args: argparse.Namespace) -> int:
 
 	extra = [Path(s) for s in (args.source or [])]
 	sources = find_source_dirs(extra=extra)
+	dest = Path(args.dest or (Path.home() / DEFAULT_DEST_NAME)).expanduser().resolve()
+
 	if not sources:
 		print(
 			"No source skill folders found. Tried these subdirectories under $HOME and the "
 			"current directory:\n"
 			"  "
 			+ ", ".join("./" + d + "/" + s for d in KNOWN_DOT_DIRS for s in SKILL_SUBDIRS)
-			+ "\n\n"
-			"Add one with --source <PATH> or create a skills folder in a known dot-directory.",
-			file=sys.stderr,
+			+ f"\n\nCreated {dest} for your skills."
 		)
-		return 1
-
-	dest = Path(args.dest or (Path.home() / DEFAULT_DEST_NAME)).expanduser().resolve()
+		dest.mkdir(parents=True, exist_ok=True)
+		auto_results = _auto_configure_clients(dest, dry_run=False)
+		_show_client_setup(dest, auto_results, dry_run=False)
+		return 0
 
 	# Refuse to write into a destination that lives inside one of the sources —
 	# we'd recurse on the next run and possibly clobber the originals.
@@ -594,8 +595,11 @@ def cmd_gather(args: argparse.Namespace) -> int:
 	)
 
 	if not plan.entries:
-		print("No skills found in any source.", file=sys.stderr)
-		return 1
+		print(f"No skills found in any source. Created {dest} for your skills.")
+		dest.mkdir(parents=True, exist_ok=True)
+		auto_results = _auto_configure_clients(dest, dry_run=False)
+		_show_client_setup(dest, auto_results, dry_run=False)
+		return 0
 
 	print_plan(plan)
 

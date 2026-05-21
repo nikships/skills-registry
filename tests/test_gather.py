@@ -323,7 +323,7 @@ def _ns(**overrides: Any) -> argparse.Namespace:
 	return argparse.Namespace(**defaults)
 
 
-def test_cmd_gather_returns_one_when_no_sources(
+def test_cmd_gather_creates_dest_when_no_sources(
 	tmp_path: Path,
 	monkeypatch: pytest.MonkeyPatch,
 	capsys: pytest.CaptureFixture[str],
@@ -333,9 +333,34 @@ def test_cmd_gather_returns_one_when_no_sources(
 	monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
 	(tmp_path / "home").mkdir()
 	monkeypatch.chdir(tmp_path / "home")
+	dest = tmp_path / "home" / "my-skills"
 	rc = cmd_gather(_ns())
-	assert rc == 1
-	assert "No source skill folders found" in capsys.readouterr().err
+	assert rc == 0
+	assert dest.is_dir()
+	out = capsys.readouterr().out
+	assert "No source skill folders found" in out
+	assert "Created" in out
+
+
+def test_cmd_gather_creates_dest_when_sources_are_empty(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	# Source directories exist but contain no skills.
+	home = tmp_path / "home"
+	home.mkdir()
+	(home / ".claude" / "skills").mkdir(parents=True)
+	monkeypatch.setenv("HOME", str(home))
+	monkeypatch.setenv("USERPROFILE", str(home))
+	monkeypatch.chdir(home)
+	dest = home / "my-skills"
+	rc = cmd_gather(_ns())
+	assert rc == 0
+	assert dest.is_dir()
+	out = capsys.readouterr().out
+	assert "No skills found in any source" in out
+	assert "Created" in out
 
 
 def test_cmd_gather_dry_run_writes_nothing(
