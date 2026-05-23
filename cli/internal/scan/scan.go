@@ -303,8 +303,10 @@ func EntriesForCleanup(sources []Source, registrySlugs map[string]struct{}) []Cl
 			full := filepath.Join(src.Path, name)
 			isSymlink := e.Type()&os.ModeSymlink != 0
 			if !isSymlink {
-				info, err := e.Info()
-				if err != nil || !info.IsDir() {
+				// e.IsDir() returns false for symlinks (it doesn't follow),
+				// so combined with the !isSymlink guard above this rejects
+				// regular files masquerading as a slug.
+				if !e.IsDir() {
 					continue
 				}
 				if _, err := os.Stat(filepath.Join(full, MainFileName)); err != nil {

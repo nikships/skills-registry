@@ -97,16 +97,12 @@ func TestEntriesForCleanup_FindsEveryDotFolderCopy(t *testing.T) {
 	// the same slug in five dot-folders, the user had to re-run init five
 	// times. EntriesForCleanup must return every source's copy in one shot.
 	tmp := t.TempDir()
-	for _, dot := range []string{".codex", ".copilot", ".cursor", ".factory", ".gemini"} {
-		writeSkill(t, filepath.Join(tmp, dot, "skills"), "adaptive",
-			"---\nname: Adaptive\n---\nbody\n")
-	}
+	dotDirs := []string{".codex", ".copilot", ".cursor", ".factory", ".gemini"}
 	var sources []Source
-	for _, dot := range []string{".codex", ".copilot", ".cursor", ".factory", ".gemini"} {
-		sources = append(sources, Source{
-			Path:  filepath.Join(tmp, dot, "skills"),
-			Label: "~/" + dot + "/skills",
-		})
+	for _, dot := range dotDirs {
+		skillsDir := filepath.Join(tmp, dot, "skills")
+		writeSkill(t, skillsDir, "adaptive", "---\nname: Adaptive\n---\nbody\n")
+		sources = append(sources, Source{Path: skillsDir, Label: "~/" + dot + "/skills"})
 	}
 	entries := EntriesForCleanup(sources, map[string]struct{}{"adaptive": {}})
 	if len(entries) != 5 {
