@@ -8,6 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/anand-92/skills-registry/cli/internal/agents"
+	"github.com/anand-92/skills-registry/cli/internal/bootstrap"
 	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/scan"
@@ -16,13 +18,11 @@ import (
 
 // runWizard launches the onboarding wizard in alt-screen mode.
 //
-// F2.2 wires the first four steps (scan, repo name, visibility, push)
-// directly into the wizard model via WizardDeps. F2.3 will inline the
-// remaining steps (agent install, cleanup, MCP wire-up, done) — until
-// then, runWizard falls through to runBootstrap for those steps. The
-// fall-through is safe: bootstrap re-scans and re-checks the registry
-// state, so a wizard-driven setup that's persisted its config is
-// treated as a no-op create + push.
+// F2.2 wired the first four steps (scan, repo name, visibility, push)
+// directly into the wizard model. F2.3 inlines the remaining four steps
+// (agent install, cleanup, MCP install, done) so the wizard owns the
+// entire bootstrap flow end-to-end. The legacy `bootstrap` subcommand
+// is still available for headless / scripted invocations.
 func runWizard(ctx context.Context) error {
 	gh, err := registry.FindGH()
 	if err != nil {
@@ -57,24 +57,33 @@ func runWizard(ctx context.Context) error {
 }
 
 // finishWizard handles the post-wizard hand-off. Cancelled runs exit
-// cleanly; successful runs fall through to bootstrap so steps 5-8 still
-// happen until F2.3 lands them in the wizard itself.
-func finishWizard(ctx context.Context, final tui.WizardModel) error {
+// cleanly; completed runs print a short success caption. The hub launcher
+// (F3.x) reads `Completed()` to decide whether to open the dashboard;
+// until then we just close the alt-screen and let the user re-invoke
+// `skill-registry` if they want the hub.
+func finishWizard(_ context.Context, final tui.WizardModel) error {
 	if final.Cancelled() {
 		fmt.Println("Onboarding cancelled.")
 		return nil
 	}
-	// F2.3 replaces this fall-through. Bootstrap sees the saved config
-	// (write happened inside the push step) and skips its own create +
-	// push, dropping the user straight into the agent multi-select.
-	return runBootstrap(ctx, bootstrapOpts{})
+	if !final.Completed() {
+		// Defensive — shouldn't happen because the only non-cancel exit
+		// is Done step's enter, which sets Completed()=true.
+		return nil
+	}
+	fmt.Printf("\n%s onboarding complete — your registry %s is live.\n",
+		tui.OkStyle.Render("✓"), tui.TitleStyle.Render(final.Repo()))
+	fmt.Printf("  · %d skill(s) pushed · %d agent folder(s) installed\n",
+		final.Pushed(), final.AgentsInstalled())
+	fmt.Println("\nRun `skill-registry` any time to open the hub.")
+	return nil
 }
 
 // buildWizardDeps wires the real scan / create-repo / save-config /
-// push callbacks. Each closure captures the resolved `gh` path and the
-// caller's home + cwd so the wizard model doesn't need to know about any
-// of that. The wizard's own ctx is threaded into each callback via the
-// `c` parameter at call time.
+// push / agent-install / cleanup / MCP-install callbacks. Each closure
+// captures the resolved `gh` path and the caller's home + cwd so the
+// wizard model doesn't need to know about any of that. The wizard's own
+// ctx is threaded into each callback via the `c` parameter at call time.
 func buildWizardDeps(gh string) tui.WizardDeps {
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
@@ -95,6 +104,16 @@ func buildWizardDeps(gh string) tui.WizardDeps {
 			onProgress func(done, total int), onStatus func(msg string)) (int, error) {
 			return wizardPushSkills(c, gh, repo, skills, onProgress, onStatus)
 		},
+		AgentChoices: wizardAgentChoices,
+		InstallAgents: func(_ context.Context, repo string, picked []any) ([]string, error) {
+			return wizardInstallAgents(home, cwd, repo, picked)
+		},
+		LoadCleanup: func(c context.Context, _ string, skills []scan.Skill) []tui.WizardCleanupEntry {
+			return wizardLoadCleanup(c, gh, home, cwd, dotDirs, skills)
+		},
+		DeleteCleanup: wizardDeleteCleanup,
+		EnsureMCP:     wizardEnsureMCP,
+		MCPSnippet:    wizardMCPSnippet,
 	}
 }
 
@@ -203,4 +222,119 @@ func wizardCollectFiles(skills []scan.Skill) (map[string][]byte, error) {
 		}
 	}
 	return files, nil
+}
+
+// wizardAgentChoices is the live dep for the wizard's agent multi-select.
+// It mirrors the (formerly inline) selectAgents bootstrap helper: every
+// known agent target becomes a row, with Universal agents locked at the
+// top and a small "popular" set default-checked.
+func wizardAgentChoices() []tui.WizardAgent {
+	all := agents.All()
+	defaults := map[string]struct{}{
+		"Claude Code": {},
+		"Factory":     {},
+		"Cursor":      {},
+		"Codex CLI":   {},
+	}
+	out := make([]tui.WizardAgent, 0, len(all))
+	for _, t := range all {
+		_, def := defaults[t.Display]
+		out = append(out, tui.WizardAgent{
+			Display: t.Display,
+			Hint:    t.DotDir + "/skills",
+			Locked:  t.Universal,
+			Default: def,
+			Value:   t,
+		})
+	}
+	return out
+}
+
+// wizardInstallAgents converts the wizard's opaque `picked` values back
+// into the agents.Target type bootstrap.InstallSkillMd expects.
+func wizardInstallAgents(home, cwd, repo string, picked []any) ([]string, error) {
+	targets := make([]agents.Target, 0, len(picked))
+	for _, v := range picked {
+		t, ok := v.(agents.Target)
+		if !ok {
+			return nil, fmt.Errorf("wizard agent value %T is not agents.Target", v)
+		}
+		targets = append(targets, t)
+	}
+	return bootstrap.InstallSkillMd(home, cwd, repo, targets)
+}
+
+// wizardLoadCleanup runs the same scan.EntriesForCleanup the legacy
+// promptDeleteLocal flow uses. We rebuild the source list (cheap; the
+// scan is cached at the OS level) so the wizard model doesn't need to
+// thread sources through every step.
+func wizardLoadCleanup(ctx context.Context, gh, home, cwd string, dotDirs []string,
+	skills []scan.Skill) []tui.WizardCleanupEntry {
+	sources := scan.DiscoverSources(home, cwd, nil, dotDirs)
+	slugs := wizardRegistrySlugs(ctx, gh, skills)
+	entries := scan.EntriesForCleanup(sources, slugs)
+	out := make([]tui.WizardCleanupEntry, 0, len(entries))
+	for _, en := range entries {
+		out = append(out, tui.WizardCleanupEntry{
+			Path:      en.Path,
+			Source:    en.Source,
+			IsSymlink: en.IsSymlink,
+		})
+	}
+	return out
+}
+
+// wizardRegistrySlugs returns the set of slug names currently in the
+// registry. Falls back to the locally-pushed slugs when the registry
+// listing fails, matching the bootstrap CLI's recovery path.
+func wizardRegistrySlugs(ctx context.Context, gh string, skills []scan.Skill) map[string]struct{} {
+	cfg, err := config.Load()
+	if err == nil && cfg.Repo != "" {
+		client, cerr := registry.New(cfg.Repo, cfg.DefaultBranch)
+		if cerr == nil {
+			client.GH = gh
+			if slugs, lerr := client.Slugs(ctx); lerr == nil {
+				return slugs
+			}
+		}
+	}
+	// Fallback: trust the local push set so the wizard still surfaces
+	// cleanup candidates even when the registry listing is unavailable.
+	out := map[string]struct{}{}
+	for _, s := range skills {
+		out[s.Slug] = struct{}{}
+	}
+	return out
+}
+
+// wizardDeleteCleanup is the live dep for step 6's delete goroutine.
+// Symlinks and real directories use the same os.RemoveAll call — both
+// behave correctly (no follow + recursive removal, respectively).
+func wizardDeleteCleanup(entries []tui.WizardCleanupEntry) (int, int) {
+	var deleted, failed int
+	for _, en := range entries {
+		if err := os.RemoveAll(en.Path); err != nil {
+			failed++
+			continue
+		}
+		deleted++
+	}
+	return deleted, failed
+}
+
+// wizardEnsureMCP shells out to the same EnsureMCPEntryPoint the Python
+// shim uses (uv → pipx → pip). Always returns nil — install failures are
+// captured by the wizard's MCPSnippet path-check heuristic.
+func wizardEnsureMCP(ctx context.Context) error {
+	bootstrap.EnsureMCPEntryPoint(ctx)
+	return nil
+}
+
+// wizardMCPSnippet returns the JSON snippet to paste into mcp.json plus
+// the resolved binary path. The wizard inspects the path to decide
+// whether the entry point is on disk (heuristic: contains a path
+// separator).
+func wizardMCPSnippet() (string, string) {
+	bin, _ := locateMCPBinary()
+	return bootstrap.MCPJSONSnippet(bin), bin
 }

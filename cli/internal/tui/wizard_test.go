@@ -878,6 +878,30 @@ func containsMsgKind(msgs []tea.Msg, want tea.Msg) bool {
 				return true
 			}
 		}
+	case wizardAgentInstallDoneMsg:
+		for _, m := range msgs {
+			if _, ok := m.(wizardAgentInstallDoneMsg); ok {
+				return true
+			}
+		}
+	case wizardCleanupLoadedMsg:
+		for _, m := range msgs {
+			if _, ok := m.(wizardCleanupLoadedMsg); ok {
+				return true
+			}
+		}
+	case wizardCleanupDoneMsg:
+		for _, m := range msgs {
+			if _, ok := m.(wizardCleanupDoneMsg); ok {
+				return true
+			}
+		}
+	case wizardMCPDoneMsg:
+		for _, m := range msgs {
+			if _, ok := m.(wizardMCPDoneMsg); ok {
+				return true
+			}
+		}
 	}
 	return false
 }

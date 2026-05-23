@@ -76,22 +76,7 @@ func (s WizardStep) Title() string {
 	return "Unknown"
 }
 
-// description returns the panel body shown when the step has no richer
-// per-step UI yet (F2.3 steps 5-8). Returns "" for steps that own a real
-// renderer.
-func (s WizardStep) description() string {
-	switch s {
-	case WizardStepAgentSelect:
-		return "Select which AI agents should learn about your registry."
-	case WizardStepCleanup:
-		return "Optionally remove the now-redundant copies under each dot-folder."
-	case WizardStepMCPInstall:
-		return "Install the skill-registry MCP entry point for desktop clients."
-	case WizardStepDone:
-		return "Setup complete — your registry is live."
-	}
-	return ""
-}
+
 
 // ────────────────────────────────────────────────────────────────────────────
 // WizardDeps — side effects the wizard delegates to its launcher
@@ -116,6 +101,47 @@ type WizardDeps struct {
 	// of pushed skills.
 	Push func(ctx context.Context, repo string, skills []scan.Skill,
 		onProgress func(done, total int), onStatus func(msg string)) (int, error)
+
+	// AgentChoices returns the agent multi-select rows. Locked entries
+	// render at the top of the panel and are always installed; the rest
+	// are filterable. Values are opaque to the wizard — InstallAgents
+	// receives them back verbatim.
+	AgentChoices func() []WizardAgent
+	// InstallAgents writes SKILL.md into the selected dot-folders and
+	// returns the list of paths written.
+	InstallAgents func(ctx context.Context, repo string, picked []any) ([]string, error)
+	// LoadCleanup returns the local-copy entries that are safe to delete
+	// now that the registry has the canonical versions. Empty slice means
+	// nothing to clean — the wizard auto-advances past the cleanup step.
+	LoadCleanup func(ctx context.Context, repo string, skills []scan.Skill) []WizardCleanupEntry
+	// DeleteCleanup removes the supplied entries and returns the deleted /
+	// failed counts. Best-effort — partial failures are surfaced via the
+	// returned `failed` count, never as an error.
+	DeleteCleanup func(entries []WizardCleanupEntry) (deleted, failed int)
+	// EnsureMCP runs the same "uv → pipx → pip" install flow as the
+	// Python shim so desktop MCP clients can launch the entry point.
+	// Best-effort: a returned error is informational only.
+	EnsureMCP func(ctx context.Context) error
+	// MCPSnippet returns the JSON snippet to paste into mcp.json (and
+	// the resolved binary path, if available).
+	MCPSnippet func() (snippet, binaryPath string)
+}
+
+// WizardAgent is one row in the embedded agent multi-select on step 5.
+type WizardAgent struct {
+	Display string
+	Hint    string
+	Locked  bool
+	Default bool
+	Value   any
+}
+
+// WizardCleanupEntry is one local skill folder (or symlink) that the
+// cleanup step offers to remove.
+type WizardCleanupEntry struct {
+	Path      string
+	Source    string
+	IsSymlink bool
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -147,6 +173,35 @@ type wizardPushDoneMsg struct {
 	repo   string
 	pushed int
 	err    error
+}
+
+// wizardAgentInstallDoneMsg lands when deps.InstallAgents resolves.
+type wizardAgentInstallDoneMsg struct {
+	paths []string
+	err   error
+}
+
+// wizardCleanupLoadedMsg lands when deps.LoadCleanup resolves with the
+// set of removable local entries. Empty `entries` means "nothing to do"
+// and triggers an auto-advance.
+type wizardCleanupLoadedMsg struct {
+	entries []WizardCleanupEntry
+}
+
+// wizardCleanupDoneMsg lands when deps.DeleteCleanup finishes.
+type wizardCleanupDoneMsg struct {
+	deleted int
+	failed  int
+}
+
+// wizardMCPDoneMsg lands when the MCP install goroutine finishes; the
+// snippet is captured here so step 7 can render it inside a code-block
+// panel without re-invoking deps.
+type wizardMCPDoneMsg struct {
+	installed bool
+	snippet   string
+	binary    string
+	err       error
 }
 
 const (
@@ -232,6 +287,43 @@ type WizardModel struct {
 	pushTotalFiles int
 	pushStatus     string
 	pushCh         chan tea.Msg
+
+	// Step 5: Agent select — the embedded multi-select (locked-at-top +
+	// filterable list). agentInstalling flips when the user hits enter
+	// and the InstallAgents goroutine is in flight; agentInstallDone
+	// gates advance to step 6.
+	agentLoaded      bool
+	agentItems       []WizardAgent
+	agentFilter      string
+	agentCursor      int
+	agentSelected    map[int]struct{}
+	agentInstalling  bool
+	agentInstallDone bool
+	agentInstallErr  error
+	agentPaths       []string
+
+	// Step 6: Cleanup — loaded once on entry. cleanupCursor: 0=yes (delete),
+	// 1=no (keep). cleanupChosen flips when the user confirms; cleanupDone
+	// when the DeleteCleanup goroutine returns.
+	cleanupLoaded  bool
+	cleanupEntries []WizardCleanupEntry
+	cleanupCursor  int
+	cleanupChosen  bool
+	cleanupYes     bool
+	cleanupRunning bool
+	cleanupDone    bool
+	cleanupDeleted int
+	cleanupFailed  int
+
+	// Step 7: MCP install. mcpInstalled reports whether the entry point
+	// is now on disk; mcpSnippet is the JSON code block; mcpBinary is the
+	// resolved absolute path (or "skill-registry-mcp" fallback).
+	mcpStarted   bool
+	mcpDone      bool
+	mcpInstalled bool
+	mcpSnippet   string
+	mcpBinary    string
+	mcpErr       error
 }
 
 // NewWizard constructs the wizard frame with empty WizardDeps. Callers that
@@ -250,11 +342,12 @@ func NewWizard(ctx context.Context) WizardModel {
 	ti.Cursor.Style = lipgloss.NewStyle().Foreground(ColPrimary)
 	ti.Focus()
 	return WizardModel{
-		ctx:        ctx,
-		step:       WizardStepScan,
-		spinner:    sp,
-		repoInput:  ti,
-		visibility: "",
+		ctx:           ctx,
+		step:          WizardStepScan,
+		spinner:       sp,
+		repoInput:     ti,
+		visibility:    "",
+		agentSelected: map[int]struct{}{},
 	}
 }
 
@@ -310,6 +403,20 @@ func (m WizardModel) Visibility() string { return m.visibility }
 // Pushed returns the count of skills that were uploaded by the push step.
 func (m WizardModel) Pushed() int { return m.pushed }
 
+// AgentsInstalled returns the number of agent dot-folders that received
+// the skill-registry SKILL.md. Zero before step 5 completes.
+func (m WizardModel) AgentsInstalled() int { return len(m.agentPaths) }
+
+// CleanupDeleted returns the number of local entries removed by step 6.
+// Zero when the cleanup step was skipped (no entries to remove or the
+// user chose "no").
+func (m WizardModel) CleanupDeleted() int { return m.cleanupDeleted }
+
+// MCPInstalled reports whether the MCP entry point is on disk after step 7.
+// False means the user will need to install the entry point manually
+// (which they can do later — the snippet is still printed).
+func (m WizardModel) MCPInstalled() bool { return m.mcpInstalled }
+
 // ────────────────────────────────────────────────────────────────────────────
 // Update — message dispatch
 // ────────────────────────────────────────────────────────────────────────────
@@ -317,27 +424,14 @@ func (m WizardModel) Pushed() int { return m.pushed }
 // Update implements tea.Model. Long handlers are extracted into helpers so
 // every case stays well under the gocyclo ceiling.
 func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		return m, nil
-	case sparkleTickMsg:
-		m.sparkleIdx++
-		return m, sparkleTick()
-	case spinner.TickMsg:
-		return m.handleSpinnerTick(msg)
-	case wizardTransitionMsg:
-		return m.handleTransitionDone(msg)
-	case wizardScanDoneMsg:
-		return m.handleScanDone(msg)
-	case wizardScanRevealMsg:
-		return m.handleScanReveal()
-	case wizardPushProgressMsg:
-		return m.handlePushProgress(msg)
-	case wizardPushDoneMsg:
-		return m.handlePushDone(msg)
-	case tea.KeyMsg:
-		return m.handleKey(msg)
+	if mm, cmd, handled := m.dispatchStandardMsg(msg); handled {
+		return mm, cmd
+	}
+	if mm, cmd, handled := m.dispatchAsyncMsg(msg); handled {
+		return mm, cmd
+	}
+	if key, ok := msg.(tea.KeyMsg); ok {
+		return m.handleKey(key)
 	}
 	// The textinput on the RepoName step ignores anything it didn't
 	// expect, but we still forward unknown messages so its cursor-blink
@@ -348,6 +442,59 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// dispatchStandardMsg routes infrastructure-level messages (resize,
+// sparkle/spinner ticks, transition completion). Returns handled=true
+// when the message was consumed.
+func (m WizardModel) dispatchStandardMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		return m, nil, true
+	case sparkleTickMsg:
+		m.sparkleIdx++
+		return m, sparkleTick(), true
+	case spinner.TickMsg:
+		mm, cmd := m.handleSpinnerTick(msg)
+		return mm, cmd, true
+	case wizardTransitionMsg:
+		mm, cmd := m.handleTransitionDone(msg)
+		return mm, cmd, true
+	}
+	return m, nil, false
+}
+
+// dispatchAsyncMsg routes long-operation messages (scan / push / agent
+// install / cleanup / MCP install).
+func (m WizardModel) dispatchAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case wizardScanDoneMsg:
+		mm, cmd := m.handleScanDone(msg)
+		return mm, cmd, true
+	case wizardScanRevealMsg:
+		mm, cmd := m.handleScanReveal()
+		return mm, cmd, true
+	case wizardPushProgressMsg:
+		mm, cmd := m.handlePushProgress(msg)
+		return mm, cmd, true
+	case wizardPushDoneMsg:
+		mm, cmd := m.handlePushDone(msg)
+		return mm, cmd, true
+	case wizardAgentInstallDoneMsg:
+		mm, cmd := m.handleAgentInstallDone(msg)
+		return mm, cmd, true
+	case wizardCleanupLoadedMsg:
+		mm, cmd := m.handleCleanupLoaded(msg)
+		return mm, cmd, true
+	case wizardCleanupDoneMsg:
+		mm, cmd := m.handleCleanupDone(msg)
+		return mm, cmd, true
+	case wizardMCPDoneMsg:
+		mm, cmd := m.handleMCPDone(msg)
+		return mm, cmd, true
+	}
+	return m, nil, false
 }
 
 // handleSpinnerTick keeps the spinner ticking whenever the model is doing
@@ -362,8 +509,8 @@ func (m WizardModel) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd)
 }
 
 // spinnerActive returns true while the spinner glyph should keep animating.
-// Inter-step transitions, an in-flight scan, and an in-flight push all
-// qualify.
+// Inter-step transitions, an in-flight scan, push, agent install, cleanup,
+// and MCP install all qualify.
 func (m WizardModel) spinnerActive() bool {
 	switch {
 	case m.transitioning:
@@ -371,6 +518,12 @@ func (m WizardModel) spinnerActive() bool {
 	case m.step == WizardStepScan && !m.scanDone:
 		return true
 	case m.step == WizardStepPush && !m.pushDone:
+		return true
+	case m.step == WizardStepAgentSelect && m.agentInstalling && !m.agentInstallDone:
+		return true
+	case m.step == WizardStepCleanup && m.cleanupRunning:
+		return true
+	case m.step == WizardStepMCPInstall && m.mcpStarted && !m.mcpDone:
 		return true
 	}
 	return false
@@ -385,16 +538,32 @@ func (m WizardModel) handleTransitionDone(msg wizardTransitionMsg) (tea.Model, t
 }
 
 // onEnterStep schedules side effects bound to entering a particular step.
-// Used to auto-start the push goroutine on landing in WizardStepPush.
+// Used to auto-start the push goroutine on landing in WizardStepPush, to
+// load the agent multi-select rows on step 5, to scan cleanup candidates
+// on step 6, and to kick off EnsureMCP on step 7.
 func (m *WizardModel) onEnterStep() tea.Cmd {
-	if m.step == WizardStepPush && !m.pushStarted {
-		return m.startPush()
-	}
-	if m.step == WizardStepRepoName {
+	switch m.step {
+	case WizardStepRepoName:
 		// Re-focus the textinput in case its cursor blinked off during the
 		// inter-step transition.
 		m.repoInput.Focus()
 		return textinput.Blink
+	case WizardStepPush:
+		if !m.pushStarted {
+			return m.startPush()
+		}
+	case WizardStepAgentSelect:
+		if !m.agentLoaded {
+			m.loadAgentChoices()
+		}
+	case WizardStepCleanup:
+		if !m.cleanupLoaded {
+			return m.startCleanupLoad()
+		}
+	case WizardStepMCPInstall:
+		if !m.mcpStarted {
+			return m.startMCPInstall()
+		}
 	}
 	return nil
 }
@@ -484,10 +653,16 @@ func (m WizardModel) handleStepKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleVisibilityKey(msg)
 	case WizardStepPush:
 		return m.handlePushKey(msg)
-	default:
-		// F2.3 steps 5-8 still use the simple "enter advances" semantics.
-		return m.handleDefaultKey(msg)
+	case WizardStepAgentSelect:
+		return m.handleAgentSelectKey(msg)
+	case WizardStepCleanup:
+		return m.handleCleanupKey(msg)
+	case WizardStepMCPInstall:
+		return m.handleMCPKey(msg)
+	case WizardStepDone:
+		return m.handleDoneKey(msg)
 	}
+	return m.handleDefaultKey(msg)
 }
 
 // handleScanKey advances to RepoName once the scan has finished. Enter
@@ -845,25 +1020,16 @@ func (m WizardModel) renderStepBody() string {
 		return m.renderVisibilityBody()
 	case WizardStepPush:
 		return m.renderPushBody()
+	case WizardStepAgentSelect:
+		return m.renderAgentSelectBody()
+	case WizardStepCleanup:
+		return m.renderCleanupBody()
+	case WizardStepMCPInstall:
+		return m.renderMCPBody()
+	case WizardStepDone:
+		return m.renderDoneBody()
 	}
-	return m.renderPlaceholderBody()
-}
-
-// renderPlaceholderBody is used by the F2.3 steps until they own real
-// renderers. Lifts the F2.1 layout so the chrome contract is still met.
-func (m WizardModel) renderPlaceholderBody() string {
-	title := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).
-		Render(m.step.Title())
-	desc := lipgloss.NewStyle().Foreground(ColInk).
-		Render(m.step.description())
-	cta := DownloadChip.Render("⏎ enter") +
-		lipgloss.NewStyle().Foreground(ColMuted).Render("  continue")
-	if m.step == WizardStepDone {
-		cta = DownloadChip.Render("⏎ enter") +
-			lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-				Render("  open the hub")
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", desc, "", cta)
+	return ""
 }
 
 // renderScanBody is the WIZARD-002 step body: a spinner while scan is in
@@ -1230,6 +1396,35 @@ func (m WizardModel) footerKeys() []struct{ k, d string } {
 			{"type", "name"},
 			{"enter", "continue"},
 			{"esc", "cancel"},
+		}
+	case WizardStepAgentSelect:
+		if m.agentInstalling || m.agentInstallDone {
+			return []struct{ k, d string }{
+				{"enter", "continue"},
+				{"esc", "cancel"},
+			}
+		}
+		return []struct{ k, d string }{
+			{"space", "toggle"},
+			{"tab", "select all"},
+			{"enter", "install"},
+			{"esc", "cancel"},
+		}
+	case WizardStepCleanup:
+		if m.cleanupChosen {
+			return []struct{ k, d string }{
+				{"enter", "continue"},
+				{"esc", "cancel"},
+			}
+		}
+		return []struct{ k, d string }{
+			{"←/→", "choose"},
+			{"enter", "confirm"},
+			{"esc", "cancel"},
+		}
+	case WizardStepDone:
+		return []struct{ k, d string }{
+			{"enter", "open the hub"},
 		}
 	}
 	return []struct{ k, d string }{
