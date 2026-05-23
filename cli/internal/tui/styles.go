@@ -5,12 +5,10 @@ import "github.com/charmbracelet/lipgloss"
 
 // Shared lip-gloss styles. Defined once so the whole CLI feels coherent.
 var (
-	Primary    = lipgloss.Color("#7D56F4")
-	Accent     = lipgloss.Color("#43BF6D")
-	Muted      = lipgloss.Color("241")
-	Warning    = lipgloss.Color("214")
-	Danger     = lipgloss.Color("196")
-	Background = lipgloss.Color("236")
+	Primary = lipgloss.Color("#7D56F4")
+	Accent  = lipgloss.Color("#43BF6D")
+	Muted   = lipgloss.Color("241")
+	Danger  = lipgloss.Color("196")
 
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -32,8 +30,4 @@ var (
 	OkStyle = lipgloss.NewStyle().
 		Foreground(Accent).
 		Bold(true)
-	BorderStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Primary).
-			Padding(1, 2)
 )

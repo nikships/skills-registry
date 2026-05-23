@@ -14,8 +14,6 @@ def test_load_uses_env_var_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
 	cfg = config.load()
 	assert cfg.repo == "alice/skills"
 	assert cfg.default_branch == "main"
-	assert cfg.owner == "alice"
-	assert cfg.name == "skills"
 
 
 def test_load_env_var_supports_branch_suffix(monkeypatch: pytest.MonkeyPatch) -> None:

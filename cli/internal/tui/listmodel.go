@@ -30,9 +30,8 @@ func (s SkillRow) FilterValue() string {
 
 // ListModel wraps bubbles/list with our color palette.
 type ListModel struct {
-	List      list.Model
-	Picked    *SkillRow
-	cancelled bool
+	List   list.Model
+	Picked *SkillRow
 }
 
 // NewList constructs a list of SkillRow items.
@@ -72,7 +71,6 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
-			m.cancelled = true
 			return m, tea.Quit
 		case "enter":
 			if it, ok := m.List.SelectedItem().(SkillRow); ok {
@@ -95,6 +93,3 @@ func (m ListModel) View() string {
 	b.WriteString(HintStyle.Render("enter to view · esc to quit · / to filter"))
 	return b.String()
 }
-
-// Cancelled reports whether the user dismissed the picker.
-func (m ListModel) Cancelled() bool { return m.cancelled }

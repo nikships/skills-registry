@@ -23,16 +23,15 @@ type MultiSelectItem struct {
 // Locked=true are shown at the top, always selected, and excluded from the
 // filterable list below.
 type MultiSelectModel struct {
-	Title    string
-	Items    []MultiSelectItem
-	selected map[int]struct{} // keys are indices into filtered() of non-locked items
-	cursor   int
-	filter   string
-	width    int
-	height   int
-	done     bool
-	cancelled bool
-	required  bool
+	Title      string
+	Items      []MultiSelectItem
+	selected   map[int]struct{} // keys are indices into filtered() of non-locked items
+	cursor     int
+	filter     string
+	width      int
+	height     int
+	cancelled  bool
+	required   bool
 	maxVisible int
 }
 
@@ -80,9 +79,6 @@ func (m MultiSelectModel) SelectedValues() []any {
 	return out
 }
 
-// Done reports whether the user submitted the prompt.
-func (m MultiSelectModel) Done() bool { return m.done }
-
 // Cancelled reports whether the user pressed Esc / Ctrl-C.
 func (m MultiSelectModel) Cancelled() bool { return m.cancelled }
 
@@ -97,13 +93,11 @@ func (m MultiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			m.cancelled = true
-			m.done = true
 			return m, tea.Quit
 		case "enter":
 			if m.required && len(m.SelectedValues()) == 0 {
 				return m, nil
 			}
-			m.done = true
 			return m, tea.Quit
 		case "up":
 			if m.cursor > 0 {
@@ -228,7 +222,7 @@ func (m MultiSelectModel) View() string {
 			b.WriteString("\n")
 		}
 		if start > 0 || end < len(filtered) {
-			b.WriteString(HintStyle.Render("  …" + sumMore(start, end, len(filtered)) + "\n"))
+			b.WriteString(HintStyle.Render("  …\n"))
 		}
 	}
 
@@ -259,19 +253,6 @@ func windowAround(cursor, total, max int) (int, int) {
 		start = end - max
 	}
 	return start, end
-}
-
-func sumMore(start, end, total int) string {
-	before := start
-	after := total - end
-	switch {
-	case before > 0 && after > 0:
-		return ""
-	case before > 0:
-		return ""
-	default:
-		return ""
-	}
 }
 
 func joinLabels(items []MultiSelectItem, values []any, maxShown int) string {

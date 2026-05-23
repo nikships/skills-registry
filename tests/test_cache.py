@@ -44,16 +44,6 @@ def test_lookup_returns_cached_entry(tmp_path: Path, monkeypatch: pytest.MonkeyP
 	assert hit.path == folder
 
 
-def test_clear_removes_folder_and_meta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-	monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-	folder = cache.reserve("foo")
-	cache.commit("foo", "abc")
-	assert folder.exists()
-	cache.clear("foo")
-	assert not folder.exists()
-	assert cache.lookup("foo") is None
-
-
 def test_lookup_handles_corrupt_meta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 	monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 	folder = cache.reserve("foo")

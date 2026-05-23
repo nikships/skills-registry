@@ -67,13 +67,3 @@ def commit(slug: str, tree_sha: str) -> None:
 		json.dumps({"tree_sha": tree_sha}, indent=2) + "\n",
 		encoding="utf-8",
 	)
-
-
-def clear(slug: str) -> None:
-	"""Remove a cached skill (used by tests / future eviction)."""
-	folder = cache_root() / slug
-	meta_path = cache_root() / f"{slug}.meta.json"
-	if folder.exists():
-		shutil.rmtree(folder)
-	if meta_path.exists():
-		meta_path.unlink()

@@ -39,7 +39,6 @@ src/skills_mcp/
   gh.py                  # find_gh() PATH+fallback lookup, ensure_authed(), gh_api() helper
   config.py              # ~/.config/skills-mcp/registry.toml read/save + SKILLS_REGISTRY env override
   cache.py               # ~/.cache/skills-mcp/skills/<slug>/ with tree-SHA meta files
-  skill_md.py            # Generated `skill-registry/SKILL.md` template renderer
   frontmatter.py         # parse_frontmatter / first_paragraph helpers used by registry_api
 
 cli/                     # Separate Go module (own go.mod)
@@ -134,13 +133,14 @@ Force-pushes and any subtree change correctly invalidate.
 | `find_gh` / `FindGH` | `src/skills_mcp/gh.py`, `cli/internal/registry/registry.go` | PATH + fallback lookup (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`). |
 | `MultiSelectModel` | `cli/internal/tui/multiselect.go` | Fuzzy-searchable multi-select with locked-universal section. |
 | `parse_frontmatter` / `first_paragraph` | `src/skills_mcp/frontmatter.py` | Tiny YAML-ish frontmatter parser + description fallback used by `registry_api`. |
+| `SkillMd` | `cli/internal/bootstrap/skillmd.go` | Sole source of the generated `skill-registry/SKILL.md` template (CLI-only; written into each agent dot-folder by Go bootstrap). |
 | `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`. |
 
 ---
 
 ## Testing
 
-- **Python:** focused suite covering `cache`, `config`, `frontmatter`, `gh`, `init`, `registry_api`, `registry_server`, and `skill_md`. The `registry_api` suite stubs `gh` with a Python shim that replays scripted JSON responses based on argv substring matches.
+- **Python:** focused suite covering `cache`, `config`, `frontmatter`, `gh`, `init`, `registry_api`, and `registry_server`. The `registry_api` suite stubs `gh` with a Python shim that replays scripted JSON responses based on argv substring matches.
 - **Go:** Tests for `agents`, `bootstrap`, `config`, `scan`, and `registry` (also uses a `gh` shim invoked via `/bin/sh` → `python3`). Run with `cd cli && go test ./...`.
 - Run everything:
   ```bash
@@ -158,8 +158,7 @@ Force-pushes and any subtree change correctly invalidate.
 2. **No multi-registry support.** Config is one-repo. Adding a `[registries]` array + a `connect <owner/repo>` CLI command would let an agent see several registries side-by-side.
 3. **Browsing third-party public registries** is not yet a first-class flow. The read tools (`list_skills`, `get_skill`) don't require write access — wiring them to an arbitrary `owner/repo` would be a few lines.
 4. **Windows MCP-server-side init path** is best-effort. The Go binary builds for Windows, but `skills-registry init`'s `gh release download` + `chmod` assumes POSIX. PowerShell helpers + `gh.exe` lookup would close this gap.
-5. **Skill MD template duplicated** between Python (`skill_md.py`) and Go (`bootstrap/skillmd.go`). They must stay in sync; future template changes should land in both places (and there's no test today that enforces parity).
-6. **`build_server()` does no schema validation** of the SKILL.md it serves. A malformed skill makes `list_skills` skip it silently; a verbose-mode error log would help debugging.
+5. **`build_server()` does no schema validation** of the SKILL.md it serves. A malformed skill makes `list_skills` skip it silently; a verbose-mode error log would help debugging.
 
 ### Carried over from the previous design
 
@@ -217,7 +216,7 @@ uv run pre-commit install
 
 When making changes:
 - **FastMCP server conventions.** Construct servers with `FastMCP(name, instructions=..., version=__version__)`. Register every tool through `@server.tool(...)` and pass an `annotations={...}` dict carrying the safety hints that matter for client gating — `readOnlyHint` / `destructiveHint` / `openWorldHint`. Use `Args:` docstring sections only when per-parameter descriptions add real value (e.g. mutually-exclusive params); single-arg tools don't need them. Don't pass `title` or `idempotentHint` unless you have a concrete consumer.
-- **Keep Python and Go in sync.** If you change the registry contract (`registry_api.py` ↔ `registry.go`), update both implementations and both test suites in the same PR. Same for the `skill-registry/SKILL.md` template.
+- **Keep Python and Go in sync.** If you change the registry contract (`registry_api.py` ↔ `registry.go`), update both implementations and both test suites in the same PR. The `skill-registry/SKILL.md` template is Go-only and lives in `cli/internal/bootstrap/skillmd.go`.
 - Do not add new mandatory runtime dependencies without justification. The Python side has exactly one (`fastmcp`); the Go side has cobra + bubbletea/bubbles/lipgloss + yaml.v3.
 - Update `README.md` and `docs/registry.md` if you change anything user-visible.
 - Add or update tests for any behavior change. Untested behavior is treated as undefined.

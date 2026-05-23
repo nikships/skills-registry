@@ -35,14 +35,6 @@ class RegistryConfig:
 	repo: str  # "owner/repo"
 	default_branch: str = "main"
 
-	@property
-	def owner(self) -> str:
-		return self.repo.split("/", 1)[0]
-
-	@property
-	def name(self) -> str:
-		return self.repo.split("/", 1)[1]
-
 
 class ConfigError(RuntimeError):
 	"""Raised when the registry config is missing or malformed."""
