@@ -77,9 +77,17 @@ type Client struct {
 	// Defaults to 8 when zero.
 	Workers int
 	// OnProgress, if set, is called after each file is uploaded during a
-	// PushTree or Publish operation. `done` is the cumulative count, `total`
-	// is the operation's total file count. Useful for progress bars.
+	// PushTree or Publish / PushTreeViaGit operation. `done` is the cumulative
+	// count, `total` is the operation's total file count. Useful for progress
+	// bars.
 	OnProgress func(done, total int)
+	// HTTPSURL, if set, overrides the default `https://github.com/<repo>.git`
+	// remote URL used by PushTreeViaGit. Tests set this to a local bare repo
+	// path; production callers leave it empty.
+	HTTPSURL string
+	// GitBin, if set, overrides exec.LookPath("git"). Tests inject this; in
+	// production callers leave it empty.
+	GitBin string
 }
 
 // New constructs a client with sensible defaults. Looks up `gh` if not set.
@@ -396,10 +404,229 @@ func (c *Client) CreateRepo(ctx context.Context, name, visibility, description s
 	return line, nil
 }
 
-// PushTree commits a set of files to the repo using the same atomic Git Data
-// API path Publish uses, but populating multiple top-level folders in one
-// commit. Used by `bootstrap` for the initial import. Blob uploads run in
-// parallel (see Client.Workers) and progress is reported via Client.OnProgress.
+// PushTreeViaGit commits and pushes a tree of files using the local `git`
+// binary over HTTPS, authenticated by the user's `gh` token.
+//
+// This is the preferred bulk-upload path (used by `bootstrap`) because it
+// sends every file in a single `git push` instead of N blob POSTs through the
+// REST API. The REST blob path trips GitHub's secondary rate limit at ~80
+// POSTs/minute, which is easy to hit on first-time registries with dozens of
+// skills.
+//
+// Requirements:
+//   - `git` available on PATH (or `Client.GitBin` set).
+//   - `gh auth status` already verified (the caller's responsibility).
+//   - Network access to https://github.com.
+//
+// Behavior:
+//   - If the remote branch already exists, the repo is shallow-cloned and the
+//     supplied files are written on top of the existing tree (additions or
+//     overwrites only — this method does not delete files).
+//   - If the remote branch is missing (brand-new repo from `gh repo create`),
+//     a fresh git workdir is initialized and pushed as the initial commit.
+//   - When the resulting working tree is identical to the remote, no commit
+//     is created and PushTreeViaGit returns (nil, "no-op").
+//
+// Files are accepted as repo-relative path → content. Paths containing `..`
+// are rejected to match the validation applied to the REST blob path.
+//
+// Progress reporting: c.OnProgress fires once per file during the local-write
+// phase (`done` = number of files written, `total` = len(files)). The final
+// `git push` itself is opaque.
+func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, message string) error {
+	if len(files) == 0 {
+		return errors.New("nothing to push")
+	}
+	gitBin := c.GitBin
+	if gitBin == "" {
+		found, err := exec.LookPath("git")
+		if err != nil {
+			return errors.New(
+				"git not found on PATH. install git from https://git-scm.com/downloads " +
+					"(macOS: `brew install git`, Linux: `apt install git` / `dnf install git`) and re-run.")
+		}
+		gitBin = found
+	}
+
+	// Wire `gh` as the git credential helper for github.com so HTTPS pushes
+	// pick up the authenticated token. Idempotent; rewrites the same line
+	// every time it runs.
+	if err := c.setupGitAuth(ctx); err != nil {
+		return fmt.Errorf("configure git credentials via gh: %w", err)
+	}
+
+	name, email, err := c.gitAuthor(ctx)
+	if err != nil {
+		return fmt.Errorf("resolve git author: %w", err)
+	}
+
+	work, err := os.MkdirTemp("", "skill-registry-push-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(work)
+
+	runGit := func(args ...string) error {
+		cmd := exec.CommandContext(ctx, gitBin, args...)
+		cmd.Dir = work
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		cmd.Stdout = io.Discard
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+		}
+		return nil
+	}
+
+	remoteURL := c.HTTPSURL
+	if remoteURL == "" {
+		remoteURL = "https://github.com/" + c.Repo + ".git"
+	}
+
+	// Existing branch? Clone (shallow) so we preserve history. New repo?
+	// Init from scratch.
+	branchExists, err := c.refExists(ctx)
+	if err != nil {
+		return err
+	}
+	if branchExists {
+		clone := exec.CommandContext(ctx, gitBin,
+			"clone", "--depth", "1", "--branch", c.DefaultBranch, remoteURL, work)
+		var stderr bytes.Buffer
+		clone.Stderr = &stderr
+		clone.Stdout = io.Discard
+		if err := clone.Run(); err != nil {
+			return fmt.Errorf("git clone %s: %s", c.Repo, strings.TrimSpace(stderr.String()))
+		}
+	} else {
+		if err := runGit("init", "-b", c.DefaultBranch); err != nil {
+			return err
+		}
+		if err := runGit("remote", "add", "origin", remoteURL); err != nil {
+			return err
+		}
+	}
+	if err := runGit("config", "user.name", name); err != nil {
+		return err
+	}
+	if err := runGit("config", "user.email", email); err != nil {
+		return err
+	}
+	// Suppress the "main" -> "master" hint and any GPG signing the user has
+	// configured globally; we're committing on behalf of an automated flow.
+	if err := runGit("config", "commit.gpgsign", "false"); err != nil {
+		return err
+	}
+
+	// Materialize every file under the working tree.
+	written := 0
+	total := len(files)
+	for rel, content := range files {
+		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			return errors.New("rejected empty relative path")
+		}
+		// Path-traversal guard mirrors registry_api._normalize_rel_path.
+		clean := filepath.ToSlash(filepath.Clean(rel))
+		if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+			return fmt.Errorf("rejected path containing ..: %q", rel)
+		}
+		full := filepath.Join(work, filepath.FromSlash(clean))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(full, content, 0o644); err != nil {
+			return err
+		}
+		written++
+		if c.OnProgress != nil {
+			c.OnProgress(written, total)
+		}
+	}
+
+	if err := runGit("add", "-A"); err != nil {
+		return err
+	}
+	// Skip the commit if nothing changed (re-running bootstrap on an
+	// already-synced registry).
+	statusCmd := exec.CommandContext(ctx, gitBin, "status", "--porcelain")
+	statusCmd.Dir = work
+	statusOut, err := statusCmd.Output()
+	if err != nil {
+		return fmt.Errorf("git status: %w", err)
+	}
+	if len(strings.TrimSpace(string(statusOut))) == 0 {
+		return nil
+	}
+	if err := runGit("commit", "-m", message); err != nil {
+		return err
+	}
+	if err := runGit("push", "-u", "origin", c.DefaultBranch); err != nil {
+		return err
+	}
+	return nil
+}
+
+// setupGitAuth wires `gh` in as git's HTTPS credential helper for github.com.
+// Idempotent.
+func (c *Client) setupGitAuth(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, c.GH, "auth", "setup-git", "--hostname", "github.com")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
+}
+
+// gitAuthor resolves (name, email) for the commit author from the
+// authenticated GitHub identity. Falls back to `login` and the GitHub
+// no-reply email pattern when the user hasn't exposed a name/email.
+func (c *Client) gitAuthor(ctx context.Context) (string, string, error) {
+	var u struct {
+		Login string `json:"login"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	if err := c.GetJSON(ctx, "user", &u); err != nil {
+		return "", "", err
+	}
+	if u.Login == "" {
+		return "", "", errors.New("could not determine GitHub login")
+	}
+	name := u.Name
+	if name == "" {
+		name = u.Login
+	}
+	email := u.Email
+	if email == "" {
+		email = u.Login + "@users.noreply.github.com"
+	}
+	return name, email, nil
+}
+
+// refExists reports whether `<DefaultBranch>` exists on the remote. New repos
+// created by `gh repo create` (without --add-readme) have no branches at all.
+func (c *Client) refExists(ctx context.Context) (bool, error) {
+	var resp struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/ref/heads/%s", c.Repo, c.DefaultBranch), &resp)
+	if err == nil {
+		return resp.Object.SHA != "", nil
+	}
+	if isStatus(err, 404) || isStatus(err, 409) {
+		return false, nil
+	}
+	return false, err
+}
+
+// PushTree commits a set of files to the repo using the atomic Git Data API
+// path (per-file blob POSTs + tree + commit + ref update). Retained for the
+// callers that already worked with it; `bootstrap` now prefers PushTreeViaGit
+// to avoid GitHub's secondary rate limit on large initial imports.
+// Blob uploads run in parallel (see Client.Workers); progress is reported via
+// Client.OnProgress.
 func (c *Client) PushTree(ctx context.Context, files map[string][]byte, message string) (string, error) {
 	normalized := make(map[string][]byte, len(files))
 	for rel, content := range files {

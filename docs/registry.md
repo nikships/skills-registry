@@ -41,7 +41,8 @@ The Go binary (`cli/cmd/skill-registry/bootstrap.go:runBootstrap`) does:
 
 ```mermaid
 flowchart TD
-  A[bootstrap] --> B[scan dot-folders]
+  A[bootstrap] --> A1[require git on PATH]
+  A1 --> B[scan dot-folders]
   B --> C{config exists?}
   C -- yes --> J[skip repo create]
   C -- no --> D[prompt repo name]
@@ -49,18 +50,22 @@ flowchart TD
   E --> F[gh repo create]
   F --> J
   J --> K[diff local vs registry]
-  K --> L[batched push via Git Data API]
+  K --> L[PushTreeViaGit: single git push of every new skill]
   L --> M[multi-select agent targets]
   M --> N[write SKILL.md to each]
   N --> O[save registry.toml]
   O --> P[print MCP JSON snippet]
 ```
 
-Re-running is safe — `~/.config/skills-mcp/registry.toml` short-circuits the repo-create step.
+Re-running is safe — `~/.config/skills-mcp/registry.toml` short-circuits the repo-create step, and `PushTreeViaGit` skips the commit when the working tree matches the remote.
+
+**Why `git push` for bootstrap?** A first-time user with 30+ skills (≈100+ files) trips GitHub's secondary rate limit at ~80 POSTs/minute when each file is uploaded as a separate `git/blobs` REST call. `PushTreeViaGit` short-circuits that: one `git push` of the whole tree, regardless of file count. Credentials come from `gh auth setup-git` (idempotent — wires `gh` as git's HTTPS credential helper for github.com).
+
+`PushTreeViaGit` requires `git` on PATH; `runBootstrap` fails fast before any prompts when it's missing. The MCP server (`publish_skill`) does **not** use this path — it stays on the REST blob path so it works in the stripped GUI-client environment described in §3.
 
 ---
 
-## 3. Why the MCP server avoids `git`
+## 3. Why the MCP server avoids `git` (and the CLI bootstrap doesn't)
 
 Desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) spawn the MCP server with a stripped environment:
 
@@ -82,6 +87,8 @@ PATCH repos/{owner}/{repo}/git/refs/heads/{branch}      → fast-forward ref
 ```
 
 If the PATCH returns 409/422 (non-fast-forward), we refetch HEAD and retry up to 3 times with exponential backoff. The implementation lives in `skills_mcp/registry_api.py:RegistryClient.publish_skill` (Python) and is mirrored in `cli/internal/registry/registry.go` (Go) — both clients hit the same endpoints in the same order.
+
+The CLI bootstrap (Go) has stronger guarantees than the MCP server: the user invoked it from an interactive terminal where `git` is virtually always available. So bootstrap uses `registry.Client.PushTreeViaGit`, which `gh auth setup-git`s once, then clones-or-inits a tempdir, writes every file, and does a single `git push`. One network operation regardless of file count; no secondary rate limit. The MCP server can't make those assumptions and stays on the REST blob path.
 
 ---
 
@@ -155,6 +162,8 @@ The Python side does not carry this catalogue; it lives only in the Go CLI.
 | `init` exits 3 | `gh` not on `PATH` or fallback list. Install from cli.github.com. |
 | `init` exits 4 | `gh auth status` failed. Run `gh auth login`. |
 | `init` exits 5 | Couldn't fetch the Go binary. Download manually from the releases page and drop into `~/.local/bin/skill-registry`. |
+| `bootstrap` fails with `git not found on PATH` | Install git (macOS: `brew install git`; Linux: `apt install git` / `dnf install git`; Windows: https://git-scm.com/downloads). |
+| `bootstrap` push fails with `secondary rate limit` | Should not happen on the `PushTreeViaGit` path. If you see it, you're likely on an older binary that still used REST blob POSTs — re-run `skills-registry init` to pull the latest Go CLI. |
 | `publish_skill` keeps returning conflicts | Another publish (CLI? MCP?) is racing. Retry budget is 3; if you see this repeatedly something is fanning out updates. |
 | MCP server boot fails with `No registry configured` | `~/.config/skills-mcp/registry.toml` missing and no `SKILLS_REGISTRY` env. Run `skills-registry init` or set the env. |
 | MCP server boot fails with `gh not found` in a GUI client | The fallback list missed the install location. Symlink `gh` into `~/.local/bin` or set the install dir to one of the fallback paths. |

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -63,6 +64,13 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		return err
 	}
 	if err := registry.EnsureAuthed(ctx, gh); err != nil {
+		return err
+	}
+	// The initial push uses `git` (single push instead of N blob POSTs, which
+	// trip GitHub's secondary rate limit on big registries). Fail-fast here
+	// so the user isn't pushed through repo creation only to hit a missing
+	// dependency at upload time.
+	if err := requireGitForBootstrap(); err != nil {
 		return err
 	}
 
@@ -464,6 +472,21 @@ func lookupGitHubOwner(ctx context.Context, gh string) (string, error) {
 	return u.Login, nil
 }
 
+// requireGitForBootstrap is the upfront probe for the bulk-push dependency.
+// Returns a clean install hint when `git` is missing so the user doesn't
+// discover this after they've already named a repo and clicked through
+// prompts.
+func requireGitForBootstrap() error {
+	if _, err := exec.LookPath("git"); err == nil {
+		return nil
+	}
+	return fmt.Errorf(
+		"git not found on PATH. The bootstrap step pushes all your skills in a "+
+			"single `git push` to avoid GitHub's per-API rate limit.\n"+
+			"Install git from https://git-scm.com/downloads "+
+			"(macOS: `brew install git`, Linux: `apt install git` / `dnf install git`) and re-run.")
+}
+
 func pushLocalSkills(ctx context.Context, client *registry.Client, local []scan.Skill) (int, error) {
 	if len(local) == 0 {
 		return 0, nil
@@ -487,27 +510,29 @@ func pushLocalSkills(ctx context.Context, client *registry.Client, local []scan.
 		}
 	}
 
-	fmt.Printf("\n%s uploading %d skill(s) (%d files) to %s\n",
+	fmt.Printf("\n%s uploading %d skill(s) (%d files) to %s via git push\n",
 		tui.HintStyle.Render("·"), len(missing), len(files), client.Repo)
-	fmt.Printf("  %s\n",
-		tui.HintStyle.Render("large registries can take a few minutes — uploading in parallel…"))
 
-	client.OnProgress = renderProgress(os.Stderr)
+	client.OnProgress = renderProgress(os.Stderr, "prepared")
 	defer func() { client.OnProgress = nil }()
 
-	_, err = client.PushTree(ctx, files, fmt.Sprintf("init: import %d skill(s)", len(missing)))
-	if err != nil {
+	if err := client.PushTreeViaGit(ctx, files, fmt.Sprintf("init: import %d skill(s)", len(missing))); err != nil {
 		return 0, err
 	}
 	return len(missing), nil
 }
 
 // renderProgress returns an OnProgress callback that overwrites a single
-// "uploaded X/N files" line on the given writer (typically stderr).
-func renderProgress(w io.Writer) func(done, total int) {
+// "<verb> X/N files" line on the given writer (typically stderr). `verb` lets
+// callers choose between "uploaded" (REST blob path) and "prepared" (git path,
+// where the final push happens after the callback finishes).
+func renderProgress(w io.Writer, verb string) func(done, total int) {
+	if verb == "" {
+		verb = "uploaded"
+	}
 	var lastWidth int
 	return func(done, total int) {
-		line := fmt.Sprintf("  uploaded %d/%d files", done, total)
+		line := fmt.Sprintf("  %s %d/%d files", verb, done, total)
 		// Pad to clear any leftover characters from a shorter previous line.
 		if pad := lastWidth - len(line); pad > 0 {
 			line += strings.Repeat(" ", pad)
@@ -516,6 +541,9 @@ func renderProgress(w io.Writer) func(done, total int) {
 		fmt.Fprintf(w, "\r%s", line)
 		if done >= total {
 			fmt.Fprintln(w)
+			if verb == "prepared" {
+				fmt.Fprintln(w, "  pushing to github…")
+			}
 		}
 	}
 }

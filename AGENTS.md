@@ -23,7 +23,9 @@ This file is a living guide for AI agents and new contributors. It captures the 
 - **Build/Test (Go):** stdlib (`go build`, `go test`, `go vet`)
 - **TUI library:** Charmbracelet (bubbletea + lipgloss + bubbles + cobra)
 - **MCP transport:** stdio via FastMCP 3.x
-- **Network surface:** Everything talks to GitHub through `gh api` subprocess calls. **No direct HTTP, no `git` binary, no SSH.**
+- **Network surface:**
+  - **MCP server (Python):** every GitHub call goes through `gh api`. No `git`, no SSH, no embedded HTTP client. The server must work in the stripped environment Claude Desktop / Cursor / VS Code give an MCP subprocess.
+  - **CLI bootstrap (Go):** the bulk initial import uses **`git push` over HTTPS** (single push for the whole tree) because the per-file `POST /git/blobs` path trips GitHub's secondary rate limit on registries with dozens of skills. Auth is wired through `gh auth setup-git`. Everything else the CLI does (list, get, publish a single skill, sync) still goes through `gh api`.
 
 ---
 
@@ -85,14 +87,14 @@ Persisting `skill-registry-mcp` for desktop MCP clients (Claude Desktop, Cursor,
 
 The user-facing `building-glamorous-tuis` skill recommends Charmbracelet (Go). Charmbracelet has no first-class Python equivalent. Building the bootstrap UX in Bubble Tea required a Go binary regardless, so `skills-registry init` was reduced to **a thin Python shim that downloads-then-execs**. This keeps the polished TUI logic in one place and lets the MCP server stay in Python (where FastMCP lives).
 
-### Why no `git`, no SSH, no HTTP client?
+### Two upload paths: `gh api` for the MCP server, `git push` for bootstrap
 
 Desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) spawn the MCP server with a stripped environment:
 - `PATH` doesn't include your shell extensions.
 - `SSH_AUTH_SOCK` is unset.
 - `git config user.email` may be missing.
 
-To stay robust in those conditions, **every write goes through the GitHub Git Data API**, called via `gh api` (which we've already verified is authed). The sequence is identical in Python (`registry_api.RegistryClient.publish_skill`) and Go (`registry.Client.Publish`):
+So the **MCP server** (`registry_api.RegistryClient.publish_skill`) never touches `git`/SSH. Every write goes through the GitHub Git Data API, called via `gh api`. The sequence (mirrored in Go's `registry.Client.Publish`):
 
 ```
 GET  /repos/{r}/git/ref/heads/{branch}        → parent SHA
@@ -104,7 +106,17 @@ POST /repos/{r}/git/commits                   → commit pointing at new tree, p
 PATCH /repos/{r}/git/refs/heads/{branch}      → fast-forward ref
 ```
 
-Conflicts (409/422) trigger up to 3 retries with exponential backoff against the freshly-fetched HEAD.
+Conflicts (409/422) trigger up to 3 retries with exponential backoff against the freshly-fetched HEAD. This is fine for `publish_skill` because a single skill is ~1–10 files; well under the secondary-rate-limit threshold.
+
+The **CLI bootstrap** flow is different. A first-time user typically has 30–200 skills (≈100–500 files), and the per-file blob POSTs trip GitHub's secondary rate limit at ~80 requests/minute. `registry.Client.PushTreeViaGit` sidesteps that with one `git push`:
+
+1. `gh auth setup-git --hostname github.com` (idempotent — wires `gh` as the HTTPS credential helper).
+2. `gh api user` → commit author name/email (falls back to `<login>@users.noreply.github.com`).
+3. If the branch already exists upstream, shallow-clone it; otherwise `git init -b main` in a tempdir and add the remote.
+4. Materialize every file under the tempdir; `git add -A`; commit; `git push -u origin main`.
+5. Tempdir is removed on exit; nothing persists outside the user's `~/.gitconfig` (which now references `gh` as its credential helper for github.com).
+
+Hard requirements for the bootstrap path: `git` on PATH and an authenticated `gh`. `cmd_bootstrap` fails fast (before any prompts) when `git` is missing, with an install hint. Single-skill `publish` from the CLI still uses the `gh api` blob path — it's never close to the rate limit.
 
 ### Caching
 
@@ -126,7 +138,7 @@ Force-pushes and any subtree change correctly invalidate.
 | Symbol | File | Role |
 |---|---|---|
 | `RegistryClient` | `src/skills_mcp/registry_api.py` | Python: `list_skills` / `download_skill` / `publish_skill`. Owns Git Data API logic + retry. |
-| `registry.Client` | `cli/internal/registry/registry.go` | Go mirror of `RegistryClient`. Same endpoints, same order, same retries. |
+| `registry.Client` | `cli/internal/registry/registry.go` | Go mirror of `RegistryClient`. Same endpoints, same order, same retries. Also exposes `PushTreeViaGit` for the bulk bootstrap path (single `git push` instead of N blob POSTs). |
 | `build_server()` | `src/skills_mcp/registry_server.py` | Constructs the FastMCP server. Validates auth + config at boot. |
 | `cmd_init` | `src/skills_mcp/init.py` | Thin bootstrap; `os.execv` into Go binary; no TUI. |
 | `runBootstrap` | `cli/cmd/skill-registry/bootstrap.go` | Owns the interactive flow (TUI prompts + repo create + agent multi-select). |
@@ -183,12 +195,14 @@ Force-pushes and any subtree change correctly invalidate.
 
 ## Security Notes
 
-- **No `git` shell-out, no SSH agent dependency, no embedded HTTP client.** All GitHub I/O routes through the user's authenticated `gh` CLI.
-- `subprocess.run()` is used with list args (no `shell=True`).
+- **MCP server (Python):** no `git` shell-out, no SSH agent dependency, no embedded HTTP client. All GitHub I/O routes through the user's authenticated `gh` CLI.
+- **CLI bootstrap (Go):** the `PushTreeViaGit` path shells out to `git` over HTTPS, with credentials resolved by `gh auth setup-git` (which writes a credential-helper entry to the user's `~/.gitconfig` pointing at `gh`). Token never appears in argv, env, or on disk. The temp working directory used for the push is `os.RemoveAll`-ed on exit.
+- `subprocess.run()` (Python) and `exec.CommandContext()` (Go) are used with list args; no `shell=True`/`sh -c`.
 - `RegistryClient.publish_skill` rejects paths containing `..` segments and skips dotfiles (`.git`, `.DS_Store`, …) and `__pycache__`.
 - `_normalize_rel_path` rejects backslash-encoded traversals and absolute-path injection.
+- `PushTreeViaGit` applies the same traversal rejection (`..`, `../`, `/../`) before writing any file to disk.
 - A per-file size cap (`SKILLS_MAX_FILE_BYTES`, default 2 MiB) prevents accidental upload of huge binaries.
-- The Go binary uses identical validation paths.
+- The Go binary uses identical validation paths for the REST blob upload.
 
 ---
 

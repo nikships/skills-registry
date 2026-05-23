@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -319,5 +320,190 @@ func TestBootstrapInitialCommitProgressTotal(t *testing.T) {
 	last := progress[len(progress)-1]
 	if last[0] != 3 || last[1] != 3 {
 		t.Fatalf("expected final progress (3,3), got (%d,%d) — events: %v", last[0], last[1], progress)
+	}
+}
+
+// runGitInTest is a tiny helper for tests that exec git directly.
+func runGitInTest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+// initBareRemote creates an empty bare repo and returns its absolute path
+// (suitable for use as a `file://...` URL or directly as a remote).
+func initBareRemote(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	runGitInTest(t, dir, "init", "--bare", "-b", "main")
+	return dir
+}
+
+// TestPushTreeViaGitNewRepo verifies the fresh-repo path: no main branch
+// upstream yet, PushTreeViaGit must `git init` locally, commit, and push.
+func TestPushTreeViaGitNewRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	// gh stub: refExists 404 (no branch yet) + `gh auth setup-git` no-op +
+	// `gh api user` returns identity.
+	bin, _ := stubGH(t, []map[string]any{
+		// setupGitAuth runs `gh auth setup-git ...`
+		{"key": "auth setup-git", "body": ""},
+		// gitAuthor runs `gh api -X GET user`
+		{"key": "GET user", "body": map[string]any{
+			"login": "tester",
+			"name":  "Test User",
+			"email": "tester@example.com",
+		}},
+		// refExists runs `gh api -X GET repos/x/y/git/ref/heads/main`
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": "HTTP 404: not found", "exit": 1},
+	})
+
+	remote := initBareRemote(t)
+	var (
+		mu       sync.Mutex
+		progress [][2]int
+	)
+	c := &Client{
+		GH:            bin,
+		Repo:          "x/y",
+		DefaultBranch: "main",
+		HTTPSURL:      remote,
+		OnProgress: func(done, total int) {
+			mu.Lock()
+			defer mu.Unlock()
+			progress = append(progress, [2]int{done, total})
+		},
+	}
+
+	files := map[string][]byte{
+		"code-review/SKILL.md":             []byte("# Code Review"),
+		"code-review/resources/extra.md":   []byte("extra"),
+		"qa/SKILL.md":                      []byte("# QA"),
+	}
+	if err := c.PushTreeViaGit(context.Background(), files, "init: import 2 skills"); err != nil {
+		t.Fatalf("PushTreeViaGit: %v", err)
+	}
+
+	// Three progress events, total=3, monotonic.
+	if len(progress) != 3 {
+		t.Fatalf("expected 3 progress events, got %d: %v", len(progress), progress)
+	}
+	last := progress[len(progress)-1]
+	if last[0] != 3 || last[1] != 3 {
+		t.Fatalf("expected final progress (3,3), got %v", progress)
+	}
+
+	// Verify pushed contents by cloning the bare repo and inspecting.
+	checkout := t.TempDir()
+	runGitInTest(t, checkout, "clone", remote, "tree")
+	for rel, want := range files {
+		got, err := os.ReadFile(filepath.Join(checkout, "tree", rel))
+		if err != nil {
+			t.Fatalf("missing %s after push: %v", rel, err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s: got %q, want %q", rel, got, want)
+		}
+	}
+}
+
+// TestPushTreeViaGitExistingRepo verifies the existing-branch path:
+// PushTreeViaGit clones the bare remote, adds new files on top, and pushes.
+func TestPushTreeViaGitExistingRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	// Seed the bare remote with an initial commit (one file) so the branch
+	// exists upstream.
+	remote := initBareRemote(t)
+	seed := t.TempDir()
+	runGitInTest(t, seed, "clone", remote, "seed")
+	seedRepo := filepath.Join(seed, "seed")
+	runGitInTest(t, seedRepo, "config", "user.name", "seed")
+	runGitInTest(t, seedRepo, "config", "user.email", "seed@example.com")
+	if err := os.WriteFile(filepath.Join(seedRepo, "README.md"), []byte("seed"), 0o644); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+	runGitInTest(t, seedRepo, "add", "README.md")
+	runGitInTest(t, seedRepo, "commit", "-m", "seed")
+	runGitInTest(t, seedRepo, "push", "-u", "origin", "main")
+
+	// gh stub: refExists returns a SHA (branch exists).
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "auth setup-git", "body": ""},
+		{"key": "GET user", "body": map[string]any{
+			"login": "tester", "name": "", "email": "",
+		}},
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{
+			"object": map[string]any{"sha": "deadbeef"},
+		}},
+	})
+	c := &Client{
+		GH:            bin,
+		Repo:          "x/y",
+		DefaultBranch: "main",
+		HTTPSURL:      remote,
+	}
+	files := map[string][]byte{
+		"new-skill/SKILL.md": []byte("# New Skill"),
+	}
+	if err := c.PushTreeViaGit(context.Background(), files, "publish: new-skill"); err != nil {
+		t.Fatalf("PushTreeViaGit: %v", err)
+	}
+
+	// Verify both the seed file AND the new file land in the remote.
+	checkout := t.TempDir()
+	runGitInTest(t, checkout, "clone", remote, "tree")
+	for _, rel := range []string{"README.md", "new-skill/SKILL.md"} {
+		if _, err := os.ReadFile(filepath.Join(checkout, "tree", rel)); err != nil {
+			t.Fatalf("missing %s after push: %v", rel, err)
+		}
+	}
+}
+
+// TestPushTreeViaGitRejectsTraversal makes sure the path validation matches
+// the REST blob path and refuses ../-style payloads.
+func TestPushTreeViaGitRejectsTraversal(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "auth setup-git", "body": ""},
+		{"key": "GET user", "body": map[string]any{"login": "tester"}},
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": "HTTP 404: not found", "exit": 1},
+	})
+	c := &Client{
+		GH:            bin,
+		Repo:          "x/y",
+		DefaultBranch: "main",
+		HTTPSURL:      initBareRemote(t),
+	}
+	err := c.PushTreeViaGit(context.Background(),
+		map[string][]byte{"../escape.md": []byte("bad")}, "init")
+	if err == nil {
+		t.Fatalf("expected traversal rejection")
+	}
+}
+
+// TestPushTreeViaGitGitMissing simulates a host without git on PATH by
+// pointing GitBin at a non-existent file.
+func TestPushTreeViaGitGitMissing(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{})
+	c := &Client{
+		GH:            bin,
+		Repo:          "x/y",
+		DefaultBranch: "main",
+		GitBin:        "/nonexistent/git-binary",
+	}
+	// Need a non-empty files map to reach the git binary lookup.
+	err := c.PushTreeViaGit(context.Background(),
+		map[string][]byte{"a/SKILL.md": []byte("a")}, "init")
+	if err == nil {
+		t.Fatalf("expected error when git binary doesn't exist")
 	}
 }
