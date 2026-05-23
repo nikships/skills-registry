@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,8 +95,10 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 			return fmt.Errorf("save config: %w", err)
 		}
 		fmt.Printf("\n%s saved registry config: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(repo))
+		fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(repo))
 	} else {
 		fmt.Printf("\n%s reusing existing registry: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(cfg.Repo))
+		fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(cfg.Repo))
 	}
 
 	// 3. Push local skills to the registry (only on first run)
@@ -108,7 +112,7 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		return fmt.Errorf("push local skills: %w", err)
 	}
 	if pushedCount > 0 {
-		fmt.Printf("\n%s pushed %d skill(s) to %s.\n", tui.OkStyle.Render("✓"), pushedCount, cfg.Repo)
+		fmt.Printf("%s pushed %d skill(s) to %s.\n", tui.OkStyle.Render("✓"), pushedCount, cfg.Repo)
 	} else {
 		fmt.Printf("\n%s no new skills to push.\n", tui.OkStyle.Render("·"))
 	}
@@ -132,7 +136,14 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		}
 	}
 
-	// 5. Print MCP JSON snippet
+	// 5. Offer to delete the now-redundant local skill folders.
+	if !opts.NonInteractive {
+		if err := promptDeleteLocal(localSkills); err != nil {
+			return err
+		}
+	}
+
+	// 6. Print MCP JSON snippet
 	mcpBin, _ := locateMCPBinary()
 	fmt.Println("\n" + tui.TitleStyle.Render("Wire it up:"))
 	fmt.Println()
@@ -142,7 +153,82 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 	fmt.Println(tui.SubtitleStyle.Render("Codex (~/.codex/config.toml):"))
 	fmt.Println(bootstrap.CodexTOMLSnippet(mcpBin))
 
+	fmt.Println()
+	fmt.Printf("%s Your registry is live: %s\n",
+		tui.OkStyle.Render("✓"), repoURL(cfg.Repo))
 	fmt.Println("\nDone.")
+	return nil
+}
+
+// repoURL returns the canonical https URL for a repo slug like "owner/name".
+func repoURL(repo string) string {
+	return "https://github.com/" + repo
+}
+
+// promptDeleteLocal offers the user a y/n to delete the local skill folders
+// that were just imported into the registry. Local skills are now dead weight
+// — every agent that scans dot-folders has to read and parse them on every
+// session, which bloats context windows and degrades performance.
+func promptDeleteLocal(localSkills []scan.Skill) error {
+	if len(localSkills) == 0 {
+		return nil
+	}
+	// Group skills by source folder for the summary.
+	bySource := map[string]int{}
+	for _, s := range localSkills {
+		bySource[s.Source]++
+	}
+	sources := make([]string, 0, len(bySource))
+	for src := range bySource {
+		sources = append(sources, src)
+	}
+	sort.Strings(sources)
+
+	fmt.Println()
+	fmt.Println(tui.TitleStyle.Render("Clean up local copies?"))
+	fmt.Println(tui.HintStyle.Render(
+		"Now that your skills live in the registry, the local copies are dead weight."))
+	fmt.Println(tui.HintStyle.Render(
+		"Every coding agent re-reads them on each session, bloating context and degrading performance."))
+	fmt.Println()
+	for _, src := range sources {
+		fmt.Printf("  · %s (%d skill(s))\n", src, bySource[src])
+	}
+	fmt.Println()
+
+	choices := []tui.Choice{
+		{Value: "yes", Label: "Yes, delete", Hint: "Recommended — cleaner context"},
+		{Value: "no", Label: "No, keep them", Hint: "I'll handle it manually"},
+	}
+	model := tui.NewChoice("Delete local skill folders?",
+		fmt.Sprintf("This removes %d skill folder(s) from disk. Nothing in the registry is touched.", len(localSkills)),
+		choices)
+	out, err := tea.NewProgram(model).Run()
+	if err != nil {
+		return err
+	}
+	final := out.(tui.ChoiceModel)
+	// Cancel (Esc) and explicit "no" both mean keep.
+	if final.Cancelled() || final.Value() == nil || final.Value().(string) != "yes" {
+		fmt.Printf("\n%s kept local skills in place.\n", tui.HintStyle.Render("·"))
+		return nil
+	}
+
+	var deleted, failed int
+	for _, s := range localSkills {
+		if err := os.RemoveAll(s.Folder); err != nil {
+			fmt.Printf("  %s could not remove %s: %v\n",
+				tui.ErrorStyle.Render("!"), s.Folder, err)
+			failed++
+			continue
+		}
+		deleted++
+	}
+	fmt.Printf("\n%s removed %d local skill folder(s).", tui.OkStyle.Render("✓"), deleted)
+	if failed > 0 {
+		fmt.Printf(" (%d failed)", failed)
+	}
+	fmt.Println()
 	return nil
 }
 
@@ -338,11 +424,38 @@ func pushLocalSkills(ctx context.Context, client *registry.Client, local []scan.
 			return 0, err
 		}
 	}
+
+	fmt.Printf("\n%s uploading %d skill(s) (%d files) to %s\n",
+		tui.HintStyle.Render("·"), len(missing), len(files), client.Repo)
+	fmt.Printf("  %s\n",
+		tui.HintStyle.Render("large registries can take a few minutes — uploading in parallel…"))
+
+	client.OnProgress = renderProgress(os.Stderr)
+	defer func() { client.OnProgress = nil }()
+
 	_, err = client.PushTree(ctx, files, fmt.Sprintf("init: import %d skill(s)", len(missing)))
 	if err != nil {
 		return 0, err
 	}
 	return len(missing), nil
+}
+
+// renderProgress returns an OnProgress callback that overwrites a single
+// "uploaded X/N files" line on the given writer (typically stderr).
+func renderProgress(w io.Writer) func(done, total int) {
+	var lastWidth int
+	return func(done, total int) {
+		line := fmt.Sprintf("  uploaded %d/%d files", done, total)
+		// Pad to clear any leftover characters from a shorter previous line.
+		if pad := lastWidth - len(line); pad > 0 {
+			line += strings.Repeat(" ", pad)
+		}
+		lastWidth = len(line)
+		fmt.Fprintf(w, "\r%s", line)
+		if done >= total {
+			fmt.Fprintln(w)
+		}
+	}
 }
 
 func walkSkillIntoFiles(s scan.Skill, dst map[string][]byte) error {

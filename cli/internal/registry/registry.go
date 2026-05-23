@@ -18,6 +18,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -71,6 +73,13 @@ type Client struct {
 	DefaultBranch string
 	MaxRetries    int
 	RetryBaseS    float64
+	// Workers caps the concurrent blob uploads in PushTree / Publish.
+	// Defaults to 8 when zero.
+	Workers int
+	// OnProgress, if set, is called after each file is uploaded during a
+	// PushTree or Publish operation. `done` is the cumulative count, `total`
+	// is the operation's total file count. Useful for progress bars.
+	OnProgress func(done, total int)
 }
 
 // New constructs a client with sensible defaults. Looks up `gh` if not set.
@@ -88,7 +97,13 @@ func New(repo, branch string) (*Client, error) {
 		DefaultBranch: branch,
 		MaxRetries:    3,
 		RetryBaseS:    0.5,
+		Workers:       8,
 	}, nil
+}
+
+// RepoURL returns the canonical https URL for this repo (no trailing slash).
+func (c *Client) RepoURL() string {
+	return "https://github.com/" + c.Repo
 }
 
 // Summary is one row in the listing.
@@ -249,30 +264,21 @@ func (c *Client) publishOnce(ctx context.Context, slug string, files map[string]
 		return "", err
 	}
 
-	type treeEntry struct {
-		Path string  `json:"path"`
-		Mode string  `json:"mode"`
-		Type string  `json:"type"`
-		SHA  *string `json:"sha"`
-	}
-
-	incoming := map[string]struct{}{}
-	var entries []treeEntry
+	normalized := make(map[string][]byte, len(files))
+	incoming := make(map[string]struct{}, len(files))
 	for rel, content := range files {
 		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
 		rel = strings.TrimPrefix(rel, "/")
+		normalized[rel] = content
 		incoming[rel] = struct{}{}
-		var blob struct {
-			SHA string `json:"sha"`
-		}
-		body, _ := json.Marshal(map[string]string{
-			"content":  base64.StdEncoding.EncodeToString(content),
-			"encoding": "base64",
-		})
-		if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/blobs", c.Repo), body, &blob); err != nil {
-			return "", err
-		}
-		sha := blob.SHA
+	}
+	blobs, err := c.uploadBlobs(ctx, normalized, 0, len(normalized))
+	if err != nil {
+		return "", err
+	}
+	entries := make([]treeEntry, 0, len(normalized)+len(previous))
+	for rel, sha := range blobs {
+		sha := sha
 		entries = append(entries, treeEntry{
 			Path: slug + "/" + rel,
 			Mode: "100644",
@@ -376,20 +382,33 @@ func (c *Client) CreateRepo(ctx context.Context, name, visibility, description s
 
 // PushTree commits a set of files to the repo using the same atomic Git Data
 // API path Publish uses, but populating multiple top-level folders in one
-// commit. Used by `bootstrap` for the initial import.
+// commit. Used by `bootstrap` for the initial import. Blob uploads run in
+// parallel (see Client.Workers) and progress is reported via Client.OnProgress.
 func (c *Client) PushTree(ctx context.Context, files map[string][]byte, message string) (string, error) {
-	// Reuse publishOnce-style logic but for arbitrary paths (no slug prefix).
+	normalized := make(map[string][]byte, len(files))
+	for rel, content := range files {
+		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
+		rel = strings.TrimPrefix(rel, "/")
+		normalized[rel] = content
+	}
+	total := len(normalized)
+	return c.pushTree(ctx, normalized, message, 0, total)
+}
+
+// pushTree is the internal worker. `alreadyDone` lets a caller (typically
+// bootstrapInitialCommit) start counting progress from a non-zero base so the
+// "X/total" display stays monotonic across the PUT + Git-Data-API steps.
+func (c *Client) pushTree(ctx context.Context, files map[string][]byte, message string, alreadyDone, total int) (string, error) {
 	var ref struct {
 		Object struct {
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
 	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/ref/heads/%s", c.Repo, c.DefaultBranch), &ref); err != nil {
-		// New repos may not have the branch yet; fall back to creating it.
 		if !isStatus(err, 404) && !isStatus(err, 409) {
 			return "", err
 		}
-		return c.bootstrapInitialCommit(ctx, files, message)
+		return c.bootstrapInitialCommit(ctx, files, message, total)
 	}
 	parentSHA := ref.Object.SHA
 
@@ -403,27 +422,13 @@ func (c *Client) PushTree(ctx context.Context, files map[string][]byte, message 
 	}
 	baseTreeSHA := commit.Tree.SHA
 
-	type treeEntry struct {
-		Path string  `json:"path"`
-		Mode string  `json:"mode"`
-		Type string  `json:"type"`
-		SHA  *string `json:"sha"`
+	blobs, err := c.uploadBlobs(ctx, files, alreadyDone, total)
+	if err != nil {
+		return "", err
 	}
-	var entries []treeEntry
-	for rel, content := range files {
-		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
-		rel = strings.TrimPrefix(rel, "/")
-		var blob struct {
-			SHA string `json:"sha"`
-		}
-		body, _ := json.Marshal(map[string]string{
-			"content":  base64.StdEncoding.EncodeToString(content),
-			"encoding": "base64",
-		})
-		if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/blobs", c.Repo), body, &blob); err != nil {
-			return "", err
-		}
-		sha := blob.SHA
+	entries := make([]treeEntry, 0, len(files))
+	for rel, sha := range blobs {
+		sha := sha
 		entries = append(entries, treeEntry{
 			Path: rel,
 			Mode: "100644",
@@ -468,9 +473,9 @@ func (c *Client) PushTree(ctx context.Context, files map[string][]byte, message 
 // bootstrapInitialCommit handles repos with no commits yet (no main ref).
 // `gh repo create` produces an empty repo, so we create the initial commit
 // via "create or update file" which auto-creates the branch.
-func (c *Client) bootstrapInitialCommit(ctx context.Context, files map[string][]byte, message string) (string, error) {
+func (c *Client) bootstrapInitialCommit(ctx context.Context, files map[string][]byte, message string, total int) (string, error) {
 	// For a brand-new repo, we need at least one PUT to seed the ref. Use the
-	// first file alphabetically; the rest go via PushTree once main exists.
+	// first file alphabetically; the rest go via pushTree once main exists.
 	var keys []string
 	for k := range files {
 		keys = append(keys, k)
@@ -493,15 +498,116 @@ func (c *Client) bootstrapInitialCommit(ctx context.Context, files map[string][]
 	if err := c.putJSON(ctx, fmt.Sprintf("repos/%s/contents/%s", c.Repo, first), body, &resp); err != nil {
 		return "", err
 	}
+	if c.OnProgress != nil {
+		c.OnProgress(1, total)
+	}
 	if len(keys) == 1 {
 		return resp.Commit.SHA, nil
 	}
-	// Re-push the remaining files now that main exists.
-	remaining := map[string][]byte{}
+	remaining := make(map[string][]byte, len(keys)-1)
 	for _, k := range keys[1:] {
 		remaining[k] = files[k]
 	}
-	return c.PushTree(ctx, remaining, message)
+	return c.pushTree(ctx, remaining, message, 1, total)
+}
+
+// uploadBlobs uploads each (rel, content) pair as a Git blob in parallel and
+// returns rel→sha. Concurrency is bounded by c.Workers (default 8). Progress
+// is reported via c.OnProgress after each successful upload, with `done`
+// starting at `alreadyDone+1` and increasing to `alreadyDone+len(files)`.
+func (c *Client) uploadBlobs(ctx context.Context, files map[string][]byte, alreadyDone, total int) (map[string]string, error) {
+	if len(files) == 0 {
+		return map[string]string{}, nil
+	}
+	workers := c.Workers
+	if workers <= 0 {
+		workers = 8
+	}
+	if workers > len(files) {
+		workers = len(files)
+	}
+
+	type job struct {
+		rel     string
+		content []byte
+	}
+	type result struct {
+		rel string
+		sha string
+		err error
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	jobs := make(chan job)
+	results := make(chan result, len(files))
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				body, _ := json.Marshal(map[string]string{
+					"content":  base64.StdEncoding.EncodeToString(j.content),
+					"encoding": "base64",
+				})
+				var blob struct {
+					SHA string `json:"sha"`
+				}
+				err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/blobs", c.Repo), body, &blob)
+				select {
+				case results <- result{rel: j.rel, sha: blob.SHA, err: err}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	go func() {
+		defer close(jobs)
+		for rel, content := range files {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- job{rel: rel, content: content}:
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	out := make(map[string]string, len(files))
+	var counter int64 = int64(alreadyDone)
+	for r := range results {
+		if r.err != nil {
+			cancel()
+			// drain the rest
+			for range results {
+			}
+			return nil, r.err
+		}
+		out[r.rel] = r.sha
+		done := atomic.AddInt64(&counter, 1)
+		if c.OnProgress != nil {
+			c.OnProgress(int(done), total)
+		}
+	}
+	return out, nil
+}
+
+// treeEntry is one row in a Git Data API tree payload. Hoisted to package
+// scope so both publishOnce and pushTree share it.
+type treeEntry struct {
+	Path string  `json:"path"`
+	Mode string  `json:"mode"`
+	Type string  `json:"type"`
+	SHA  *string `json:"sha"`
 }
 
 // GetJSON exposes the internal `gh api -X GET` helper so callers can hit
