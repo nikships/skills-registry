@@ -167,6 +167,15 @@ jobs:
           if [ "$GOOS" = "windows" ]; then out="skill-registry.exe"; fi
           mkdir -p dist
           go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "dist/${out}" ./cmd/skill-registry
+          if [ "$GOOS" = "darwin" ]; then
+            # Ad-hoc codesign so macOS Gatekeeper doesn't SIGKILL the
+            # binary on users' Macs. Downloaded binaries pick up the
+            # `com.apple.provenance` xattr on Sonoma+/Sequoia, and any
+            # unsigned Mach-O with that marker is killed on first exec.
+            # Ad-hoc (-) signatures aren't notarized but are enough to
+            # bypass the provenance kill path for user-installed CLIs.
+            codesign --force --sign - "dist/${out}"
+          fi
           archive="skill-registry_${GOOS}_${GOARCH}"
           cd dist
           if [ "$GOOS" = "windows" ]; then
