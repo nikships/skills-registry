@@ -39,6 +39,57 @@ uv run ruff format .
 
 CI runs `ruff check` and `pytest`. Both must pass.
 
+The Go CLI is checked with `go vet` and `gofmt -l` (formatting drift fails CI).
+
+```bash
+(cd cli && go vet ./... && gofmt -l .)
+```
+
+## Naming conventions
+
+We enforce a single, consistent naming style **per language**. These rules
+are wired into the linters above; CI will reject violations.
+
+### Python (`src/skills_mcp/`, `tests/`)
+
+Enforced by **ruff's `N` rule set** (pep8-naming) — see `ruff.toml`.
+
+| Construct | Convention | Example |
+|---|---|---|
+| Modules / packages | `snake_case` | `registry_api.py`, `skills_mcp` |
+| Functions, methods, variables | `snake_case` | `def find_gh()`, `parent_sha` |
+| Classes, exceptions, type aliases | `CapWords` (PascalCase) | `class RegistryClient`, `class GhAuthError` |
+| Constants (module-level) | `UPPER_SNAKE_CASE` | `SKILLS_MAX_FILE_BYTES`, `DEFAULT_BRANCH` |
+| Private (module-internal) names | leading underscore | `_normalize_rel_path` |
+| Test helpers | follow same rules; pytest fixture functions are `snake_case` | `def tmp_registry(...)` |
+
+Accepted initialisms that may appear in CamelCase boundaries: `MCP`, `Gh`
+(declared via `extend-ignore-names` in `ruff.toml`).
+
+### Go (`cli/`)
+
+Go's naming conventions are part of the language culture and are enforced by
+`gofmt` + `go vet` (both run in CI) plus code review:
+
+| Construct | Convention | Example |
+|---|---|---|
+| Packages | `lowercase`, single word, no underscores | `registry`, `bootstrap`, `tui` |
+| Files | `lowercase`, underscores allowed | `multiselect.go`, `skillmd.go` |
+| Exported identifiers (funcs, types, vars, consts) | `PascalCase` | `RegistryClient`, `PushTreeViaGit` |
+| Unexported identifiers | `camelCase` | `runBootstrap`, `parentSha` |
+| Acronyms | preserve case (`URL`, `SHA`, `MCP`, `ID`) | `repoURL`, `treeSHA`, `mcpServer` |
+| Error variables | `Err`-prefix, `PascalCase` | `ErrNotFound`, `ErrConflict` |
+| Receivers | 1–2 letter abbreviation of the type | `func (c *Client) Get(...)`, `func (m model) Update(...)` |
+| Constants | Follows visibility rules (PascalCase / camelCase) | DefaultBranch, stateLoading |
+
+Run `gofmt -l .` from `cli/` — output must be empty. Run `go vet ./...`
+to catch shadowed identifiers and other naming-adjacent issues.
+to catch shadowed identifiers and other naming-adjacent issues.
+
+When you introduce a new construct that doesn't fit the table above, either
+extend the linter configuration and update this table in the same PR, or
+follow the nearest analogous rule.
+
 ## Pre-commit
 
 Install the git hooks so you catch issues before pushing:

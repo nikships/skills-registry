@@ -240,6 +240,10 @@ uv run pre-commit install
 
 When making changes:
 - **FastMCP server conventions.** Construct servers with `FastMCP(name, instructions=..., version=__version__)`. Register every tool through `@server.tool(...)` and pass an `annotations={...}` dict carrying the safety hints that matter for client gating — `readOnlyHint` / `destructiveHint` / `openWorldHint`. Use `Args:` docstring sections only when per-parameter descriptions add real value (e.g. mutually-exclusive params); single-arg tools don't need them. Don't pass `title` or `idempotentHint` unless you have a concrete consumer.
+- **Naming conventions are enforced by lint.** The authoritative table lives in `CONTRIBUTING.md` ("Naming conventions"). Summary:
+  - **Python:** `snake_case` for functions/vars/modules, `CapWords` for classes, `UPPER_SNAKE_CASE` for module constants, leading underscore for private names. Enforced by ruff's `N` rule set (`ruff.toml`).
+  - **Go (`cli/`):** packages are short, lowercase, no underscores; exported identifiers `PascalCase`, unexported `camelCase`; acronyms keep their case (`URL`, `SHA`, `MCP`, `ID`); receivers are 1–2 letter abbreviations. Enforced by `gofmt -l` + `go vet` (both gate CI) plus code review.
+  When you add a construct that the existing rules don't cover, expand both the linter config and the table in `CONTRIBUTING.md` in the same PR — do not silently introduce a new style.
 - **Keep Python and Go in sync.** If you change the registry contract (`registry_api.py` ↔ `registry.go`), update both implementations and both test suites in the same PR. The `skill-registry/SKILL.md` template is Go-only and lives in `cli/internal/bootstrap/skillmd.go`.
 - Do not add new mandatory runtime dependencies without justification. The Python side has exactly one (`fastmcp`); the Go side has cobra + bubbletea/bubbles/lipgloss + yaml.v3.
 - Update `README.md` and `docs/registry.md` if you change anything user-visible.

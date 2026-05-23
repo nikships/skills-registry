@@ -2,11 +2,26 @@ line-length = 100
 target-version = "py310"
 
 [lint]
-select = ["E", "F", "I", "B", "UP", "SIM", "TID"]
+# Enabled rule sets:
+#   E/F   – pycodestyle / pyflakes basics
+#   I     – isort import ordering
+#   B     – flake8-bugbear
+#   UP    – pyupgrade
+#   SIM   – flake8-simplify
+#   TID   – flake8-tidy-imports
+#   N     – pep8-naming  → enforces snake_case functions/variables, CapWords
+#                          classes, UPPER_SNAKE_CASE constants, etc.
+select = ["E", "F", "I", "B", "UP", "SIM", "TID", "N"]
 ignore = ["E501"]
 
 [lint.per-file-ignores]
-"tests/**" = ["B011"]
+"tests/**" = ["B011", "N802", "N803", "N806"]
+
+[lint.pep8-naming]
+# `gh` (the GitHub CLI binary) and `MCP` (Model Context Protocol) are
+# treated as initialisms throughout the codebase and may appear in
+# CamelCase boundaries without violating naming rules.
+extend-ignore-names = ["MCP", "Gh"]
 
 [format]
 indent-style = "tab"

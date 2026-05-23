@@ -23,9 +23,9 @@ import (
 
 func newBootstrapCmd() *cobra.Command {
 	var (
-		repoFlag    string
-		visFlag     string
-		noAgents    bool
+		repoFlag       string
+		visFlag        string
+		noAgents       bool
 		nonInteractive bool
 	)
 	cmd := &cobra.Command{
@@ -37,10 +37,10 @@ If a registry config already exists, the repo-creation step is skipped and
 you go straight to the agent multi-select.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBootstrap(cmd.Context(), bootstrapOpts{
-				Repo:            repoFlag,
-				Visibility:      visFlag,
-				NoAgents:        noAgents,
-				NonInteractive:  nonInteractive,
+				Repo:           repoFlag,
+				Visibility:     visFlag,
+				NoAgents:       noAgents,
+				NonInteractive: nonInteractive,
 			})
 		},
 	}
@@ -514,9 +514,9 @@ func requireGitForBootstrap() error {
 		return nil
 	}
 	return fmt.Errorf(
-		"git not found on PATH. The bootstrap step pushes all your skills in a "+
-			"single `git push` to avoid GitHub's per-API rate limit.\n"+
-			"Install git from https://git-scm.com/downloads "+
+		"git not found on PATH. The bootstrap step pushes all your skills in a " +
+			"single `git push` to avoid GitHub's per-API rate limit.\n" +
+			"Install git from https://git-scm.com/downloads " +
 			"(macOS: `brew install git`, Linux: `apt install git` / `dnf install git`) and re-run.")
 }
 

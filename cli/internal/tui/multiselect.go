@@ -9,10 +9,10 @@ import (
 
 // MultiSelectItem is one row in the multi-select.
 type MultiSelectItem struct {
-	Value any    // opaque value the caller cares about
-	Label string // display label
-	Hint  string // dim text after the label
-	Group string // optional group label; entries with the same group cluster
+	Value  any    // opaque value the caller cares about
+	Label  string // display label
+	Hint   string // dim text after the label
+	Group  string // optional group label; entries with the same group cluster
 	Locked bool   // locked items are always selected; can't toggle off
 }
 

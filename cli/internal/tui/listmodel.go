@@ -840,9 +840,9 @@ func newSkillDelegate(statusOf func(string) RowStatus) skillDelegate {
 	}
 }
 
-func (d skillDelegate) Height() int                               { return 2 }
-func (d skillDelegate) Spacing() int                              { return 1 }
-func (d skillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd   { return nil }
+func (d skillDelegate) Height() int                             { return 2 }
+func (d skillDelegate) Spacing() int                            { return 1 }
+func (d skillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
 func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	row, ok := item.(SkillRow)

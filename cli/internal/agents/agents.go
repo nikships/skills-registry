@@ -8,10 +8,10 @@ import "sort"
 
 // Target is one row in the agent multi-select.
 type Target struct {
-	DotDir      string // e.g. ".claude" (relative under $HOME or .)
-	Display     string // shown in the TUI, e.g. "Claude Code"
-	Universal   bool   // true if selected by default and can't be toggled off
-	UnderHome   bool   // true if the install path lives under $HOME (vs cwd)
+	DotDir    string // e.g. ".claude" (relative under $HOME or .)
+	Display   string // shown in the TUI, e.g. "Claude Code"
+	Universal bool   // true if selected by default and can't be toggled off
+	UnderHome bool   // true if the install path lives under $HOME (vs cwd)
 }
 
 // SkillsDir returns the absolute SKILL.md folder for this target.
