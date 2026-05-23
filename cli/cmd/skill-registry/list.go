@@ -127,7 +127,16 @@ func printPlainList(repo string, summaries []registry.Summary) {
 	}
 }
 
+// isTerminal reports whether os.Stdout is attached to a character
+// device (i.e. an interactive terminal). The check tolerates a failed
+// Stat — that path only fires in pathological environments (closed
+// stdout on Windows, broken FDs), and treating it as non-interactive
+// is the right default for both the routing in main.go and the plain
+// fallback below.
 func isTerminal() bool {
-	fi, _ := os.Stdout.Stat()
+	fi, err := os.Stdout.Stat()
+	if err != nil || fi == nil {
+		return false
+	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
