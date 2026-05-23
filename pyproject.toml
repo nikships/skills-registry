@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "skills-registry"
-version = "0.5.0"
+dynamic = ["version"]
 description = "GitHub-backed skill registry: `skills-registry init` bootstraps a personal registry repo, `skill-registry-mcp` serves it over MCP, and the `skill-registry` Go CLI manages it."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,3 +45,6 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/skills_mcp"]
+
+[tool.hatch.version]
+source = "vcs"

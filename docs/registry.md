@@ -24,7 +24,7 @@ Three deliverables, **single repo**, two languages.
 |---|---|---|---|
 | `skills-registry init` | Python | PyPI (`skills-registry`) | Thin bootstrap. Verifies `gh`, installs the MCP server persistently, downloads the Go CLI, then `exec`s it. |
 | `skill-registry-mcp` | Python | Same PyPI wheel (entry point) | FastMCP server. Three tools: `list_skills`, `get_skill`, `publish_skill`. |
-| `skill-registry` | Go | GitHub Releases (built by `.github/workflows/release-cli.yml`) | TUI manager. `bootstrap`, `list`, `get`, `sync`, `add`, `publish`. |
+| `skill-registry` | Go | GitHub Releases (built by `.github/workflows/release.yml`) | TUI manager. `bootstrap`, `list`, `get`, `sync`, `add`, `publish`. |
 
 ---
 

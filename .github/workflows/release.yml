@@ -2,8 +2,6 @@ name: Release
 
 # Auto-cuts a patch release on every push to main that touches source code.
 # Use the workflow_dispatch input to force a minor or major bump.
-# The bot's own "chore(release):" commits AND any message containing
-# "[skip release]" are ignored, so there's no infinite loop.
 on:
   push:
     branches: [main]
@@ -12,7 +10,6 @@ on:
       - "cli/**"
       - "tests/**"
       - "pyproject.toml"
-      - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
       bump:
@@ -29,36 +26,13 @@ permissions:
   contents: write
 
 jobs:
-  guard:
-    name: Should we release?
+  test:
+    name: Tests (gate)
     runs-on: ubuntu-latest
-    outputs:
-      release: ${{ steps.check.outputs.release }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
-      - id: check
-        run: |
-          set -euo pipefail
-          msg="$(git log -1 --pretty=%B)"
-          author="$(git log -1 --pretty=%an)"
-          echo "Last commit: $msg"
-          echo "Author: $author"
-          if [[ "$msg" == chore\(release\):* ]] || [[ "$msg" == *"[skip release]"* ]]; then
-            echo "Skipping release: bot/release commit."
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "release=true" >> "$GITHUB_OUTPUT"
-
-  test:
-    name: Tests (gate)
-    needs: guard
-    if: needs.guard.outputs.release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
@@ -75,55 +49,71 @@ jobs:
           go vet ./...
           go test ./...
 
-  bump:
-    name: Bump version + tag
-    needs: [guard, test]
-    if: needs.guard.outputs.release == 'true'
+  tag:
+    name: Tag release
+    needs: test
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.bump.outputs.version }}
-      tag: ${{ steps.bump.outputs.tag }}
-      sha: ${{ steps.bump.outputs.sha }}
+      version: ${{ steps.tag.outputs.version }}
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.tag.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-      - id: bump
+      - id: tag
         env:
           BUMP_KIND: ${{ github.event.inputs.bump || 'patch' }}
         run: |
           set -euo pipefail
-          current=$(grep -E '^version = ' pyproject.toml | sed -E 's/version = "([^"]+)".*/\1/')
+
+          latest=""
+          while IFS= read -r candidate; do
+            if [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              latest="$candidate"
+              break
+            fi
+          done < <(git tag --list "v*" --sort=-v:refname)
+
+          if [ -z "$latest" ]; then
+            current="0.0.0"
+          else
+            current="${latest#v}"
+          fi
+
           IFS=. read -r major minor patch <<<"$current"
           case "$BUMP_KIND" in
             major) major=$((major+1)); minor=0; patch=0 ;;
             minor) minor=$((minor+1)); patch=0 ;;
             patch|*) patch=$((patch+1)) ;;
           esac
+
           next="$major.$minor.$patch"
-          echo "Bumping $current -> $next ($BUMP_KIND)"
-          sed -i.bak -E "s/^version = \"[^\"]+\"/version = \"$next\"/" pyproject.toml
-          sed -i.bak -E "s/__version__ = \"[^\"]+\"/__version__ = \"$next\"/" src/skills_mcp/__init__.py
-          rm -f pyproject.toml.bak src/skills_mcp/__init__.py.bak
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml src/skills_mcp/__init__.py
-          git commit -m "chore(release): v$next"
-          git tag "v$next"
-          git push origin "HEAD:${GITHUB_REF_NAME}" "v$next"
+          tag="v$next"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists."
+            exit 1
+          fi
+
+          echo "Tagging $tag from latest release $current ($BUMP_KIND)"
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+
+          sha="$(git rev-parse "${tag}^{commit}")"
           echo "version=$next" >> "$GITHUB_OUTPUT"
-          echo "tag=v$next" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   build-wheel:
     name: Build Python wheel
-    needs: bump
+    needs: tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.bump.outputs.tag }}
+          ref: ${{ needs.tag.outputs.tag }}
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
@@ -135,7 +125,7 @@ jobs:
 
   build-cli:
     name: Build skill-registry ${{ matrix.os }}/${{ matrix.arch }}
-    needs: bump
+    needs: tag
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -159,7 +149,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.bump.outputs.tag }}
+          ref: ${{ needs.tag.outputs.tag }}
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
@@ -172,7 +162,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          version="${{ needs.bump.outputs.version }}"
+          version="${{ needs.tag.outputs.version }}"
           out="skill-registry"
           if [ "$GOOS" = "windows" ]; then out="skill-registry.exe"; fi
           mkdir -p dist
@@ -194,12 +184,12 @@ jobs:
 
   release:
     name: Create GitHub release
-    needs: [bump, build-wheel, build-cli]
+    needs: [tag, build-wheel, build-cli]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.bump.outputs.tag }}
+          ref: ${{ needs.tag.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -209,7 +199,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ needs.bump.outputs.tag }}"
+          tag="${{ needs.tag.outputs.tag }}"
           notes=$(printf '%s\n' \
             "Automated release for \`$tag\`." \
             "" \
@@ -225,7 +215,7 @@ jobs:
 
   pypi:
     name: Publish wheel to PyPI
-    needs: [bump, build-wheel, release]
+    needs: [tag, build-wheel, release]
     runs-on: ubuntu-latest
     environment:
       name: pypi

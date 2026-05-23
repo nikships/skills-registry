@@ -14,9 +14,9 @@ This file is a living guide for AI agents and new contributors. It captures the 
 |---|---|---|---|
 | `skills-registry` (Python) | Python 3.10+ | PyPI (`pip install skills-registry` / `uvx`) | Thin bootstrap (`skills-registry init`) only. |
 | `skill-registry-mcp` (Python) | Python 3.10+ | Same wheel, second `[project.scripts]` entry point | FastMCP server with 3 tools (`list_skills`, `get_skill`, `publish_skill`). |
-| `skill-registry` (Go) | Go 1.24+ | GitHub Releases tarballs (built by `.github/workflows/release-cli.yml`) | Charmbracelet TUI: `bootstrap`, `list`, `get`, `sync`, `add`, `publish`. |
+| `skill-registry` (Go) | Go 1.24+ | GitHub Releases tarballs (built by `.github/workflows/release.yml`) | Charmbracelet TUI: `bootstrap`, `list`, `get`, `sync`, `add`, `publish`. |
 
-- **Build (Python):** `hatchling` (PEP 517)
+- **Build (Python):** `hatchling` + `hatch-vcs` (PEP 517; version from `vX.Y.Z` tags)
 - **Package manager (Python):** `uv`
 - **Test runner (Python):** `pytest` with `pytest-cov`
 - **Lint/Format (Python):** `ruff`
@@ -31,7 +31,7 @@ This file is a living guide for AI agents and new contributors. It captures the 
 
 ```
 src/skills_mcp/
-  __init__.py            # __version__ = "0.4.0"
+  __init__.py            # __version__ resolved from installed package metadata
   __main__.py            # `skills-registry` console script: just wires the `init` subcommand
   init.py                # `skills-registry init` — thin bootstrap: gh check + Go binary download + os.execv
   registry_server.py     # `skill-registry-mcp` — FastMCP with list_skills / get_skill / publish_skill
@@ -57,8 +57,7 @@ docs/
   registry.md            # Architecture deep dive
 .github/workflows/
   ci.yml                 # Python (lint/format/test) + Go (vet/build/test) matrix
-  release.yml            # PyPI publish on `release: published`
-  release-cli.yml        # Build + upload Go binaries on `cli-v*` tag push
+  release.yml            # Source-change auto-release: test, tag, build, GH release, PyPI
 ```
 
 ---
@@ -171,14 +170,14 @@ Force-pushes and any subtree change correctly invalidate.
 ## CI / CD
 
 - `.github/workflows/ci.yml` — runs the Python job (ruff lint + format + pytest with coverage) **and** the Go job (vet + build + test) in parallel on every push/PR. Both must be green to merge.
-- `.github/workflows/release.yml` — **auto-releases on every push to `main` that touches `src/`, `cli/`, `tests/`, or `pyproject.toml`**. Steps:
-  1. Guard skips the run if the last commit message starts with `chore(release):` (the workflow's own bump commit) or contains `[skip release]`.
-  2. Tests gate (ruff + pytest + go vet + go test) — must pass.
-  3. Bump job sed-bumps the patch version in `pyproject.toml` + `src/skills_mcp/__init__.py`, commits `chore(release): vX.Y.Z`, tags `vX.Y.Z`, and pushes back to `main` using the default `GITHUB_TOKEN`. The push triggers another workflow run that the guard skips.
+- `.github/workflows/release.yml` — **auto-releases on every push to `main` that touches `src/`, `cli/`, `tests/`, or `pyproject.toml`**. The path filter is the release decision; commits that only touch docs, workflow files, or other non-source paths do not release.
+  1. Tests gate (ruff + pytest + go vet + go test) — must pass.
+  2. Tag job computes the next semver from the latest `vX.Y.Z` tag, then pushes a lightweight tag on the triggering commit. CI never commits version bumps back to `main`.
+  3. Python package version is dynamic via `hatch-vcs`; building from the release tag produces the matching wheel/sdist version.
   4. Builds the Python wheel + sdist (`uv build`) and the Go CLI for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`.
   5. Creates a single GitHub Release `vX.Y.Z` containing all 7 assets (wheel, sdist, 4 Go tarballs, 1 Go zip). `skills-registry init` downloads the Go binary from this same "latest" release.
   6. Publishes the wheel to PyPI via the `pypi` environment using `PYPI_API_TOKEN`.
-- Force a non-patch bump with `gh workflow run release.yml -f bump=minor` (or `major`). Commit-message marker `[skip release]` opts out a single push.
+- Force a non-patch bump with `gh workflow run release.yml -f bump=minor` (or `major`).
 - **Gaps:** No Python version matrix yet, no OS matrix for the Python tests, no Dependabot, no codecov upload (coverage XML is generated but not uploaded), no integration tests that actually call GitHub. The test gate inside `release.yml` is a near-duplicate of `ci.yml`; if you change one, check the other.
 
 ---
