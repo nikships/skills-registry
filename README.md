@@ -6,12 +6,12 @@
 
 **One GitHub repo, every AI agent. Skills fetched on demand — not auto-loaded into every startup context.**
 
-[![CI](https://github.com/anand-92/skills-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anand-92/skills-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/anand-92/skills-registry/actions/workflows/ci.yml/badge.svg)](https://github.com/anand-92/skills-registry/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
-[![Stars](https://img.shields.io/github/stars/anand-92/skills-mcp?style=social)](https://github.com/anand-92/skills-mcp/stargazers)
+[![Stars](https://img.shields.io/github/stars/anand-92/skills-registry?style=social)](https://github.com/anand-92/skills-registry/stargazers)
 
 <!-- TODO(maintainer): drop in a TUI screenshot or short GIF here. Suggestion: `skill-registry list` mid-fuzzy-filter, saved as docs/img/hero.png. -->
 <img src="docs/img/hero.png" alt="skill-registry TUI" width="720">
@@ -191,7 +191,7 @@ command = "/Users/you/.local/bin/skill-registry-mcp"
 
 `skills-registry` is at **v0.5** — usable day-to-day but pre-1.0. The MCP tool surface (`list_skills`, `get_skill`, `publish_skill`) is stable. The CLI commands are stable. Internals may shift between minor versions; pin to a specific version if that worries you.
 
-Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-mcp/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 

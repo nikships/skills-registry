@@ -31,7 +31,7 @@ from .gh import GhNotAuthedError, GhNotFoundError, ensure_authed
 log = logging.getLogger("skills_mcp.init")
 
 # Where the Go binary lives in the published release tarballs.
-DEFAULT_CLI_REPO = os.environ.get("SKILLS_CLI_REPO", "anand-92/skills-mcp")
+DEFAULT_CLI_REPO = os.environ.get("SKILLS_CLI_REPO", "anand-92/skills-registry")
 BINARY_NAME = "skill-registry"
 
 

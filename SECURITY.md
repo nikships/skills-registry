@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-If you believe you have found a security issue in `skills-registry`, please report it **privately** via [GitHub Security Advisories](https://github.com/anand-92/skills-mcp/security/advisories/new).
+If you believe you have found a security issue in `skills-registry`, please report it **privately** via [GitHub Security Advisories](https://github.com/anand-92/skills-registry/security/advisories/new).
 
 Do **not** open a public GitHub issue, discussion, or pull request for security problems. Public reports give attackers a head start before a fix lands.
 

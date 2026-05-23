@@ -1,4 +1,4 @@
-module github.com/anand-92/skills-mcp/cli
+module github.com/anand-92/skills-registry/cli
 
 go 1.24.0
 

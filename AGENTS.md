@@ -55,7 +55,6 @@ cli/                     # Separate Go module (own go.mod)
 tests/                   # 139 Python tests (pytest)
 docs/
   registry.md            # Architecture deep dive
-website/                 # Marketing site sources (deployed independently)
 .github/workflows/
   ci.yml                 # Python (lint/format/test) + Go (vet/build/test) matrix
   release.yml            # PyPI publish on `release: published`

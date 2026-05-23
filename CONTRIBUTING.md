@@ -13,7 +13,7 @@ Thanks for your interest! `skills-registry` is intentionally small: a GitHub-bac
 You need Python 3.10+ and [uv](https://github.com/astral-sh/uv).
 
 ```bash
-git clone https://github.com/anand-92/skills-mcp
+git clone https://github.com/anand-92/skills-registry
 cd skills-mcp
 uv sync --group dev
 ```

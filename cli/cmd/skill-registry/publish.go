@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anand-92/skills-mcp/cli/internal/config"
-	"github.com/anand-92/skills-mcp/cli/internal/registry"
-	"github.com/anand-92/skills-mcp/cli/internal/scan"
-	"github.com/anand-92/skills-mcp/cli/internal/tui"
+	"github.com/anand-92/skills-registry/cli/internal/config"
+	"github.com/anand-92/skills-registry/cli/internal/registry"
+	"github.com/anand-92/skills-registry/cli/internal/scan"
+	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
 
 func newPublishCmd() *cobra.Command {

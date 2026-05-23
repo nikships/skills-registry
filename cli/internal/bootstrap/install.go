@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anand-92/skills-mcp/cli/internal/agents"
+	"github.com/anand-92/skills-registry/cli/internal/agents"
 )
 
 // InstallSkillMd writes the generated SKILL.md into each selected agent
