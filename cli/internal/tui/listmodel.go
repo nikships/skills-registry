@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -44,6 +45,21 @@ func (s SkillRow) FilterValue() string {
 // the spinner has time to mount; errors land in the error pane.
 type RowLoader func() ([]SkillRow, error)
 
+// Downloader pulls a skill into a local folder and returns the on-disk path.
+// `reused` is non-empty when an existing folder was reused (e.g. a sibling
+// directory whose name slugifies to the same canonical slug).
+type Downloader func(ctx context.Context, slug string) (dest string, reused string, err error)
+
+// RowStatus tracks the per-row download state in the list TUI.
+type RowStatus int
+
+const (
+	StatusIdle RowStatus = iota
+	StatusDownloading
+	StatusDone
+	StatusErr
+)
+
 // ────────────────────────────────────────────────────────────────────────────
 // Internal messages
 // ────────────────────────────────────────────────────────────────────────────
@@ -52,6 +68,12 @@ type rowsLoadedMsg struct{ rows []SkillRow }
 type loadErrMsg struct{ err error }
 type sparkleTickMsg struct{}
 type revealTickMsg struct{}
+type downloadDoneMsg struct {
+	slug   string
+	dest   string
+	reused string
+	err    error
+}
 
 func sparkleTick() tea.Cmd {
 	return tea.Tick(180*time.Millisecond, func(time.Time) tea.Msg { return sparkleTickMsg{} })
@@ -76,8 +98,10 @@ const (
 // ListModel is the main interactive list TUI for `skill-registry list`.
 type ListModel struct {
 	// configuration
-	repo   string
-	loader RowLoader
+	repo     string
+	loader   RowLoader
+	download Downloader
+	ctx      context.Context
 
 	// sub-components
 	spinner spinner.Model
@@ -92,25 +116,39 @@ type ListModel struct {
 	height   int
 	showHelp bool
 
+	// per-slug download state.
+	rowState map[string]RowStatus
+	rowDest  map[string]string
+	rowErr   map[string]error
+	inflight int
+
+	// transient toast shown above the footer after each download.
+	toast   string
+	toastOK bool
+
 	// animation state
 	sparkleIdx int
 	revealCap  int // how many items are "revealed" — animated reveal
-
-	// public output — outer code reads this after .Run() to print follow-up.
-	Picked *SkillRow
 }
 
 // NewList constructs a ready-to-run ListModel.
 //
+// `ctx` scopes any in-flight downloads (cancelled by the host program on quit).
 // `repo` is shown in the header chip (e.g. "owner/repo").
 // `loader` is invoked once after the spinner mounts. Pre-filter inside
 // the loader if you want a narrowed initial view.
-func NewList(repo string, loader RowLoader) ListModel {
+// `downloader` is invoked when the user presses enter on a row; it runs in a
+// goroutine so the TUI stays responsive.
+func NewList(ctx context.Context, repo string, loader RowLoader, downloader Downloader) ListModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
 
-	d := newSkillDelegate()
+	// Shared per-row download state. The delegate reads from the same map
+	// the model mutates so status badges (⟳ / ✓ / ✗) stay in sync without
+	// us re-syncing list items on every state change.
+	rowState := map[string]RowStatus{}
+	d := newSkillDelegate(func(slug string) RowStatus { return rowState[slug] })
 	l := list.New([]list.Item{}, d, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
@@ -133,12 +171,17 @@ func NewList(repo string, loader RowLoader) ListModel {
 	vp := viewport.New(0, 0)
 
 	return ListModel{
-		repo:    repo,
-		loader:  loader,
-		spinner: sp,
-		list:    l,
-		preview: vp,
-		state:   stateLoading,
+		repo:     repo,
+		loader:   loader,
+		download: downloader,
+		ctx:      ctx,
+		spinner:  sp,
+		list:     l,
+		preview:  vp,
+		state:    stateLoading,
+		rowState: rowState,
+		rowDest:  map[string]string{},
+		rowErr:   map[string]error{},
 	}
 }
 
@@ -159,6 +202,26 @@ func runLoader(loader RowLoader) tea.Cmd {
 		}
 		return rowsLoadedMsg{rows: rows}
 	}
+}
+
+func startDownload(ctx context.Context, d Downloader, slug string) tea.Cmd {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return func() tea.Msg {
+		dest, reused, err := d(ctx, slug)
+		return downloadDoneMsg{slug: slug, dest: dest, reused: reused, err: err}
+	}
+}
+
+// findRow returns a pointer to the row with the given slug, or nil if absent.
+func (m ListModel) findRow(slug string) *SkillRow {
+	for i := range m.rows {
+		if m.rows[i].Slug == slug {
+			return &m.rows[i]
+		}
+	}
+	return nil
 }
 
 // Update implements tea.Model.
@@ -191,10 +254,36 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.state == stateLoading {
+		if m.state == stateLoading || m.inflight > 0 {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
+		}
+		return m, nil
+
+	case downloadDoneMsg:
+		if m.inflight > 0 {
+			m.inflight--
+		}
+		row := m.findRow(msg.slug)
+		name := msg.slug
+		if row != nil && row.Name != "" {
+			name = row.Name
+		}
+		if msg.err != nil {
+			m.rowState[msg.slug] = StatusErr
+			m.rowErr[msg.slug] = msg.err
+			m.toast = fmt.Sprintf("✗ %s: %s", name, msg.err.Error())
+			m.toastOK = false
+		} else {
+			m.rowState[msg.slug] = StatusDone
+			m.rowDest[msg.slug] = msg.dest
+			if msg.reused != "" {
+				m.toast = fmt.Sprintf("✓ %s → %s (reused)", name, msg.dest)
+			} else {
+				m.toast = fmt.Sprintf("✓ %s → %s", name, msg.dest)
+			}
+			m.toastOK = true
 		}
 		return m, nil
 
@@ -249,9 +338,18 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if it, ok := m.list.SelectedItem().(SkillRow); ok {
-				cp := it
-				m.Picked = &cp
-				return m, tea.Quit
+				if m.download == nil {
+					return m, nil
+				}
+				if m.rowState[it.Slug] == StatusDownloading {
+					return m, nil
+				}
+				m.rowState[it.Slug] = StatusDownloading
+				m.inflight++
+				return m, tea.Batch(
+					startDownload(m.ctx, m.download, it.Slug),
+					m.spinner.Tick,
+				)
 			}
 		}
 	}
@@ -343,13 +441,50 @@ func (m ListModel) renderMain() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, listPane, "  ", previewPane)
 	}
 
+	toast := m.renderToast()
+	if toast == "" {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			"",
+			body,
+			"",
+			footer,
+		)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		"",
 		body,
 		"",
+		toast,
 		footer,
 	)
+}
+
+// renderToast formats the most recent download status string. The model also
+// shows an animated spinner glyph while any downloads are in flight so the
+// user sees ongoing activity.
+func (m ListModel) renderToast() string {
+	if m.toast == "" && m.inflight == 0 {
+		return ""
+	}
+	parts := []string{}
+	if m.inflight > 0 {
+		parts = append(parts, m.spinner.View(),
+			lipgloss.NewStyle().Foreground(ColInk).Render(
+				fmt.Sprintf(" downloading %d skill(s) …", m.inflight)))
+	}
+	if m.toast != "" {
+		style := OkStyle
+		if !m.toastOK {
+			style = ErrorStyle
+		}
+		if len(parts) > 0 {
+			parts = append(parts, KeySepStyle.Render("  ·  "))
+		}
+		parts = append(parts, style.Render(m.toast))
+	}
+	return strings.Join(parts, "")
 }
 
 func (m ListModel) renderHeader() string {
@@ -416,7 +551,7 @@ func (m ListModel) renderPreviewPanel() string {
 	row, ok := m.list.SelectedItem().(SkillRow)
 	body := ""
 	if !ok {
-		body = EmptyHint.Render("No skill selected.\n\nUse ↑/↓ to move,\n/ to filter,\nenter to pull a skill.")
+		body = EmptyHint.Render("No skill selected.\n\nUse ↑/↓ to move,\n/ to filter,\nenter to download a skill.")
 	} else {
 		title := PreviewTitle.Render(row.Title())
 		slug := PreviewSlug.Render(row.Slug)
@@ -427,13 +562,28 @@ func (m ListModel) renderPreviewPanel() string {
 		descBlock := PreviewBody.Width(m.preview.Width - 2).Render(desc)
 
 		gradient := miniGradientBar(m.preview.Width-2, m.sparkleIdx)
-		hint := lipgloss.NewStyle().
-			Foreground(ColMuted).
-			Render("press ") +
-			KeyStyle.Render("enter") +
-			lipgloss.NewStyle().Foreground(ColMuted).Render(" to download → ") +
-			lipgloss.NewStyle().Foreground(ColPeach).Italic(true).
-				Render(".agents/skills/"+row.Slug+"/")
+		dest := ".agents/skills/" + row.Slug + "/"
+		var hint string
+		switch m.rowState[row.Slug] {
+		case StatusDownloading:
+			hint = lipgloss.NewStyle().Foreground(ColYellow).Render("⟳ downloading → ") +
+				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
+		case StatusDone:
+			saved := dest
+			if path, ok := m.rowDest[row.Slug]; ok && path != "" {
+				saved = path
+			}
+			hint = lipgloss.NewStyle().Foreground(ColAccent).Render("✓ saved to ") +
+				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(saved)
+		case StatusErr:
+			hint = lipgloss.NewStyle().Foreground(ColDanger).Render("✗ failed: ") +
+				lipgloss.NewStyle().Foreground(ColInk).Render(m.rowErr[row.Slug].Error())
+		default:
+			hint = lipgloss.NewStyle().Foreground(ColMuted).Render("press ") +
+				KeyStyle.Render("enter") +
+				lipgloss.NewStyle().Foreground(ColMuted).Render(" to download → ") +
+				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
+		}
 
 		meta := PreviewMeta.Render("registry · " + m.repo)
 
@@ -462,7 +612,7 @@ func (m ListModel) renderFooter() string {
 	keys := []struct{ k, d string }{
 		{"↑/↓", "navigate"},
 		{"/", "filter"},
-		{"enter", "get"},
+		{"enter", "download"},
 		{"?", "help"},
 		{"q", "quit"},
 	}
@@ -534,7 +684,7 @@ func (m ListModel) renderHelp() string {
 		{"g / G", "jump to top / bottom"},
 		{"/", "start filtering"},
 		{"esc", "clear filter (or quit)"},
-		{"enter", "select this skill (prints `get` command)"},
+		{"enter", "download into ./.agents/skills/<slug>/"},
 		{"?", "toggle this help"},
 		{"q / ctrl+c", "quit"},
 	}
@@ -644,18 +794,22 @@ func animationDots(phase int) string {
 // ────────────────────────────────────────────────────────────────────────────
 
 type skillDelegate struct {
-	selectedBullet  lipgloss.Style
-	normalBullet    lipgloss.Style
-	selectedTitle   lipgloss.Style
-	normalTitle     lipgloss.Style
-	selectedDesc    lipgloss.Style
-	normalDesc      lipgloss.Style
-	slug            lipgloss.Style
-	selectedSlug    lipgloss.Style
-	cursorBar       lipgloss.Style
+	selectedBullet lipgloss.Style
+	normalBullet   lipgloss.Style
+	selectedTitle  lipgloss.Style
+	normalTitle    lipgloss.Style
+	selectedDesc   lipgloss.Style
+	normalDesc     lipgloss.Style
+	slug           lipgloss.Style
+	selectedSlug   lipgloss.Style
+	cursorBar      lipgloss.Style
+	downloadStyle  lipgloss.Style
+	doneStyle      lipgloss.Style
+	errStyle       lipgloss.Style
+	statusOf       func(slug string) RowStatus
 }
 
-func newSkillDelegate() skillDelegate {
+func newSkillDelegate(statusOf func(string) RowStatus) skillDelegate {
 	return skillDelegate{
 		selectedBullet: lipgloss.NewStyle().Foreground(ColPink).Bold(true),
 		normalBullet:   lipgloss.NewStyle().Foreground(ColFaint),
@@ -678,6 +832,10 @@ func newSkillDelegate() skillDelegate {
 		cursorBar: lipgloss.NewStyle().
 			Foreground(ColPrimary).
 			Bold(true),
+		downloadStyle: lipgloss.NewStyle().Foreground(ColYellow).Bold(true),
+		doneStyle:     lipgloss.NewStyle().Foreground(ColAccent).Bold(true),
+		errStyle:      lipgloss.NewStyle().Foreground(ColDanger).Bold(true),
+		statusOf:      statusOf,
 	}
 }
 
@@ -710,13 +868,27 @@ func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		bar = d.cursorBar.Render("│ ")
 	}
 
-	titleText := truncate(row.Title(), width-12)
+	// Per-row download status badge, if any.
+	badge := ""
+	if d.statusOf != nil {
+		switch d.statusOf(row.Slug) {
+		case StatusDownloading:
+			badge = d.downloadStyle.Render(" ⟳")
+		case StatusDone:
+			badge = d.doneStyle.Render(" ✓")
+		case StatusErr:
+			badge = d.errStyle.Render(" ✗")
+		}
+	}
+
+	titleText := truncate(row.Title(), width-14)
 	slugText := truncate(row.Slug, max(16, width/3))
 	descText := truncate(strings.ReplaceAll(row.Desc, "\n", " "), width-6)
 
 	// Line 1: bullet + title (left), faint slug (right) — gap-filled so the
-	// slug right-aligns when there's room.
-	leftLine := bullet + " " + title.Render(titleText)
+	// slug right-aligns when there's room. The badge sits between the title
+	// and the slug.
+	leftLine := bullet + " " + title.Render(titleText) + badge
 	rightLine := slug.Render(slugText)
 	gap := width - lipgloss.Width(leftLine) - lipgloss.Width(rightLine)
 	if gap < 1 {

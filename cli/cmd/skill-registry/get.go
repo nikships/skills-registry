@@ -38,18 +38,29 @@ func runGet(ctx context.Context, slug, dest string) error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	finalDest, reused := resolveDest(slug, dest, cwd)
+	finalDest, reused, err := DownloadSkill(ctx, client, slug, dest, cwd)
+	if err != nil {
+		return err
+	}
 	if reused != "" {
 		fmt.Println(tui.HintStyle.Render("!"), "reusing existing folder", reused)
 	}
-	if err := os.MkdirAll(finalDest, 0o755); err != nil {
-		return err
-	}
-	if err := client.Get(ctx, scan.Slugify(slug), finalDest); err != nil {
-		return err
-	}
 	fmt.Println(tui.OkStyle.Render("✓"), "wrote skill to", finalDest)
 	return nil
+}
+
+// DownloadSkill resolves the destination, downloads the skill, and returns
+// the final on-disk path plus any sibling folder that was reused. Shared by
+// the `get` command and the inline-download path in the `list` TUI.
+func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag, cwd string) (finalDest, reused string, err error) {
+	finalDest, reused = resolveDest(slug, destFlag, cwd)
+	if err := os.MkdirAll(finalDest, 0o755); err != nil {
+		return "", "", err
+	}
+	if err := client.Get(ctx, scan.Slugify(slug), finalDest); err != nil {
+		return "", "", err
+	}
+	return finalDest, reused, nil
 }
 
 // resolveDest decides where to write a fetched skill so that the on-disk folder

@@ -73,25 +73,18 @@ func runList(ctx context.Context, query string, plain bool) error {
 		return rows, nil
 	}
 
-	model := tui.NewList(cfg.Repo, loader)
-	out, err := tea.NewProgram(
+	cwd, _ := os.Getwd()
+	downloader := func(downloadCtx context.Context, slug string) (string, string, error) {
+		return DownloadSkill(downloadCtx, client, slug, "", cwd)
+	}
+
+	model := tui.NewList(ctx, cfg.Repo, loader, downloader)
+	if _, err := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
-	).Run()
-	if err != nil {
+	).Run(); err != nil {
 		return err
-	}
-	final := out.(tui.ListModel)
-	if final.Picked != nil {
-		fmt.Println()
-		fmt.Println(tui.TitleStyle.Render("✦ " + final.Picked.Name + "  (" + final.Picked.Slug + ")"))
-		if final.Picked.Desc != "" {
-			fmt.Println(final.Picked.Desc)
-		}
-		fmt.Println()
-		fmt.Println(tui.HintStyle.Render("Download with: ") +
-			tui.OkStyle.Render("skill-registry get "+final.Picked.Slug))
 	}
 	return nil
 }
