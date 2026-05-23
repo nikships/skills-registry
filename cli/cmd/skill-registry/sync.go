@@ -71,6 +71,9 @@ func runSync(ctx context.Context, yes, all bool) error {
 	if err != nil {
 		return err
 	}
+	if picked == nil {
+		return nil
+	}
 	if len(picked) == 0 {
 		fmt.Println("Nothing to push.")
 		return nil
@@ -89,10 +92,13 @@ func selectSkillsForSync(missing []scan.Skill, yes, all bool, repo string) ([]sc
 	}
 	picked, err := promptSync(missing)
 	if err != nil {
+		if strings.Contains(err.Error(), "cancelled") {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if len(picked) == 0 {
-		return nil, nil
+		return []scan.Skill{}, nil
 	}
 	if !yes {
 		ok, err := confirmPush(fmt.Sprintf(
@@ -101,7 +107,6 @@ func selectSkillsForSync(missing []scan.Skill, yes, all bool, repo string) ([]sc
 			return nil, err
 		}
 		if !ok {
-			fmt.Println("Aborted.")
 			return nil, nil
 		}
 	}

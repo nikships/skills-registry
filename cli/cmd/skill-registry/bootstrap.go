@@ -526,7 +526,12 @@ func promptRepoName(opts bootstrapOpts, defaultName string) (string, error) {
 // pre-configured value from opts.Visibility.
 func promptVisibility(opts bootstrapOpts) (string, error) {
 	if opts.Visibility != "" {
-		return opts.Visibility, nil
+		switch opts.Visibility {
+		case "public", "private":
+			return opts.Visibility, nil
+		default:
+			return "", fmt.Errorf("invalid --visibility %q: must be \"public\" or \"private\"", opts.Visibility)
+		}
 	}
 	choices := []tui.Choice{
 		{Value: "private", Label: "Private", Hint: "Only you can see and clone (recommended)"},

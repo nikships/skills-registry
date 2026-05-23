@@ -69,6 +69,9 @@ func runAdd(ctx context.Context, source string, yes, all bool) error {
 	if err != nil {
 		return err
 	}
+	if picked == nil {
+		return nil
+	}
 	if len(picked) == 0 {
 		fmt.Println("Nothing selected.")
 		return nil
@@ -87,10 +90,13 @@ func selectSkillsForAdd(skills []scan.Skill, yes, all bool, source, repo string)
 	}
 	picked, err := promptAddSelection(skills)
 	if err != nil {
+		if strings.Contains(err.Error(), "cancelled") {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if len(picked) == 0 {
-		return nil, nil
+		return []scan.Skill{}, nil
 	}
 	if !yes {
 		ok, err := confirmPush(fmt.Sprintf(
@@ -99,7 +105,6 @@ func selectSkillsForAdd(skills []scan.Skill, yes, all bool, source, repo string)
 			return nil, err
 		}
 		if !ok {
-			fmt.Println("Aborted.")
 			return nil, nil
 		}
 	}
