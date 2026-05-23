@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/img/banner.jpg" alt="skills-mcp — One GitHub repo. Every AI agent. Skills fetched on demand." width="100%">
+
 # skills-mcp
 
 **One GitHub repo, every AI agent. Skills fetched on demand — not auto-loaded into every startup context.**
@@ -9,6 +11,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
+[![Stars](https://img.shields.io/github/stars/anand-92/skills-mcp?style=social)](https://github.com/anand-92/skills-mcp/stargazers)
 
 <!-- TODO(maintainer): drop in a TUI screenshot or short GIF here. Suggestion: `skill-registry list` mid-fuzzy-filter, saved as docs/img/hero.png. -->
 <img src="docs/img/hero.png" alt="skill-registry TUI" width="720">
