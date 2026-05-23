@@ -84,9 +84,43 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		fmt.Printf("  · %s\n", s.Label)
 	}
 
-	// 2. Create / reuse repo
-	if cfg.Repo == "" {
-		repo, branch, err := promptAndCreateRepo(ctx, gh, opts, localSkills)
+	// 2. Create / reuse repo. If the config points at a repo that was deleted
+	// on GitHub, verifying upfront prevents a confusing 404 deep inside the
+	// push flow (where the missing-ref code path tries a PUT that also 404s).
+	needsCreate := cfg.Repo == ""
+	defaultName := ""
+	if !needsCreate {
+		probe, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+		if err != nil {
+			return err
+		}
+		probe.GH = gh
+		exists, err := probe.Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("check registry %s: %w", cfg.Repo, err)
+		}
+		if exists {
+			fmt.Printf("\n%s reusing existing registry: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(cfg.Repo))
+			fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(cfg.Repo))
+		} else {
+			fmt.Printf("\n%s configured registry %s no longer exists on GitHub.\n",
+				tui.ErrorStyle.Render("!"), tui.TitleStyle.Render(cfg.Repo))
+			fmt.Printf("  %s config still points at it: %s\n",
+				tui.HintStyle.Render("·"), config.Path())
+			recreate, err := promptRecreateRepo(opts.NonInteractive)
+			if err != nil {
+				return err
+			}
+			if !recreate {
+				return fmt.Errorf("aborted; recreate %s on GitHub or edit/delete %s and re-run",
+					cfg.Repo, config.Path())
+			}
+			defaultName = cfg.Name()
+			needsCreate = true
+		}
+	}
+	if needsCreate {
+		repo, branch, err := promptAndCreateRepo(ctx, gh, opts, localSkills, defaultName)
 		if err != nil {
 			return err
 		}
@@ -96,9 +130,6 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		}
 		fmt.Printf("\n%s saved registry config: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(repo))
 		fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(repo))
-	} else {
-		fmt.Printf("\n%s reusing existing registry: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(cfg.Repo))
-		fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(cfg.Repo))
 	}
 
 	// 3. Push local skills to the registry (only on first run)
@@ -309,14 +340,45 @@ func locateMCPBinary() (string, error) {
 	return "skill-registry-mcp", fmt.Errorf("skill-registry-mcp not found on disk; using PATH lookup")
 }
 
-func promptAndCreateRepo(ctx context.Context, gh string, opts bootstrapOpts, localSkills []scan.Skill) (string, string, error) {
+// promptRecreateRepo asks the user whether to re-create a registry repo that
+// the saved config still references. Returns true on "yes" (or in
+// nonInteractive/--yes mode). Returns false on explicit "no" or Esc.
+func promptRecreateRepo(nonInteractive bool) (bool, error) {
+	if nonInteractive {
+		return true, nil
+	}
+	choices := []tui.Choice{
+		{Value: "yes", Label: "Yes, recreate it", Hint: "Same name by default — you can edit it next"},
+		{Value: "no", Label: "No, abort", Hint: "I'll restore the repo or edit the config myself"},
+	}
+	model := tui.NewChoice(
+		"Registry repo missing",
+		"The configured registry no longer exists on GitHub. Recreate it now?",
+		choices,
+	)
+	out, err := tea.NewProgram(model).Run()
+	if err != nil {
+		return false, err
+	}
+	final := out.(tui.ChoiceModel)
+	if final.Cancelled() || final.Value() == nil {
+		return false, nil
+	}
+	return final.Value().(string) == "yes", nil
+}
+
+func promptAndCreateRepo(ctx context.Context, gh string, opts bootstrapOpts, localSkills []scan.Skill, defaultName string) (string, string, error) {
 	repoSlug := strings.TrimSpace(opts.Repo)
 	if repoSlug == "" {
+		seed := defaultName
+		if seed == "" {
+			seed = "skill-registry"
+		}
 		nameModel := tui.NewInput(
 			"Registry repo name",
 			"What should we name your skill registry repo on GitHub?",
-			"skill-registry",
-			"skill-registry",
+			seed,
+			seed,
 		)
 		nameModel.Help = "Enter just the name (no `owner/` prefix). Created on your authenticated user account."
 		out, err := tea.NewProgram(nameModel).Run()

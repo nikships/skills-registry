@@ -66,6 +66,48 @@ PY
 	return binary, statePath
 }
 
+func TestExistsReturnsTrueOn200(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y", "body": map[string]any{"name": "y", "full_name": "x/y"}},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main"}
+	ok, err := c.Exists(context.Background())
+	if err != nil {
+		t.Fatalf("Exists: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected Exists=true")
+	}
+}
+
+func TestExistsReturnsFalseOn404(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y", "body": "HTTP 404: Not Found", "exit": 1},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main"}
+	ok, err := c.Exists(context.Background())
+	if err != nil {
+		t.Fatalf("Exists should swallow 404; got err=%v", err)
+	}
+	if ok {
+		t.Fatalf("expected Exists=false on 404")
+	}
+}
+
+func TestExistsPropagatesOtherErrors(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y", "body": "HTTP 500: Internal Server Error", "exit": 1},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main"}
+	ok, err := c.Exists(context.Background())
+	if err == nil {
+		t.Fatalf("expected error on non-404 failure")
+	}
+	if ok {
+		t.Fatalf("expected Exists=false when an error is returned")
+	}
+}
+
 func TestListReturnsSummaries(t *testing.T) {
 	frontmatter := "---\nname: Code Review\ndescription: review code\n---\nBody.\n"
 	encoded := base64.StdEncoding.EncodeToString([]byte(frontmatter))

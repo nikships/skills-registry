@@ -360,6 +360,22 @@ func (c *Client) listTreePaths(ctx context.Context, rootSHA, subPath string) (ma
 	return out, nil
 }
 
+// Exists reports whether the configured repo is visible to the authenticated
+// user. A 404 maps to (false, nil) so callers can distinguish "deleted /
+// renamed / never created" from real network or auth failures.
+func (c *Client) Exists(ctx context.Context) (bool, error) {
+	var resp struct {
+		Name string `json:"name"`
+	}
+	if err := c.getJSON(ctx, "repos/"+c.Repo, &resp); err != nil {
+		if isStatus(err, 404) {
+			return false, nil
+		}
+		return false, err
+	}
+	return resp.Name != "", nil
+}
+
 // CreateRepo creates a new repo on the authenticated user's account.
 // Returns "owner/name". Honors visibility ("public" or "private").
 func (c *Client) CreateRepo(ctx context.Context, name, visibility, description string) (string, error) {
