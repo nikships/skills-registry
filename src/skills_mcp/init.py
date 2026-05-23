@@ -1,16 +1,16 @@
 """``skills-registry init`` — thin bootstrap that hands off to the Go CLI.
 
-This module is intentionally minimal. It owns two jobs:
+This module is intentionally minimal. It owns three jobs:
 
 1. Verify ``gh`` is installed and authenticated.
-2. Download the ``skill-registry`` Go binary into ``~/.local/bin`` (or
+2. Persist the ``skill-registry-mcp`` console script on disk (``uv tool
+   install`` / ``pipx install`` / ``pip install --user``). Without this
+   the entry point only exists inside the ephemeral ``uvx`` cache, and
+   desktop MCP clients (Claude Desktop, Cursor, Codex, …) — which launch
+   the server from a stripped environment — cannot find it. Opt out
+   with ``--skip-install`` or ``SKILLS_SKIP_INSTALL=1``.
+3. Download the ``skill-registry`` Go binary into ``~/.local/bin`` (or
    ``SKILLS_BIN_DIR``) and ``exec`` into it.
-
-Persistent installation of the ``skill-registry-mcp`` entry point (needed
-so desktop MCP clients can launch the server without the user's ``uvx``
-cache) is **explicitly the user's responsibility** — ``uv tool install
-skills-registry`` (or ``pipx install skills-registry``), documented in
-the README. ``cmd_init`` does not run that step itself.
 
 All TUI work — repo prompts, agent multi-select, conflict resolution —
 lives in the Go binary so we maintain exactly one TUI codebase.
@@ -39,8 +39,24 @@ log = logging.getLogger("skills_mcp.init")
 DEFAULT_CLI_REPO = os.environ.get("SKILLS_CLI_REPO", "anand-92/skills-registry")
 BINARY_NAME = "skill-registry"
 
+# Name of the Python console script that desktop MCP clients launch.
+MCP_ENTRY_POINT = "skill-registry-mcp"
 
-def cmd_init(args: argparse.Namespace) -> int:  # noqa: ARG001 - args reserved
+# PyPI distribution name installed to provide :data:`MCP_ENTRY_POINT`.
+PYPI_DIST = "skills-registry"
+
+# Fallback locations probed when looking for an existing MCP entry point.
+# Mirrors ``locateMCPBinary`` in ``cli/cmd/skill-registry/bootstrap.go`` so
+# the absolute path the Go bootstrap emits matches what we install.
+_MCP_FALLBACK_DIRS: tuple[Path, ...] = (
+	Path.home() / ".local" / "bin",
+	Path("/opt/homebrew/bin"),
+	Path("/usr/local/bin"),
+	Path("/usr/bin"),
+)
+
+
+def cmd_init(args: argparse.Namespace) -> int:
 	"""Top-level driver for ``skills-registry init``."""
 	try:
 		gh = ensure_authed()
@@ -50,6 +66,13 @@ def cmd_init(args: argparse.Namespace) -> int:  # noqa: ARG001 - args reserved
 	except GhNotAuthedError as exc:
 		print(f"\n{exc}\n", file=sys.stderr)
 		return 4
+
+	# Persist `skill-registry-mcp` before downloading the Go binary so the
+	# snippet the Go bootstrap prints at the end points at a binary that
+	# actually exists on disk. The Go binary's `locateMCPBinary()` checks
+	# the same fallback dirs we install into.
+	if not args.skip_install:
+		_ensure_mcp_entry_point()
 
 	dest_dir = _install_dir()
 	dest_dir.mkdir(parents=True, exist_ok=True)
@@ -101,6 +124,97 @@ def _install_dir() -> Path:
 	if override:
 		return Path(override).expanduser().resolve()
 	return Path.home() / ".local" / "bin"
+
+
+def _mcp_entry_point_present() -> bool:
+	"""True if a desktop MCP client could launch ``skill-registry-mcp``.
+
+	Mirrors the candidate list in ``locateMCPBinary`` (Go) exactly: only
+	the curated fallback dirs count. We deliberately do **not** trust
+	``shutil.which`` here, because under ``uvx`` it cheerfully resolves
+	to a binary inside an ephemeral cache that disappears the moment
+	this process exits — exactly the case the auto-install machinery is
+	supposed to fix. A positive result here guarantees the Go bootstrap
+	will embed a stable absolute path in the snippet it prints.
+	"""
+	exe_names = (MCP_ENTRY_POINT, f"{MCP_ENTRY_POINT}.exe")
+	for directory in _MCP_FALLBACK_DIRS:
+		for name in exe_names:
+			candidate = directory / name
+			if candidate.is_file() and os.access(candidate, os.X_OK):
+				return True
+	return False
+
+
+def _candidate_installers() -> list[tuple[str, list[str]]]:
+	"""Ordered list of ``(label, argv)`` install attempts.
+
+	`uv tool` is preferred because it is always available when the user
+	just ran ``uvx skills-registry init`` (uvx ships with uv). `pipx` is
+	the next-best persistent installer. Falling all the way back to
+	``pip install --user`` is a last resort — on macOS the user-base
+	`Scripts` dir is not always on PATH, but the Go binary's curated
+	fallback list catches it anyway.
+	"""
+	candidates: list[tuple[str, list[str]]] = []
+	if shutil.which("uv"):
+		candidates.append(("uv tool install", ["uv", "tool", "install", "--force", PYPI_DIST]))
+	if shutil.which("pipx"):
+		candidates.append(("pipx install", ["pipx", "install", "--force", PYPI_DIST]))
+	# Always have a final fallback that does not require uv or pipx.
+	candidates.append(
+		(
+			"pip install --user",
+			[sys.executable, "-m", "pip", "install", "--user", "--upgrade", PYPI_DIST],
+		)
+	)
+	return candidates
+
+
+def _ensure_mcp_entry_point() -> None:
+	"""Persist the ``skill-registry-mcp`` console script on disk.
+
+	No-op when the binary is already reachable or when the user has set
+	``SKILLS_SKIP_INSTALL=1``. On failure we log a manual-install hint
+	but do **not** abort init — the Go bootstrap is still useful, and
+	the user may want to wire the MCP server up by hand later.
+	"""
+	if os.environ.get("SKILLS_SKIP_INSTALL"):
+		log.debug("SKILLS_SKIP_INSTALL set; skipping MCP entry-point install.")
+		return
+	if _mcp_entry_point_present():
+		log.debug("`%s` already on disk; skipping install.", MCP_ENTRY_POINT)
+		return
+	print(
+		f"Installing `{MCP_ENTRY_POINT}` so desktop MCP clients can launch it…",
+		file=sys.stderr,
+	)
+	for label, argv in _candidate_installers():
+		log.debug("Trying %s: %s", label, " ".join(argv))
+		try:
+			result = subprocess.run(argv, capture_output=True, text=True, check=False)
+		except OSError as exc:  # pragma: no cover - extremely rare
+			log.debug("%s failed to launch: %s", label, exc)
+			continue
+		if result.returncode == 0 and _mcp_entry_point_present():
+			print(f"  ✓ installed via `{label}`", file=sys.stderr)
+			return
+		log.debug(
+			"%s exited %s: %s",
+			label,
+			result.returncode,
+			(result.stderr or result.stdout).strip(),
+		)
+	print(
+		"\n"
+		f"! Could not auto-install `{MCP_ENTRY_POINT}`. Continuing — the Go bootstrap\n"
+		"  will still run, but the MCP snippet it prints will refer to a binary\n"
+		"  that does not yet exist. Install it manually with one of:\n"
+		f"    uv tool install {PYPI_DIST}\n"
+		f"    pipx install {PYPI_DIST}\n"
+		f"    python -m pip install --user {PYPI_DIST}\n",
+		file=sys.stderr,
+	)
 
 
 class CliDownloadError(RuntimeError):
@@ -238,6 +352,15 @@ def register_subparser(subparsers: argparse._SubParsersAction) -> argparse.Argum
 		"--skip-download",
 		action="store_true",
 		help="Don't download/refresh the Go binary; use the one already in PATH.",
+	)
+	sp.add_argument(
+		"--skip-install",
+		action="store_true",
+		help=(
+			"Don't auto-install the `skill-registry-mcp` console script. "
+			"Useful when you manage the entry point yourself "
+			"(or set `SKILLS_SKIP_INSTALL=1`)."
+		),
 	)
 	sp.add_argument(
 		"--repo",

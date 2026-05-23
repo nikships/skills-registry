@@ -83,7 +83,7 @@ docs/
                             └─ print MCP JSON snippet
 ```
 
-Persisting `skill-registry-mcp` for desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) is the user's responsibility — `uv tool install skills-registry` (documented in the README) installs both console-script entry points (`skills-registry` and `skill-registry-mcp`) so clients can launch the registry server without depending on the `uvx` cache. `cmd_init` does **not** run this step itself.
+Persisting `skill-registry-mcp` for desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) is handled automatically by `cmd_init`. After the `gh` auth check, `_ensure_mcp_entry_point` probes PATH + the same curated fallback dirs the Go binary's `locateMCPBinary` checks, and (if missing) tries `uv tool install --force skills-registry`, `pipx install --force skills-registry`, and `python -m pip install --user skills-registry` in that order. The first success wins; total failure prints a clean manual-install hint and continues so the user still gets the Go bootstrap. Opt out with `--skip-install` or `SKILLS_SKIP_INSTALL=1` (useful in CI or when the entry point is provisioned by the host package manager).
 
 ### Why a separate Go binary?
 
@@ -159,9 +159,10 @@ Force-pushes and any subtree change correctly invalidate.
 - Run everything:
   ```bash
   uv run pytest -v --cov=skills_mcp --cov-report=term-missing
-  (cd cli && go vet ./... && staticcheck ./... && deadcode -test ./... && go test ./...)
+  (cd cli && go vet ./... && staticcheck ./... && deadcode -test ./... && gocyclo -over 34 . && go test ./...)
   ```
 - **Dead-code detection (Go):** CI runs `staticcheck ./...` (scoped via `cli/staticcheck.conf` to disable the noisy `ST*`/`QF*` style families while keeping every unused-symbol/correctness check) plus `deadcode -test ./...` for reachability-based unused-function analysis. Both must be green to merge. See the **How to Work on This Repo** section below for the pinned install commands.
+- **Cyclomatic-complexity ceilings:** Python: ruff's `C90` (mccabe) rule is enabled in `ruff.toml` with `max-complexity = 12`. Go: CI runs `gocyclo -over 34` on `cli/` as a no-regression gate against the current worst function (`PushTreeViaGit` at 34). Both are intentionally tight — the Python ceiling forces helper extraction for branchy code, and the Go ceiling means any new function ≥ 35 will fail CI. Lower these numbers when you simplify a hot spot; never raise them casually.
 
 ---
 
@@ -219,6 +220,7 @@ uv sync --group dev
 # .github/workflows/ci.yml — bump in lockstep)
 go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
 go install golang.org/x/tools/cmd/deadcode@v0.45.0
+go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0
 
 # Run all tests (Python + Go)
 uv run pytest -v --cov=skills_mcp --cov-report=term-missing
@@ -226,6 +228,9 @@ uv run pytest -v --cov=skills_mcp --cov-report=term-missing
 
 # Dead-code detection (Go)
 (cd cli && staticcheck ./... && deadcode -test ./...)
+
+# Cyclomatic-complexity ceiling (Go)
+(cd cli && gocyclo -over 34 .)
 
 # Lint & format Python
 uv run ruff check .

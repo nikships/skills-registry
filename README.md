@@ -66,11 +66,15 @@ uvx skills-registry init
 
 That's the whole install. The bootstrap will:
 
-1. Scan your AI tool dot-folders for existing skills.
-2. Prompt you for a registry repo name + visibility.
-3. Create the GitHub repo and push every skill it found.
-4. Ask which agents to wire up (multi-select TUI).
-5. Print the MCP config snippet to paste into your client.
+1. Persist the `skill-registry-mcp` server entry point on disk via
+   `uv tool install` (so desktop MCP clients can launch it without
+   inheriting your shell `PATH`). Opt out with `--skip-install` or
+   `SKILLS_SKIP_INSTALL=1` if you manage it yourself.
+2. Scan your AI tool dot-folders for existing skills.
+3. Prompt you for a registry repo name + visibility.
+4. Create the GitHub repo and push every skill it found.
+5. Ask which agents to wire up (multi-select TUI).
+6. Print the MCP config snippet to paste into your client.
 
 <!-- TODO(maintainer): capture an asciinema of the bootstrap end-to-end and embed/link here. -->
 
@@ -124,6 +128,7 @@ Most people never touch these — `skills-registry init` sets up sensible defaul
 |---|---|---|
 | `SKILLS_REGISTRY` | (from config) | Point at a different registry for one command: `owner/repo` or `owner/repo@branch`. Great for browsing a teammate's. |
 | `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` if something's misbehaving. |
+| `SKILLS_SKIP_INSTALL` | unset | Set to `1` to keep `skills-registry init` from auto-installing `skill-registry-mcp`. Useful when you manage the entry point yourself. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
 The registry repo URL itself is stored in `~/.config/skills-mcp/registry.toml`.

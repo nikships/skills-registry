@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -365,17 +366,31 @@ func dotDirsFromAgents() []string {
 }
 
 func locateMCPBinary() (string, error) {
-	// The init script installs skill-registry-mcp via `uv tool install`; it
-	// ends up at ~/.local/bin/skill-registry-mcp on most setups.
+	// `skills-registry init` (Python) installs the entry point via
+	// `uv tool install` / `pipx install` / `pip install --user`. All three
+	// land a binary or symlink under one of the directories below. Desktop
+	// MCP clients launch from a stripped environment, so we deliberately
+	// embed an *absolute* path in the printed snippet — never a bare name
+	// that depends on the user's PATH.
 	home, _ := os.UserHomeDir()
-	candidates := []string{
-		filepath.Join(home, ".local", "bin", "skill-registry-mcp"),
-		"/opt/homebrew/bin/skill-registry-mcp",
-		"/usr/local/bin/skill-registry-mcp",
+	candidateDirs := []string{
+		filepath.Join(home, ".local", "bin"),
+		// Direct path inside the uv-tool data dir, in case the ~/.local/bin
+		// symlink ever gets out of sync.
+		filepath.Join(home, ".local", "share", "uv", "tools", "skills-registry", "bin"),
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
 	}
-	for _, p := range candidates {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p, nil
+	exeNames := []string{"skill-registry-mcp"}
+	if runtime.GOOS == "windows" {
+		exeNames = []string{"skill-registry-mcp.exe", "skill-registry-mcp"}
+	}
+	for _, dir := range candidateDirs {
+		for _, name := range exeNames {
+			p := filepath.Join(dir, name)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return p, nil
+			}
 		}
 	}
 	return "skill-registry-mcp", fmt.Errorf("skill-registry-mcp not found on disk; using PATH lookup")
