@@ -254,6 +254,75 @@ func toString(v any) string {
 	}
 }
 
+// CleanupEntry is a direct child of a `<dot>/skills/` directory that is a
+// candidate for removal after bootstrap pushes everything to the registry.
+type CleanupEntry struct {
+	Path      string // absolute path to the entry (folder or symlink)
+	Source    string // human label, e.g. "~/.claude/skills"
+	IsSymlink bool
+}
+
+// EntriesForCleanup sweeps every source's direct children and returns each
+// entry whose name matches a known registry slug. This is the post-publish
+// cleanup primitive: anything that mirrors a registry slug is dead weight that
+// every coding agent re-reads each session.
+//
+// Rules:
+//   - Skip entries whose name doesn't match a slug in `registrySlugs`.
+//   - Skip the literal name "skill-registry" (that's our SKILL.md install
+//     target, written by bootstrap.InstallSkillMd).
+//   - Skip dotfiles (.DS_Store, etc).
+//   - Real directories must contain a sibling SKILL.md to be eligible; this
+//     protects against accidentally deleting unrelated content that happens
+//     to share a name with a slug.
+//   - Symlinks are accepted regardless of their target (so we clean up
+//     redirects whose targets have already been removed).
+//
+// Unlike Discover, this function does NOT slug-dedupe across sources — if the
+// same slug exists in five dot-folders, all five entries are returned. That's
+// the whole point: the previous slug-deduped cleanup left N-1 copies behind.
+func EntriesForCleanup(sources []Source, registrySlugs map[string]struct{}) []CleanupEntry {
+	var entries []CleanupEntry
+	for _, src := range sources {
+		list, err := os.ReadDir(src.Path)
+		if err != nil {
+			continue
+		}
+		for _, e := range list {
+			name := e.Name()
+			if name == "skill-registry" || strings.HasPrefix(name, ".") {
+				continue
+			}
+			if _, ok := registrySlugs[name]; !ok {
+				continue
+			}
+			full := filepath.Join(src.Path, name)
+			isSymlink := e.Type()&os.ModeSymlink != 0
+			if !isSymlink {
+				info, err := e.Info()
+				if err != nil || !info.IsDir() {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(full, MainFileName)); err != nil {
+					continue
+				}
+			}
+			entries = append(entries, CleanupEntry{
+				Path:      full,
+				Source:    src.Label,
+				IsSymlink: isSymlink,
+			})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Source != entries[j].Source {
+			return entries[i].Source < entries[j].Source
+		}
+		return entries[i].Path < entries[j].Path
+	})
+	return entries
+}
+
 // DedupeAgainst returns skills from `local` whose slugs are NOT present in the
 // `remote` slug set. Used by `skill-registry sync` to compute the diff.
 func DedupeAgainst(local []Skill, remoteSlugs map[string]struct{}) []Skill {

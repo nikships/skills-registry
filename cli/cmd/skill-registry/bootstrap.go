@@ -156,6 +156,18 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		fmt.Printf("\n%s no new skills to push.\n", tui.OkStyle.Render("·"))
 	}
 
+	// Cleanup needs the *post-push* slug set so we delete every dot-folder
+	// copy / symlink that mirrors a registered skill — not just the one
+	// Discover picked after slug-deduping. Fall back to localSkills if the
+	// listing call fails; at minimum we know those were just pushed.
+	registrySlugs, err := client.Slugs(ctx)
+	if err != nil {
+		registrySlugs = map[string]struct{}{}
+		for _, s := range localSkills {
+			registrySlugs[s.Slug] = struct{}{}
+		}
+	}
+
 	// 4. Multi-select agent install targets
 	if opts.NoAgents {
 		fmt.Println("\nSkipping agent install (--no-agents).")
@@ -177,7 +189,7 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 
 	// 5. Offer to delete the now-redundant local skill folders.
 	if !opts.NonInteractive {
-		if err := promptDeleteLocal(localSkills); err != nil {
+		if err := promptDeleteLocal(sources, registrySlugs); err != nil {
 			return err
 		}
 	}
@@ -204,24 +216,35 @@ func repoURL(repo string) string {
 	return "https://github.com/" + repo
 }
 
-// promptDeleteLocal offers the user a y/n to delete the local skill folders
-// that were just imported into the registry. Local skills are now dead weight
-// — every agent that scans dot-folders has to read and parse them on every
-// session, which bloats context windows and degrades performance.
-func promptDeleteLocal(localSkills []scan.Skill) error {
-	if len(localSkills) == 0 {
+// promptDeleteLocal offers the user a y/n to delete every dot-folder copy of
+// a registered skill — real folders AND symlinks. Local skills are now dead
+// weight: every agent that scans dot-folders re-reads and re-parses them on
+// every session, bloating context and degrading performance.
+//
+// Earlier versions iterated `[]scan.Skill` (slug-deduped by Discover), which
+// meant only ONE source's copy of each slug got deleted per run. With ~5
+// agents installing identical copies (e.g. .codex, .copilot, .cursor, .factory,
+// .gemini) the user had to run `init` five times to clean a single slug.
+// Now we sweep every source for every known slug in one pass.
+func promptDeleteLocal(sources []scan.Source, registrySlugs map[string]struct{}) error {
+	entries := scan.EntriesForCleanup(sources, registrySlugs)
+	if len(entries) == 0 {
 		return nil
 	}
-	// Group skills by source folder for the summary.
+
 	bySource := map[string]int{}
-	for _, s := range localSkills {
-		bySource[s.Source]++
+	symlinksBySource := map[string]int{}
+	for _, en := range entries {
+		bySource[en.Source]++
+		if en.IsSymlink {
+			symlinksBySource[en.Source]++
+		}
 	}
-	sources := make([]string, 0, len(bySource))
-	for src := range bySource {
-		sources = append(sources, src)
+	srcLabels := make([]string, 0, len(bySource))
+	for k := range bySource {
+		srcLabels = append(srcLabels, k)
 	}
-	sort.Strings(sources)
+	sort.Strings(srcLabels)
 
 	fmt.Println()
 	fmt.Println(tui.TitleStyle.Render("Clean up local copies?"))
@@ -230,8 +253,12 @@ func promptDeleteLocal(localSkills []scan.Skill) error {
 	fmt.Println(tui.HintStyle.Render(
 		"Every coding agent re-reads them on each session, bloating context and degrading performance."))
 	fmt.Println()
-	for _, src := range sources {
-		fmt.Printf("  · %s (%d skill(s))\n", src, bySource[src])
+	for _, src := range srcLabels {
+		line := fmt.Sprintf("  · %s (%d entry(ies))", src, bySource[src])
+		if n := symlinksBySource[src]; n > 0 {
+			line += fmt.Sprintf(" — %d symlink(s)", n)
+		}
+		fmt.Println(line)
 	}
 	fmt.Println()
 
@@ -240,7 +267,8 @@ func promptDeleteLocal(localSkills []scan.Skill) error {
 		{Value: "no", Label: "No, keep them", Hint: "I'll handle it manually"},
 	}
 	model := tui.NewChoice("Delete local skill folders?",
-		fmt.Sprintf("This removes %d skill folder(s) from disk. Nothing in the registry is touched.", len(localSkills)),
+		fmt.Sprintf("This removes %d entry(ies) across %d source folder(s). Nothing in the registry is touched.",
+			len(entries), len(srcLabels)),
 		choices)
 	out, err := tea.NewProgram(model).Run()
 	if err != nil {
@@ -254,16 +282,18 @@ func promptDeleteLocal(localSkills []scan.Skill) error {
 	}
 
 	var deleted, failed int
-	for _, s := range localSkills {
-		if err := os.RemoveAll(s.Folder); err != nil {
+	for _, en := range entries {
+		// os.RemoveAll unlinks a symlink (it doesn't follow into the target),
+		// and recursively removes a real directory. Both are what we want.
+		if err := os.RemoveAll(en.Path); err != nil {
 			fmt.Printf("  %s could not remove %s: %v\n",
-				tui.ErrorStyle.Render("!"), s.Folder, err)
+				tui.ErrorStyle.Render("!"), en.Path, err)
 			failed++
 			continue
 		}
 		deleted++
 	}
-	fmt.Printf("\n%s removed %d local skill folder(s).", tui.OkStyle.Render("✓"), deleted)
+	fmt.Printf("\n%s removed %d local entry(ies).", tui.OkStyle.Render("✓"), deleted)
 	if failed > 0 {
 		fmt.Printf(" (%d failed)", failed)
 	}

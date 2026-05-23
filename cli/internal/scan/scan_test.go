@@ -91,6 +91,134 @@ func TestDedupeAgainstFiltersByRemoteSlugs(t *testing.T) {
 	}
 }
 
+func TestEntriesForCleanup_FindsEveryDotFolderCopy(t *testing.T) {
+	// The bug we're guarding against: scan.Discover slug-dedupes across
+	// sources, so the old cleanup deleted only ONE copy per init run. With
+	// the same slug in five dot-folders, the user had to re-run init five
+	// times. EntriesForCleanup must return every source's copy in one shot.
+	tmp := t.TempDir()
+	for _, dot := range []string{".codex", ".copilot", ".cursor", ".factory", ".gemini"} {
+		writeSkill(t, filepath.Join(tmp, dot, "skills"), "adaptive",
+			"---\nname: Adaptive\n---\nbody\n")
+	}
+	var sources []Source
+	for _, dot := range []string{".codex", ".copilot", ".cursor", ".factory", ".gemini"} {
+		sources = append(sources, Source{
+			Path:  filepath.Join(tmp, dot, "skills"),
+			Label: "~/" + dot + "/skills",
+		})
+	}
+	entries := EntriesForCleanup(sources, map[string]struct{}{"adaptive": {}})
+	if len(entries) != 5 {
+		t.Fatalf("expected 5 entries (one per dot-folder), got %d (%+v)", len(entries), entries)
+	}
+	for _, en := range entries {
+		if en.IsSymlink {
+			t.Fatalf("entry should be a real folder, not symlink: %+v", en)
+		}
+		if _, err := os.Stat(filepath.Join(en.Path, MainFileName)); err != nil {
+			t.Fatalf("expected SKILL.md to exist under %s: %v", en.Path, err)
+		}
+	}
+}
+
+func TestEntriesForCleanup_IncludesSymlinks(t *testing.T) {
+	// Symlinks under <dot>/skills/ never showed up in Discover (filepath.WalkDir
+	// doesn't descend symlinks looking for SKILL.md), so the previous cleanup
+	// never unlinked them — even when their targets were already gone.
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, ".agents", "skills", "animejs")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeSkills := filepath.Join(tmp, ".claude", "skills")
+	if err := os.MkdirAll(claudeSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(claudeSkills, "animejs")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	// Even a *dangling* symlink should still match by name — the user wants
+	// it gone regardless of whether the target still exists.
+	dangling := filepath.Join(claudeSkills, "ghost-skill")
+	if err := os.Symlink(filepath.Join(tmp, "does-not-exist"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	sources := []Source{{Path: claudeSkills, Label: "~/.claude/skills"}}
+	entries := EntriesForCleanup(sources, map[string]struct{}{"animejs": {}, "ghost-skill": {}})
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 symlink entries, got %d (%+v)", len(entries), entries)
+	}
+	for _, en := range entries {
+		if !en.IsSymlink {
+			t.Fatalf("symlink not flagged: %+v", en)
+		}
+	}
+}
+
+func TestEntriesForCleanup_ProtectsSkillRegistryInstall(t *testing.T) {
+	// bootstrap.InstallSkillMd writes our own SKILL.md into
+	// <source>/skill-registry/SKILL.md. If the registry happened to have a
+	// slug named "skill-registry" (it usually does — this very project), we
+	// MUST NOT delete it.
+	tmp := t.TempDir()
+	writeSkill(t, filepath.Join(tmp, ".factory", "skills"), "skill-registry", "---\nname: x\n---\n")
+	sources := []Source{{Path: filepath.Join(tmp, ".factory", "skills"), Label: "~/.factory/skills"}}
+	entries := EntriesForCleanup(sources, map[string]struct{}{"skill-registry": {}})
+	if len(entries) != 0 {
+		t.Fatalf("skill-registry install target must be protected, got %+v", entries)
+	}
+}
+
+func TestEntriesForCleanup_SkipsUnknownSlugs(t *testing.T) {
+	// Only delete things we know are in the registry. A random folder
+	// named like a real skill but absent from the registry stays.
+	tmp := t.TempDir()
+	writeSkill(t, filepath.Join(tmp, ".factory", "skills"), "my-private-skill",
+		"---\nname: private\n---\n")
+	sources := []Source{{Path: filepath.Join(tmp, ".factory", "skills"), Label: "~/.factory/skills"}}
+	entries := EntriesForCleanup(sources, map[string]struct{}{"adaptive": {}, "styles": {}})
+	if len(entries) != 0 {
+		t.Fatalf("unknown-slug folders must be preserved, got %+v", entries)
+	}
+}
+
+func TestEntriesForCleanup_RealDirRequiresSkillMd(t *testing.T) {
+	// Defensive: if a real directory happens to share a name with a slug
+	// but contains no SKILL.md, it's probably unrelated user content and
+	// must be left alone.
+	tmp := t.TempDir()
+	skillsDir := filepath.Join(tmp, ".factory", "skills")
+	noMain := filepath.Join(skillsDir, "styles", "unrelated")
+	if err := os.MkdirAll(noMain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sources := []Source{{Path: skillsDir, Label: "~/.factory/skills"}}
+	entries := EntriesForCleanup(sources, map[string]struct{}{"styles": {}})
+	if len(entries) != 0 {
+		t.Fatalf("dir without SKILL.md should be preserved, got %+v", entries)
+	}
+}
+
+func TestEntriesForCleanup_SkipsDotfiles(t *testing.T) {
+	tmp := t.TempDir()
+	skillsDir := filepath.Join(tmp, ".factory", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// macOS sprinkles .DS_Store everywhere; even if a slug were named
+	// ".DS_Store" we'd skip it (it can't be a real skill anyway).
+	if err := os.WriteFile(filepath.Join(skillsDir, ".DS_Store"), []byte("junk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sources := []Source{{Path: skillsDir, Label: "~/.factory/skills"}}
+	entries := EntriesForCleanup(sources, map[string]struct{}{".DS_Store": {}})
+	if len(entries) != 0 {
+		t.Fatalf("dotfiles must be skipped, got %+v", entries)
+	}
+}
+
 func TestHashIsDeterministic(t *testing.T) {
 	root := t.TempDir()
 	folder := writeSkill(t, root, "alpha", "hello")
