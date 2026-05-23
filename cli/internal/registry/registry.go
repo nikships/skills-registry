@@ -438,54 +438,70 @@ func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, me
 	if len(files) == 0 {
 		return errors.New("nothing to push")
 	}
-	gitBin := c.GitBin
-	if gitBin == "" {
-		found, err := exec.LookPath("git")
-		if err != nil {
-			return errors.New(
-				"git not found on PATH. install git from https://git-scm.com/downloads " +
-					"(macOS: `brew install git`, Linux: `apt install git` / `dnf install git`) and re-run.")
-		}
-		gitBin = found
+	gitBin, err := c.resolveGitBin()
+	if err != nil {
+		return err
 	}
-
-	// Wire `gh` as the git credential helper for github.com so HTTPS pushes
-	// pick up the authenticated token. Idempotent; rewrites the same line
-	// every time it runs.
 	if err := c.setupGitAuth(ctx); err != nil {
 		return fmt.Errorf("configure git credentials via gh: %w", err)
 	}
-
 	name, email, err := c.gitAuthor(ctx)
 	if err != nil {
 		return fmt.Errorf("resolve git author: %w", err)
 	}
-
 	work, err := os.MkdirTemp("", "skill-registry-push-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(work)
-
-	runGit := func(args ...string) error {
-		cmd := exec.CommandContext(ctx, gitBin, args...)
-		cmd.Dir = work
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		cmd.Stdout = io.Discard
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(stderr.String()))
-		}
-		return nil
+	if err := c.initWorkdir(ctx, gitBin, work); err != nil {
+		return err
 	}
+	if err := configureGitRepo(ctx, gitBin, work, name, email); err != nil {
+		return err
+	}
+	if err := c.writeFilesToWorkdir(work, files); err != nil {
+		return err
+	}
+	return c.commitAndPushIfChanged(ctx, gitBin, work, message)
+}
 
+// resolveGitBin returns the git binary path from Client.GitBin or PATH.
+func (c *Client) resolveGitBin() (string, error) {
+	if c.GitBin != "" {
+		return c.GitBin, nil
+	}
+	found, err := exec.LookPath("git")
+	if err != nil {
+		return "", errors.New(
+			"git not found on PATH. install git from https://git-scm.com/downloads " +
+				"(macOS: `brew install git`, Linux: `apt install git` / `dnf install git`) and re-run.")
+	}
+	return found, nil
+}
+
+// runGitIn executes a git command in the given directory, returning a
+// formatted error on failure. Replaces the closure that PushTreeViaGit
+// previously defined inline.
+func runGitIn(ctx context.Context, gitBin, dir string, args ...string) error {
+	cmd := exec.CommandContext(ctx, gitBin, args...)
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Stdout = io.Discard
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git %s: %s", strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// initWorkdir either shallow-clones an existing remote branch or initializes
+// a fresh git workdir in `work`.
+func (c *Client) initWorkdir(ctx context.Context, gitBin, work string) error {
 	remoteURL := c.HTTPSURL
 	if remoteURL == "" {
 		remoteURL = "https://github.com/" + c.Repo + ".git"
 	}
-
-	// Existing branch? Clone (shallow) so we preserve history. New repo?
-	// Init from scratch.
 	branchExists, err := c.refExists(ctx)
 	if err != nil {
 		return err
@@ -499,55 +515,57 @@ func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, me
 		if err := clone.Run(); err != nil {
 			return fmt.Errorf("git clone %s: %s", c.Repo, strings.TrimSpace(stderr.String()))
 		}
-	} else {
-		if err := runGit("init", "-b", c.DefaultBranch); err != nil {
-			return err
-		}
-		if err := runGit("remote", "add", "origin", remoteURL); err != nil {
-			return err
-		}
+		return nil
 	}
-	if err := runGit("config", "user.name", name); err != nil {
+	if err := runGitIn(ctx, gitBin, work, "init", "-b", c.DefaultBranch); err != nil {
 		return err
 	}
-	if err := runGit("config", "user.email", email); err != nil {
-		return err
-	}
-	// Suppress the "main" -> "master" hint and any GPG signing the user has
-	// configured globally; we're committing on behalf of an automated flow.
-	if err := runGit("config", "commit.gpgsign", "false"); err != nil {
-		return err
-	}
+	return runGitIn(ctx, gitBin, work, "remote", "add", "origin", remoteURL)
+}
 
-	// Materialize every file under the working tree.
+// configureGitRepo sets user.name, user.email, and disables GPG signing in
+// the given workdir.
+func configureGitRepo(ctx context.Context, gitBin, work, name, email string) error {
+	if err := runGitIn(ctx, gitBin, work, "config", "user.name", name); err != nil {
+		return err
+	}
+	if err := runGitIn(ctx, gitBin, work, "config", "user.email", email); err != nil {
+		return err
+	}
+	return runGitIn(ctx, gitBin, work, "config", "commit.gpgsign", "false")
+}
+
+// validateRelPath normalizes a repo-relative path and rejects traversal
+// attacks, absolute paths, and empty strings. Mirrors
+// registry_api._normalize_rel_path.
+func validateRelPath(rel string) (string, error) {
+	rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
+	if rel == "" {
+		return "", errors.New("rejected empty relative path")
+	}
+	if strings.HasPrefix(rel, "/") {
+		return "", fmt.Errorf("rejected absolute path: %q", rel)
+	}
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+		return "", fmt.Errorf("rejected path containing ..: %q", rel)
+	}
+	osClean := filepath.FromSlash(clean)
+	if filepath.IsAbs(osClean) || filepath.VolumeName(osClean) != "" {
+		return "", fmt.Errorf("rejected absolute path: %q", rel)
+	}
+	return osClean, nil
+}
+
+// writeFilesToWorkdir validates and materializes every file under the working
+// tree, reporting progress via c.OnProgress.
+func (c *Client) writeFilesToWorkdir(work string, files map[string][]byte) error {
 	written := 0
 	total := len(files)
 	for rel, content := range files {
-		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
-		if rel == "" {
-			return errors.New("rejected empty relative path")
-		}
-		// Reject anything that looks absolute up front (single or multiple
-		// leading slashes, Windows drive letters, UNC roots). Go's
-		// filepath.Join Cleans its result and would keep an absolute second
-		// arg inside `work`, but a caller sending `/etc/passwd` almost
-		// certainly meant something else; refuse rather than silently rename
-		// to `<work>/etc/passwd`.
-		if strings.HasPrefix(rel, "/") {
-			return fmt.Errorf("rejected absolute path: %q", rel)
-		}
-		// Path-traversal guard mirrors registry_api._normalize_rel_path.
-		clean := filepath.ToSlash(filepath.Clean(rel))
-		if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
-			return fmt.Errorf("rejected path containing ..: %q", rel)
-		}
-		osClean := filepath.FromSlash(clean)
-		// Defense in depth for Windows: `C:\foo`, `\foo`, or `\\server\share`
-		// survive the leading-slash check above (we normalized backslashes to
-		// forward slashes, but VolumeName / IsAbs still recognize the cleaned
-		// form on Windows).
-		if filepath.IsAbs(osClean) || filepath.VolumeName(osClean) != "" {
-			return fmt.Errorf("rejected absolute path: %q", rel)
+		osClean, err := validateRelPath(rel)
+		if err != nil {
+			return err
 		}
 		full := filepath.Join(work, osClean)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -561,12 +579,15 @@ func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, me
 			c.OnProgress(written, total)
 		}
 	}
+	return nil
+}
 
-	if err := runGit("add", "-A"); err != nil {
+// commitAndPushIfChanged stages all changes, skips if nothing changed,
+// otherwise commits and pushes to the remote.
+func (c *Client) commitAndPushIfChanged(ctx context.Context, gitBin, work, message string) error {
+	if err := runGitIn(ctx, gitBin, work, "add", "-A"); err != nil {
 		return err
 	}
-	// Skip the commit if nothing changed (re-running bootstrap on an
-	// already-synced registry).
 	statusCmd := exec.CommandContext(ctx, gitBin, "status", "--porcelain")
 	statusCmd.Dir = work
 	statusOut, err := statusCmd.Output()
@@ -576,18 +597,13 @@ func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, me
 	if len(strings.TrimSpace(string(statusOut))) == 0 {
 		return nil
 	}
-	if err := runGit("commit", "-m", message); err != nil {
+	if err := runGitIn(ctx, gitBin, work, "commit", "-m", message); err != nil {
 		return err
 	}
-	// Surface the upcoming network step now that we know we're actually
-	// about to push (the no-op case above already returned).
 	if c.OnStatus != nil {
 		c.OnStatus("pushing to github…")
 	}
-	if err := runGit("push", "-u", "origin", c.DefaultBranch); err != nil {
-		return err
-	}
-	return nil
+	return runGitIn(ctx, gitBin, work, "push", "-u", "origin", c.DefaultBranch)
 }
 
 // setupGitAuth wires `gh` in as git's HTTPS credential helper for github.com.
@@ -1078,43 +1094,10 @@ func parseFlatYAML(body []string) map[string]string {
 		}
 		if blockScalarMarkers[head] {
 			folded := strings.HasPrefix(head, ">")
-			var block []string
-			i++
-			for i < len(body) {
-				peek := body[i]
-				if strings.TrimSpace(peek) == "" {
-					block = append(block, "")
-					i++
-					continue
-				}
-				if !strings.HasPrefix(peek, " ") && !strings.HasPrefix(peek, "\t") {
-					break
-				}
-				block = append(block, strings.TrimSpace(peek))
-				i++
-			}
+			block, nextI := collectBlockLines(body, i+1)
+			i = nextI
 			if folded {
-				// Blank line → paragraph break; otherwise join lines with " ".
-				var paragraphs [][]string
-				current := []string{}
-				for _, ln := range block {
-					if ln == "" {
-						if len(current) > 0 {
-							paragraphs = append(paragraphs, current)
-							current = nil
-						}
-						continue
-					}
-					current = append(current, ln)
-				}
-				if len(current) > 0 {
-					paragraphs = append(paragraphs, current)
-				}
-				parts := make([]string, 0, len(paragraphs))
-				for _, p := range paragraphs {
-					parts = append(parts, strings.Join(p, " "))
-				}
-				out[key] = strings.Join(parts, "\n\n")
+				out[key] = foldBlockScalar(block)
 			} else {
 				out[key] = strings.TrimRight(strings.Join(block, "\n"), "\n")
 			}
@@ -1125,6 +1108,54 @@ func parseFlatYAML(body []string) map[string]string {
 		i++
 	}
 	return out
+}
+
+// collectBlockLines gathers the indented continuation lines of a YAML block
+// scalar starting at `start`. Returns the collected lines and the index of
+// the first non-continuation line.
+func collectBlockLines(body []string, start int) ([]string, int) {
+	var block []string
+	i := start
+	for i < len(body) {
+		peek := body[i]
+		if strings.TrimSpace(peek) == "" {
+			block = append(block, "")
+			i++
+			continue
+		}
+		if !strings.HasPrefix(peek, " ") && !strings.HasPrefix(peek, "\t") {
+			break
+		}
+		block = append(block, strings.TrimSpace(peek))
+		i++
+	}
+	return block, i
+}
+
+// foldBlockScalar joins block lines using YAML folded-scalar rules: blank
+// lines separate paragraphs (joined with "\n\n"), consecutive non-blank lines
+// are joined with " ".
+func foldBlockScalar(block []string) string {
+	var paragraphs [][]string
+	var current []string
+	for _, ln := range block {
+		if ln == "" {
+			if len(current) > 0 {
+				paragraphs = append(paragraphs, current)
+				current = nil
+			}
+			continue
+		}
+		current = append(current, ln)
+	}
+	if len(current) > 0 {
+		paragraphs = append(paragraphs, current)
+	}
+	parts := make([]string, 0, len(paragraphs))
+	for _, p := range paragraphs {
+		parts = append(parts, strings.Join(p, " "))
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func firstParagraph(text string) string {
