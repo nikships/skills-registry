@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/img/banner.jpg" alt="skills-registry — One GitHub repo. Every AI agent. Skills fetched on demand." width="100%">
+<img src="docs/img/banner-v2.jpg" alt="skills-registry — One GitHub repo. Every AI agent. Skills fetched on demand." width="100%">
 
 # skills-registry
 
