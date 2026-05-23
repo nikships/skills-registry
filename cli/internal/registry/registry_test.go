@@ -34,7 +34,7 @@ func stubGH(t *testing.T, entries []map[string]any) (string, string) {
 	script := fmt.Sprintf(`#!/bin/sh
 state=%q
 python3 - <<'PY' "$state" "$@"
-import fcntl, json, sys
+import fcntl, json, os, sys
 state = sys.argv[1]
 argv = " ".join(sys.argv[2:])
 with open(state, "r+") as f:
@@ -48,6 +48,8 @@ with open(state, "r+") as f:
             f.seek(0)
             f.truncate()
             json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
             fcntl.flock(f, fcntl.LOCK_UN)
             if body:
                 sys.stdout.write(body if isinstance(body, str) else json.dumps(body))
