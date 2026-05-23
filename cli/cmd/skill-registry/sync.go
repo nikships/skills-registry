@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -66,51 +67,75 @@ func runSync(ctx context.Context, yes, all bool) error {
 		return nil
 	}
 
-	var picked []scan.Skill
-	if all {
-		picked = missing
-	} else {
-		picked, err = promptSync(missing)
-		if err != nil {
-			return err
-		}
+	picked, err := selectSkillsForSync(missing, yes, all, cfg.Repo)
+	if err != nil {
+		return err
 	}
 	if len(picked) == 0 {
 		fmt.Println("Nothing to push.")
 		return nil
 	}
 
-	if !yes && !all {
+	return publishSkills(ctx, client, picked, func(slug string) string {
+		return fmt.Sprintf("sync: %s", slug)
+	})
+}
+
+// selectSkillsForSync handles the interactive multi-select and confirmation
+// for sync. Returns nil with no error when the user cancels or selects nothing.
+func selectSkillsForSync(missing []scan.Skill, yes, all bool, repo string) ([]scan.Skill, error) {
+	if all {
+		return missing, nil
+	}
+	picked, err := promptSync(missing)
+	if err != nil {
+		return nil, err
+	}
+	if len(picked) == 0 {
+		return nil, nil
+	}
+	if !yes {
 		ok, err := confirmPush(fmt.Sprintf(
-			"Push %d skill(s) to %s?", len(picked), cfg.Repo))
+			"Push %d skill(s) to %s?", len(picked), repo))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !ok {
 			fmt.Println("Aborted.")
-			return nil
+			return nil, nil
 		}
 	}
+	return picked, nil
+}
 
+// publishSkills walks and publishes each skill, printing a checkmark per slug.
+// commitMsg is called once per skill to build the commit message.
+func publishSkills(ctx context.Context, client *registry.Client, picked []scan.Skill, commitMsg func(string) string) error {
 	for _, sk := range picked {
 		files := map[string][]byte{}
 		if err := walkSkillIntoFiles(sk, files); err != nil {
 			return err
 		}
-		// Re-key paths to be relative to the skill folder.
-		bySlug := map[string][]byte{}
-		for k, v := range files {
-			// Drop the leading "<slug>/" we added in walkSkillIntoFiles.
-			if len(k) > len(sk.Slug)+1 {
-				bySlug[k[len(sk.Slug)+1:]] = v
-			}
-		}
-		if _, err := client.Publish(ctx, sk.Slug, bySlug, fmt.Sprintf("sync: %s", sk.Slug)); err != nil {
+		bySlug := rekeyBySlug(sk.Slug, files)
+		if _, err := client.Publish(ctx, sk.Slug, bySlug, commitMsg(sk.Slug)); err != nil {
 			return fmt.Errorf("publish %s: %w", sk.Slug, err)
 		}
 		fmt.Println(tui.OkStyle.Render("✓"), sk.Slug)
 	}
 	return nil
+}
+
+// rekeyBySlug strips the "<slug>/" prefix that walkSkillIntoFiles adds,
+// returning paths relative to the skill folder.
+func rekeyBySlug(slug string, files map[string][]byte) map[string][]byte {
+	bySlug := map[string][]byte{}
+	prefix := slug + "/"
+	for k, v := range files {
+		if strings.HasPrefix(k, prefix) {
+			bySlug[k[len(prefix):]] = v
+		}
+	}
+	return bySlug
 }
 
 // confirmPush is the shared yes/no confirmation prompt used by `sync` and

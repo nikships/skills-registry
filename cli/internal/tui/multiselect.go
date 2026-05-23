@@ -89,56 +89,71 @@ func (m MultiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
-		filtered := m.filteredIndices()
-		switch msg.String() {
-		case "ctrl+c", "esc":
-			m.cancelled = true
-			return m, tea.Quit
-		case "enter":
-			if m.required && len(m.SelectedValues()) == 0 {
-				return m, nil
-			}
-			return m, tea.Quit
-		case "up":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-			return m, nil
-		case "down":
-			if m.cursor < len(filtered)-1 {
-				m.cursor++
-			}
-			return m, nil
-		case " ":
-			if len(filtered) == 0 {
-				return m, nil
-			}
-			idx := filtered[m.cursor]
-			if _, ok := m.selected[idx]; ok {
-				delete(m.selected, idx)
-			} else {
-				m.selected[idx] = struct{}{}
-			}
-			return m, nil
-		case "backspace":
-			if len(m.filter) > 0 {
-				m.filter = m.filter[:len(m.filter)-1]
-				m.cursor = 0
-			}
-			return m, nil
-		case "tab":
-			// Select all filtered.
-			for _, idx := range filtered {
-				m.selected[idx] = struct{}{}
-			}
-			return m, nil
-		}
-		if len(msg.String()) == 1 && msg.Type == tea.KeyRunes {
-			m.filter += msg.String()
-			m.cursor = 0
-		}
+		return m.handleKeyMsg(msg)
 	}
 	return m, nil
+}
+
+func (m MultiSelectModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	filtered := m.filteredIndices()
+	switch msg.String() {
+	case "ctrl+c", "esc":
+		m.cancelled = true
+		return m, tea.Quit
+	case "enter":
+		if m.required && len(m.SelectedValues()) == 0 {
+			return m, nil
+		}
+		return m, tea.Quit
+	case "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
+	case "down":
+		if m.cursor < len(filtered)-1 {
+			m.cursor++
+		}
+		return m, nil
+	case " ":
+		m = m.handleToggle(filtered)
+		return m, nil
+	}
+	m = m.handleFilterEdit(msg, filtered)
+	return m, nil
+}
+
+func (m MultiSelectModel) handleToggle(filtered []int) MultiSelectModel {
+	if len(filtered) == 0 {
+		return m
+	}
+	idx := filtered[m.cursor]
+	if _, ok := m.selected[idx]; ok {
+		delete(m.selected, idx)
+	} else {
+		m.selected[idx] = struct{}{}
+	}
+	return m
+}
+
+func (m MultiSelectModel) handleFilterEdit(msg tea.KeyMsg, filtered []int) MultiSelectModel {
+	switch msg.String() {
+	case "backspace":
+		if len(m.filter) > 0 {
+			m.filter = m.filter[:len(m.filter)-1]
+			m.cursor = 0
+		}
+	case "tab":
+		// Select all filtered.
+		for _, idx := range filtered {
+			m.selected[idx] = struct{}{}
+		}
+	}
+	if len(msg.String()) == 1 && msg.Type == tea.KeyRunes {
+		m.filter += msg.String()
+		m.cursor = 0
+	}
+	return m
 }
 
 func (m MultiSelectModel) filteredIndices() []int {
@@ -163,25 +178,7 @@ func (m MultiSelectModel) View() string {
 	b.WriteString(HintStyle.Render("type to filter · space toggles · tab selects all · enter confirms · esc cancels"))
 	b.WriteString("\n\n")
 
-	// Locked section
-	hasLocked := false
-	for _, it := range m.Items {
-		if it.Locked {
-			if !hasLocked {
-				b.WriteString(SubtitleStyle.Render("Always included:"))
-				b.WriteString("\n")
-				hasLocked = true
-			}
-			b.WriteString(SelectedStyle.Render("  ✓ " + it.Label))
-			if it.Hint != "" {
-				b.WriteString(HintStyle.Render("  " + it.Hint))
-			}
-			b.WriteString("\n")
-		}
-	}
-	if hasLocked {
-		b.WriteString("\n")
-	}
+	m.renderLockedSection(&b)
 
 	b.WriteString(lipgloss.NewStyle().Bold(true).Render("Search: "))
 	if m.filter == "" {
@@ -236,6 +233,27 @@ func (m MultiSelectModel) View() string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func (m MultiSelectModel) renderLockedSection(b *strings.Builder) {
+	hasLocked := false
+	for _, it := range m.Items {
+		if it.Locked {
+			if !hasLocked {
+				b.WriteString(SubtitleStyle.Render("Always included:"))
+				b.WriteString("\n")
+				hasLocked = true
+			}
+			b.WriteString(SelectedStyle.Render("  ✓ " + it.Label))
+			if it.Hint != "" {
+				b.WriteString(HintStyle.Render("  " + it.Hint))
+			}
+			b.WriteString("\n")
+		}
+	}
+	if hasLocked {
+		b.WriteString("\n")
+	}
 }
 
 func windowAround(cursor, total, max int) (int, int) {

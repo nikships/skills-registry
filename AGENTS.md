@@ -159,10 +159,10 @@ Force-pushes and any subtree change correctly invalidate.
 - Run everything:
   ```bash
   uv run pytest -v --cov=skills_mcp --cov-report=term-missing
-  (cd cli && go vet ./... && staticcheck ./... && deadcode -test ./... && gocyclo -over 34 . && go test ./...)
+  (cd cli && go vet ./... && staticcheck ./... && deadcode -test ./... && gocyclo -over 15 -ignore "_test" . && go test ./...)
   ```
 - **Dead-code detection (Go):** CI runs `staticcheck ./...` (scoped via `cli/staticcheck.conf` to disable the noisy `ST*`/`QF*` style families while keeping every unused-symbol/correctness check) plus `deadcode -test ./...` for reachability-based unused-function analysis. Both must be green to merge. See the **How to Work on This Repo** section below for the pinned install commands.
-- **Cyclomatic-complexity ceilings:** Python: ruff's `C90` (mccabe) rule is enabled in `ruff.toml` with `max-complexity = 12`. Go: CI runs `gocyclo -over 34` on `cli/` as a no-regression gate against the current worst function (`PushTreeViaGit` at 34). Both are intentionally tight — the Python ceiling forces helper extraction for branchy code, and the Go ceiling means any new function ≥ 35 will fail CI. Lower these numbers when you simplify a hot spot; never raise them casually.
+- **Cyclomatic-complexity ceilings:** Python: ruff's `C90` (mccabe) rule is enabled in `ruff.toml` with `max-complexity = 12`. Go: CI runs `gocyclo -over 15 -ignore "_test"` on `cli/` — the industry-standard ceiling for Go production code (test files are excluded because table-driven tests naturally inflate complexity). Both ceilings are enforced in `ci.yml` and `release.yml`. Never raise them casually; if a new function exceeds the limit, extract helpers.
 
 ---
 
@@ -230,7 +230,7 @@ uv run pytest -v --cov=skills_mcp --cov-report=term-missing
 (cd cli && staticcheck ./... && deadcode -test ./...)
 
 # Cyclomatic-complexity ceiling (Go)
-(cd cli && gocyclo -over 34 .)
+(cd cli && gocyclo -over 15 -ignore "_test" .)
 
 # Lint & format Python
 uv run ruff check .

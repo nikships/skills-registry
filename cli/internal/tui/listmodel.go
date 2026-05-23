@@ -234,32 +234,16 @@ func (m ListModel) findRow(slug string) *SkillRow {
 // Update implements tea.Model.
 func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
 		return m, nil
-
 	case rowsLoadedMsg:
-		m.rows = msg.rows
-		// Begin with just the first item visible; subsequent revealTick
-		// messages cascade the rest into the list one frame at a time.
-		if len(m.rows) > 0 {
-			m.list.SetItems([]list.Item{m.rows[0]})
-			m.revealCap = 1
-		} else {
-			m.list.SetItems(nil)
-			m.revealCap = 0
-		}
-		m.state = stateReady
-		m.refreshPreview()
-		return m, revealTick()
-
+		return m.handleRowsLoaded(msg)
 	case loadErrMsg:
 		m.err = msg.err
 		m.state = stateError
 		return m, nil
-
 	case spinner.TickMsg:
 		if m.state == stateLoading || m.inflight > 0 {
 			var cmd tea.Cmd
@@ -267,109 +251,139 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
-
 	case downloadDoneMsg:
-		if m.inflight > 0 {
-			m.inflight--
-		}
-		row := m.findRow(msg.slug)
-		name := msg.slug
-		if row != nil && row.Name != "" {
-			name = row.Name
-		}
-		if msg.err != nil {
-			m.rowState[msg.slug] = StatusErr
-			m.rowErr[msg.slug] = msg.err
-			// `gh` subprocess errors are routinely multi-line; flatten so
-			// the toast stays a single row and doesn't push the footer
-			// off-screen.
-			errText := strings.ReplaceAll(msg.err.Error(), "\n", " · ")
-			m.toast = fmt.Sprintf("✗ %s: %s", name, errText)
-			m.toastOK = false
-		} else {
-			m.rowState[msg.slug] = StatusDone
-			m.rowDest[msg.slug] = msg.dest
-			if msg.reused != "" {
-				m.toast = fmt.Sprintf("✓ %s → %s (reused)", name, msg.dest)
-			} else {
-				m.toast = fmt.Sprintf("✓ %s → %s", name, msg.dest)
-			}
-			m.toastOK = true
-		}
-		return m, nil
-
+		return m.handleDownloadDone(msg)
 	case sparkleTickMsg:
 		m.sparkleIdx++
 		return m, sparkleTick()
-
 	case revealTickMsg:
-		if m.revealCap < len(m.rows) {
-			m.revealCap++
-			items := make([]list.Item, m.revealCap)
-			for i := 0; i < m.revealCap; i++ {
-				items[i] = m.rows[i]
-			}
-			m.list.SetItems(items)
-			return m, revealTick()
+		return m.handleRevealTick()
+	case tea.KeyMsg:
+		return m.handleKeyMsg(msg)
+	}
+	return m.forwardToList(msg)
+}
+
+func (m ListModel) handleRowsLoaded(msg rowsLoadedMsg) (tea.Model, tea.Cmd) {
+	m.rows = msg.rows
+	// Begin with just the first item visible; subsequent revealTick
+	// messages cascade the rest into the list one frame at a time.
+	if len(m.rows) > 0 {
+		m.list.SetItems([]list.Item{m.rows[0]})
+		m.revealCap = 1
+	} else {
+		m.list.SetItems(nil)
+		m.revealCap = 0
+	}
+	m.state = stateReady
+	m.refreshPreview()
+	return m, revealTick()
+}
+
+func (m ListModel) handleDownloadDone(msg downloadDoneMsg) (tea.Model, tea.Cmd) {
+	if m.inflight > 0 {
+		m.inflight--
+	}
+	row := m.findRow(msg.slug)
+	name := msg.slug
+	if row != nil && row.Name != "" {
+		name = row.Name
+	}
+	if msg.err != nil {
+		m.rowState[msg.slug] = StatusErr
+		m.rowErr[msg.slug] = msg.err
+		// `gh` subprocess errors are routinely multi-line; flatten so
+		// the toast stays a single row and doesn't push the footer
+		// off-screen.
+		errText := strings.ReplaceAll(msg.err.Error(), "\n", " · ")
+		m.toast = fmt.Sprintf("✗ %s: %s", name, errText)
+		m.toastOK = false
+	} else {
+		m.rowState[msg.slug] = StatusDone
+		m.rowDest[msg.slug] = msg.dest
+		if msg.reused != "" {
+			m.toast = fmt.Sprintf("✓ %s → %s (reused)", name, msg.dest)
+		} else {
+			m.toast = fmt.Sprintf("✓ %s → %s", name, msg.dest)
+		}
+		m.toastOK = true
+	}
+	return m, nil
+}
+
+func (m ListModel) handleRevealTick() (tea.Model, tea.Cmd) {
+	if m.revealCap < len(m.rows) {
+		m.revealCap++
+		items := make([]list.Item, m.revealCap)
+		for i := 0; i < m.revealCap; i++ {
+			items[i] = m.rows[i]
+		}
+		m.list.SetItems(items)
+		return m, revealTick()
+	}
+	return m, nil
+}
+
+func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Help overlay swallows most keys.
+	if m.showHelp {
+		switch msg.String() {
+		case "?", "esc", "q":
+			m.showHelp = false
 		}
 		return m, nil
-
-	case tea.KeyMsg:
-		// Help overlay swallows most keys.
-		if m.showHelp {
-			switch msg.String() {
-			case "?", "esc", "q":
-				m.showHelp = false
-			}
+	}
+	// While the list's own filter input is active, defer everything except
+	// ctrl+c so users can type freely.
+	if m.list.FilterState() == list.Filtering {
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		m.refreshPreview()
+		return m, cmd
+	}
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		if m.list.FilterValue() != "" {
+			m.list.ResetFilter()
+			m.refreshPreview()
 			return m, nil
 		}
-		// While the list's own filter input is active, defer everything except
-		// ctrl+c so users can type freely.
-		if m.list.FilterState() == list.Filtering {
-			if msg.String() == "ctrl+c" {
-				return m, tea.Quit
-			}
-			var cmd tea.Cmd
-			m.list, cmd = m.list.Update(msg)
-			m.refreshPreview()
-			return m, cmd
-		}
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "esc":
-			if m.list.FilterValue() != "" {
-				m.list.ResetFilter()
-				m.refreshPreview()
+		return m, tea.Quit
+	case "?":
+		m.showHelp = true
+		return m, nil
+	case "enter":
+		if it, ok := m.list.SelectedItem().(SkillRow); ok {
+			if m.download == nil {
 				return m, nil
 			}
-			return m, tea.Quit
-		case "?":
-			m.showHelp = true
-			return m, nil
-		case "enter":
-			if it, ok := m.list.SelectedItem().(SkillRow); ok {
-				if m.download == nil {
-					return m, nil
-				}
-				// Any non-idle row is a no-op: already downloading (double-
-				// press), already downloaded this session, or previously
-				// failed (retry is out of scope for this feature).
-				if m.rowState[it.Slug] != StatusIdle {
-					return m, nil
-				}
-				m.rowState[it.Slug] = StatusDownloading
-				m.inflight++
-				return m, tea.Batch(
-					startDownload(m.ctx, m.download, it.Slug),
-					m.spinner.Tick,
-				)
+			// Any non-idle row is a no-op: already downloading (double-
+			// press), already downloaded this session, or previously
+			// failed (retry is out of scope for this feature).
+			if m.rowState[it.Slug] != StatusIdle {
+				return m, nil
 			}
+			m.rowState[it.Slug] = StatusDownloading
+			m.inflight++
+			return m, tea.Batch(
+				startDownload(m.ctx, m.download, it.Slug),
+				m.spinner.Tick,
+			)
 		}
 	}
+	// Forward unmatched keys to the list so navigation (j/k, pgup/pgdn,
+	// etc.) still works.
+	return m.forwardToList(msg)
+}
 
-	// Forward to the list and refresh the preview pane based on the new
-	// selection.
+// forwardToList delegates a message to the inner bubbles list and refreshes
+// the preview pane based on the new selection.
+func (m ListModel) forwardToList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.state == stateReady {
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)

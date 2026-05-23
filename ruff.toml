@@ -11,11 +11,19 @@ target-version = "py310"
 #   TID   – flake8-tidy-imports
 #   N     – pep8-naming  → enforces snake_case functions/variables, CapWords
 #                          classes, UPPER_SNAKE_CASE constants, etc.
-select = ["E", "F", "I", "B", "UP", "SIM", "TID", "N"]
+#   C90   – mccabe cyclomatic-complexity (ceiling configured below).
+select = ["E", "F", "I", "B", "UP", "SIM", "TID", "N", "C90"]
 ignore = ["E501"]
 
 [lint.per-file-ignores]
 "tests/**" = ["B011", "N802", "N803", "N806"]
+
+[lint.mccabe]
+# Cyclomatic-complexity ceiling. 12 catches truly hairy functions while
+# leaving room for short branchy CLI entry points. New code that exceeds
+# this should be refactored or split into helpers; bump only with intent
+# and a code-review note.
+max-complexity = 12
 
 [lint.pep8-naming]
 # `gh` (the GitHub CLI binary) and `MCP` (Model Context Protocol) are

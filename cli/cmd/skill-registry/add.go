@@ -65,47 +65,45 @@ func runAdd(ctx context.Context, source string, yes, all bool) error {
 		return fmt.Errorf("no SKILL.md files found under %s", source)
 	}
 
-	picked := skills
-	if !all {
-		picked, err = promptAddSelection(skills)
-		if err != nil {
-			return err
-		}
-		if len(picked) == 0 {
-			fmt.Println("Nothing selected.")
-			return nil
-		}
+	picked, err := selectSkillsForAdd(skills, yes, all, source, cfg.Repo)
+	if err != nil {
+		return err
+	}
+	if len(picked) == 0 {
+		fmt.Println("Nothing selected.")
+		return nil
 	}
 
-	if !yes && !all {
+	return publishSkills(ctx, client, picked, func(slug string) string {
+		return fmt.Sprintf("add: %s (from %s)", slug, source)
+	})
+}
+
+// selectSkillsForAdd handles the interactive multi-select and confirmation
+// for add. Returns nil with no error when the user cancels or selects nothing.
+func selectSkillsForAdd(skills []scan.Skill, yes, all bool, source, repo string) ([]scan.Skill, error) {
+	if all {
+		return skills, nil
+	}
+	picked, err := promptAddSelection(skills)
+	if err != nil {
+		return nil, err
+	}
+	if len(picked) == 0 {
+		return nil, nil
+	}
+	if !yes {
 		ok, err := confirmPush(fmt.Sprintf(
-			"Publish %d skill(s) from %s to %s?", len(picked), source, cfg.Repo))
+			"Publish %d skill(s) from %s to %s?", len(picked), source, repo))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !ok {
 			fmt.Println("Aborted.")
-			return nil
+			return nil, nil
 		}
 	}
-
-	for _, sk := range picked {
-		files := map[string][]byte{}
-		if err := walkSkillIntoFiles(sk, files); err != nil {
-			return err
-		}
-		bySlug := map[string][]byte{}
-		for k, v := range files {
-			if len(k) > len(sk.Slug)+1 {
-				bySlug[k[len(sk.Slug)+1:]] = v
-			}
-		}
-		if _, err := client.Publish(ctx, sk.Slug, bySlug, fmt.Sprintf("add: %s (from %s)", sk.Slug, source)); err != nil {
-			return fmt.Errorf("publish %s: %w", sk.Slug, err)
-		}
-		fmt.Println(tui.OkStyle.Render("✓"), sk.Slug)
-	}
-	return nil
+	return picked, nil
 }
 
 func promptAddSelection(skills []scan.Skill) ([]scan.Skill, error) {

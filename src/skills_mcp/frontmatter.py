@@ -17,6 +17,50 @@ from __future__ import annotations
 _BLOCK_SCALAR_MARKERS = {">", ">-", ">+", "|", "|-", "|+"}
 
 
+def _find_frontmatter_end(lines: list[str]) -> int | None:
+	"""Return the index of the closing ``---`` fence, or ``None`` if missing."""
+	for i in range(1, len(lines)):
+		if lines[i].strip() == "---":
+			return i
+	return None
+
+
+def _collect_block_lines(body_lines: list[str], start: int) -> tuple[list[str], int]:
+	"""Gather the indented (or blank) lines that form a YAML block scalar.
+
+	Returns the collected lines (stripped) and the index of the first line
+	that didn't belong to the block (so the caller can resume from there).
+	"""
+	block_lines: list[str] = []
+	i = start
+	while i < len(body_lines):
+		peek = body_lines[i]
+		if peek.strip() == "":
+			block_lines.append("")
+			i += 1
+			continue
+		if not peek.startswith((" ", "\t")):
+			break
+		block_lines.append(peek.strip())
+		i += 1
+	return block_lines, i
+
+
+def _fold_block(block_lines: list[str], folded: bool) -> str:
+	"""Render collected block-scalar lines per YAML folding rules."""
+	if not folded:
+		return "\n".join(block_lines).rstrip("\n")
+	# Fold: blank line → paragraph break (\n\n), otherwise join with " ".
+	paragraphs: list[list[str]] = [[]]
+	for ln in block_lines:
+		if ln == "":
+			if paragraphs[-1]:
+				paragraphs.append([])
+		else:
+			paragraphs[-1].append(ln)
+	return "\n\n".join(" ".join(p) for p in paragraphs if p)
+
+
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 	"""Extract a YAML-ish frontmatter block (``--- ... ---``) from the top of a file.
 
@@ -27,11 +71,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 	if not text.startswith("---"):
 		return {}, text
 	lines = text.splitlines()
-	end = None
-	for i in range(1, len(lines)):
-		if lines[i].strip() == "---":
-			end = i
-			break
+	end = _find_frontmatter_end(lines)
 	if end is None:
 		return {}, text
 
@@ -55,36 +95,8 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 		parts = value_text.split()
 		head = parts[0] if parts else ""
 		if head in _BLOCK_SCALAR_MARKERS:
-			# Collect subsequent indented (or blank) lines as the block value.
-			# Indentation rules: any line indented past column 0 belongs to the
-			# block, blank lines are paragraph breaks. We stop at the first
-			# zero-indent non-blank line.
-			folded = head.startswith(">")
-			block_lines: list[str] = []
-			i += 1
-			while i < len(body_lines):
-				peek = body_lines[i]
-				if peek.strip() == "":
-					block_lines.append("")
-					i += 1
-					continue
-				if not peek.startswith((" ", "\t")):
-					break
-				block_lines.append(peek.strip())
-				i += 1
-			if folded:
-				# Fold: blank line → paragraph break (\n\n), otherwise join with " ".
-				paragraphs: list[list[str]] = [[]]
-				for ln in block_lines:
-					if ln == "":
-						if paragraphs[-1]:
-							paragraphs.append([])
-					else:
-						paragraphs[-1].append(ln)
-				value = "\n\n".join(" ".join(p) for p in paragraphs if p)
-			else:
-				value = "\n".join(block_lines).rstrip("\n")
-			meta[key] = value
+			block_lines, i = _collect_block_lines(body_lines, i + 1)
+			meta[key] = _fold_block(block_lines, folded=head.startswith(">"))
 			continue
 
 		meta[key] = value_text.strip('"').strip("'")

@@ -93,52 +93,10 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		fmt.Printf("  · %s\n", s.Label)
 	}
 
-	// 2. Create / reuse repo. If the config points at a repo that was deleted
-	// on GitHub, verifying upfront prevents a confusing 404 deep inside the
-	// push flow (where the missing-ref code path tries a PUT that also 404s).
-	needsCreate := cfg.Repo == ""
-	defaultName := ""
-	if !needsCreate {
-		probe, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-		if err != nil {
-			return err
-		}
-		probe.GH = gh
-		exists, err := probe.Exists(ctx)
-		if err != nil {
-			return fmt.Errorf("check registry %s: %w", cfg.Repo, err)
-		}
-		if exists {
-			fmt.Printf("\n%s reusing existing registry: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(cfg.Repo))
-			fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(cfg.Repo))
-		} else {
-			fmt.Printf("\n%s configured registry %s no longer exists on GitHub.\n",
-				tui.ErrorStyle.Render("!"), tui.TitleStyle.Render(cfg.Repo))
-			fmt.Printf("  %s config still points at it: %s\n",
-				tui.HintStyle.Render("·"), config.Path())
-			recreate, err := promptRecreateRepo(opts.NonInteractive)
-			if err != nil {
-				return err
-			}
-			if !recreate {
-				return fmt.Errorf("aborted; recreate %s on GitHub or edit/delete %s and re-run",
-					cfg.Repo, config.Path())
-			}
-			defaultName = cfg.Name()
-			needsCreate = true
-		}
-	}
-	if needsCreate {
-		repo, branch, err := promptAndCreateRepo(ctx, gh, opts, localSkills, defaultName)
-		if err != nil {
-			return err
-		}
-		cfg = config.Config{Repo: repo, DefaultBranch: branch}
-		if _, err := config.Save(cfg); err != nil {
-			return fmt.Errorf("save config: %w", err)
-		}
-		fmt.Printf("\n%s saved registry config: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(repo))
-		fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(repo))
+	// 2. Create / reuse repo.
+	cfg, err = resolveRegistry(ctx, cfg, gh, opts, localSkills)
+	if err != nil {
+		return err
 	}
 
 	// 3. Push local skills to the registry (only on first run)
@@ -157,38 +115,11 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		fmt.Printf("\n%s no new skills to push.\n", tui.OkStyle.Render("·"))
 	}
 
-	// Cleanup needs the *post-push* slug set so we delete every dot-folder
-	// copy / symlink that mirrors a registered skill — not just the one
-	// Discover picked after slug-deduping. Fall back to localSkills if the
-	// listing call fails; at minimum we know those were just pushed. Surface
-	// the failure so the user knows cleanup coverage may be partial.
-	registrySlugs, err := client.Slugs(ctx)
-	if err != nil {
-		fmt.Printf("\n%s could not list registry slugs (%v); cleanup scope falls back to just-pushed skills.\n",
-			tui.HintStyle.Render("!"), err)
-		registrySlugs = map[string]struct{}{}
-		for _, s := range localSkills {
-			registrySlugs[s.Slug] = struct{}{}
-		}
-	}
+	registrySlugs := buildRegistrySlugSet(ctx, client, localSkills)
 
 	// 4. Multi-select agent install targets
-	if opts.NoAgents {
-		fmt.Println("\nSkipping agent install (--no-agents).")
-	} else {
-		picked, err := selectAgents(opts.NonInteractive)
-		if err != nil {
-			return err
-		}
-		paths, err := bootstrap.InstallSkillMd(home, cwd, cfg.Repo, picked)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("\n%s installed skill-registry/SKILL.md into %d agent folder(s):\n",
-			tui.OkStyle.Render("✓"), len(paths))
-		for _, p := range paths {
-			fmt.Println("  ·", p)
-		}
+	if err := installAgentDocs(home, cwd, cfg.Repo, opts); err != nil {
+		return err
 	}
 
 	// 5. Offer to delete the now-redundant local skill folders.
@@ -199,6 +130,100 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 	}
 
 	// 6. Print MCP JSON snippet
+	printWireUpSnippet(cfg.Repo)
+	return nil
+}
+
+// resolveRegistry checks if the config already has a valid repo, or prompts
+// to create one. Returns the updated config.
+func resolveRegistry(ctx context.Context, cfg config.Config, gh string, opts bootstrapOpts, localSkills []scan.Skill) (config.Config, error) {
+	needsCreate := cfg.Repo == ""
+	defaultName := ""
+	if !needsCreate {
+		probe, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+		if err != nil {
+			return cfg, err
+		}
+		probe.GH = gh
+		exists, err := probe.Exists(ctx)
+		if err != nil {
+			return cfg, fmt.Errorf("check registry %s: %w", cfg.Repo, err)
+		}
+		if exists {
+			fmt.Printf("\n%s reusing existing registry: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(cfg.Repo))
+			fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(cfg.Repo))
+		} else {
+			fmt.Printf("\n%s configured registry %s no longer exists on GitHub.\n",
+				tui.ErrorStyle.Render("!"), tui.TitleStyle.Render(cfg.Repo))
+			fmt.Printf("  %s config still points at it: %s\n",
+				tui.HintStyle.Render("·"), config.Path())
+			recreate, err := promptRecreateRepo(opts.NonInteractive)
+			if err != nil {
+				return cfg, err
+			}
+			if !recreate {
+				return cfg, fmt.Errorf("aborted; recreate %s on GitHub or edit/delete %s and re-run",
+					cfg.Repo, config.Path())
+			}
+			defaultName = cfg.Name()
+			needsCreate = true
+		}
+	}
+	if needsCreate {
+		repo, branch, err := promptAndCreateRepo(ctx, gh, opts, localSkills, defaultName)
+		if err != nil {
+			return cfg, err
+		}
+		cfg = config.Config{Repo: repo, DefaultBranch: branch}
+		if _, err := config.Save(cfg); err != nil {
+			return cfg, fmt.Errorf("save config: %w", err)
+		}
+		fmt.Printf("\n%s saved registry config: %s\n", tui.OkStyle.Render("✓"), tui.TitleStyle.Render(repo))
+		fmt.Printf("  %s %s\n", tui.HintStyle.Render("→"), repoURL(repo))
+	}
+	return cfg, nil
+}
+
+// buildRegistrySlugSet returns the post-push slug set for cleanup. Falls back
+// to localSkills if the listing call fails.
+func buildRegistrySlugSet(ctx context.Context, client *registry.Client, localSkills []scan.Skill) map[string]struct{} {
+	registrySlugs, err := client.Slugs(ctx)
+	if err != nil {
+		fmt.Printf("\n%s could not list registry slugs (%v); cleanup scope falls back to just-pushed skills.\n",
+			tui.HintStyle.Render("!"), err)
+		registrySlugs = map[string]struct{}{}
+		for _, s := range localSkills {
+			registrySlugs[s.Slug] = struct{}{}
+		}
+	}
+	return registrySlugs
+}
+
+// installAgentDocs runs the agent multi-select and installs SKILL.md into
+// the chosen dot-folders.
+func installAgentDocs(home, cwd, repo string, opts bootstrapOpts) error {
+	if opts.NoAgents {
+		fmt.Println("\nSkipping agent install (--no-agents).")
+		return nil
+	}
+	picked, err := selectAgents(opts.NonInteractive)
+	if err != nil {
+		return err
+	}
+	paths, err := bootstrap.InstallSkillMd(home, cwd, repo, picked)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\n%s installed skill-registry/SKILL.md into %d agent folder(s):\n",
+		tui.OkStyle.Render("✓"), len(paths))
+	for _, p := range paths {
+		fmt.Println("  ·", p)
+	}
+	return nil
+}
+
+// printWireUpSnippet prints the MCP JSON and Codex TOML snippets.
+func printWireUpSnippet(repo string) {
 	mcpBin, _ := locateMCPBinary()
 	fmt.Println("\n" + tui.TitleStyle.Render("Wire it up:"))
 	fmt.Println()
@@ -207,12 +232,10 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 	fmt.Println()
 	fmt.Println(tui.SubtitleStyle.Render("Codex (~/.codex/config.toml):"))
 	fmt.Println(bootstrap.CodexTOMLSnippet(mcpBin))
-
 	fmt.Println()
 	fmt.Printf("%s Your registry is live: %s\n",
-		tui.OkStyle.Render("✓"), repoURL(cfg.Repo))
+		tui.OkStyle.Render("✓"), repoURL(repo))
 	fmt.Println("\nDone.")
-	return nil
 }
 
 // repoURL returns the canonical https URL for a repo slug like "owner/name".
@@ -424,50 +447,14 @@ func promptRecreateRepo(nonInteractive bool) (bool, error) {
 }
 
 func promptAndCreateRepo(ctx context.Context, gh string, opts bootstrapOpts, localSkills []scan.Skill, defaultName string) (string, string, error) {
-	repoSlug := strings.TrimSpace(opts.Repo)
-	if repoSlug == "" {
-		seed := defaultName
-		if seed == "" {
-			seed = "skill-registry"
-		}
-		nameModel := tui.NewInput(
-			"Registry repo name",
-			"What should we name your skill registry repo on GitHub?",
-			seed,
-			seed,
-		)
-		nameModel.Help = "Enter just the name (no `owner/` prefix). Created on your authenticated user account."
-		out, err := tea.NewProgram(nameModel).Run()
-		if err != nil {
-			return "", "", err
-		}
-		final := out.(tui.InputModel)
-		if final.Cancelled() {
-			return "", "", fmt.Errorf("cancelled")
-		}
-		name := final.Value()
-		if name == "" {
-			name = "skill-registry"
-		}
-		repoSlug = name
+	repoSlug, err := promptRepoName(opts, defaultName)
+	if err != nil {
+		return "", "", err
 	}
 
-	visibility := opts.Visibility
-	if visibility == "" {
-		choices := []tui.Choice{
-			{Value: "private", Label: "Private", Hint: "Only you can see and clone (recommended)"},
-			{Value: "public", Label: "Public", Hint: "Visible to everyone"},
-		}
-		model := tui.NewChoice("Visibility", "Should your registry be public or private?", choices)
-		out, err := tea.NewProgram(model).Run()
-		if err != nil {
-			return "", "", err
-		}
-		final := out.(tui.ChoiceModel)
-		if final.Cancelled() || final.Value() == nil {
-			return "", "", fmt.Errorf("cancelled")
-		}
-		visibility = final.Value().(string)
+	visibility, err := promptVisibility(opts)
+	if err != nil {
+		return "", "", err
 	}
 
 	owner, err := lookupGitHubOwner(ctx, gh)
@@ -500,6 +487,61 @@ func promptAndCreateRepo(ctx context.Context, gh string, opts bootstrapOpts, loc
 		fullRepo = repo
 	}
 	return fullRepo, "main", nil
+}
+
+// promptRepoName asks the user for a repository name, or returns the
+// pre-configured value from opts.Repo.
+func promptRepoName(opts bootstrapOpts, defaultName string) (string, error) {
+	repoSlug := strings.TrimSpace(opts.Repo)
+	if repoSlug != "" {
+		return repoSlug, nil
+	}
+	seed := defaultName
+	if seed == "" {
+		seed = "skill-registry"
+	}
+	nameModel := tui.NewInput(
+		"Registry repo name",
+		"What should we name your skill registry repo on GitHub?",
+		seed,
+		seed,
+	)
+	nameModel.Help = "Enter just the name (no `owner/` prefix). Created on your authenticated user account."
+	out, err := tea.NewProgram(nameModel).Run()
+	if err != nil {
+		return "", err
+	}
+	final := out.(tui.InputModel)
+	if final.Cancelled() {
+		return "", fmt.Errorf("cancelled")
+	}
+	name := final.Value()
+	if name == "" {
+		name = "skill-registry"
+	}
+	return name, nil
+}
+
+// promptVisibility asks the user for repo visibility, or returns the
+// pre-configured value from opts.Visibility.
+func promptVisibility(opts bootstrapOpts) (string, error) {
+	if opts.Visibility != "" {
+		return opts.Visibility, nil
+	}
+	choices := []tui.Choice{
+		{Value: "private", Label: "Private", Hint: "Only you can see and clone (recommended)"},
+		{Value: "public", Label: "Public", Hint: "Visible to everyone"},
+	}
+	model := tui.NewChoice("Visibility", "Should your registry be public or private?", choices)
+	out, err := tea.NewProgram(model).Run()
+	if err != nil {
+		return "", err
+	}
+	final := out.(tui.ChoiceModel)
+	if final.Cancelled() || final.Value() == nil {
+		return "", fmt.Errorf("cancelled")
+	}
+	return final.Value().(string), nil
 }
 
 func lookupGitHubOwner(ctx context.Context, gh string) (string, error) {
