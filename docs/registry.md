@@ -119,19 +119,20 @@ Python parsing uses `tomllib` on 3.11+ and a tiny hand-rolled fallback on 3.10. 
 
 ## 6. The `skill-registry/SKILL.md` doc
 
-`skills_mcp/skill_md.py:render` produces a markdown file with frontmatter:
+`cli/internal/bootstrap/skillmd.go:SkillMd` produces a markdown file with frontmatter:
 
 ```yaml
 ---
 name: skill-registry
 description: |
-  Broker to your GitHub-hosted personal skill library at {repo}. ...
+  Broker to your GitHub-hosted personal skill library at {repo} via the
+  `skill-registry` CLI. ...
 ---
 ```
 
-…and a body that documents the three tools (MCP) plus the matching CLI commands. It's written into `<dot-dir>/skills/skill-registry/SKILL.md` for every agent target the user selects during bootstrap.
+…and a CLI-only body documenting `skill-registry list`, `skill-registry get`, and the publish commands. It's written into `<dot-dir>/skills/skill-registry/SKILL.md` for every agent target the user selects during bootstrap.
 
-The Go side mirrors the template in `cli/internal/bootstrap/skillmd.go:SkillMd`. Both implementations produce byte-for-byte identical output; future template changes need to land in both.
+This template is deliberately Go-only: the only consumer that needs it is the bootstrap flow (which is Go), so there's no Python copy to keep in sync.
 
 ---
 

@@ -90,8 +90,5 @@ func (m ChoiceModel) Value() any {
 	return m.Choices[m.cursor].Value
 }
 
-// Submitted reports whether the user pressed enter.
-func (m ChoiceModel) Submitted() bool { return m.submitted }
-
 // Cancelled reports whether the user pressed esc.
 func (m ChoiceModel) Cancelled() bool { return m.cancelled }

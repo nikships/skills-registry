@@ -15,7 +15,6 @@ type InputModel struct {
 	Input     textinput.Model
 	Validate  func(string) error
 	err       error
-	submitted bool
 	cancelled bool
 }
 
@@ -53,7 +52,6 @@ func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			m.submitted = true
 			return m, tea.Quit
 		}
 	}
@@ -87,9 +85,6 @@ func (m InputModel) View() string {
 
 // Value returns the trimmed input value.
 func (m InputModel) Value() string { return strings.TrimSpace(m.Input.Value()) }
-
-// Submitted reports whether the user pressed enter with a valid value.
-func (m InputModel) Submitted() bool { return m.submitted }
 
 // Cancelled reports whether the user pressed esc.
 func (m InputModel) Cancelled() bool { return m.cancelled }
