@@ -100,6 +100,40 @@ func TestEnter_IgnoresDoublePressWhileDownloading(t *testing.T) {
 	}
 }
 
+// Each row may only be downloaded once per session — pressing enter again
+// after the download finished is a no-op, regardless of outcome.
+func TestEnter_NoOpAfterTerminalStatus(t *testing.T) {
+	for _, st := range []struct {
+		name   string
+		status RowStatus
+	}{
+		{"done", StatusDone},
+		{"err", StatusErr},
+	} {
+		t.Run(st.name, func(t *testing.T) {
+			stub := &stubDownloader{dest: "/tmp/.agents/skills/foo_skill"}
+			m := readyModel(t, stub.fn())
+			m.rowState["foo_skill"] = st.status
+
+			got, cmd := m.Update(enterKey())
+			mm := got.(ListModel)
+
+			if mm.inflight != 0 {
+				t.Fatalf("inflight = %d, want 0", mm.inflight)
+			}
+			if cmd != nil {
+				t.Fatalf("expected nil cmd on enter after %s, got %T", st.name, cmd)
+			}
+			if mm.rowState["foo_skill"] != st.status {
+				t.Fatalf("rowState mutated to %v, want %v", mm.rowState["foo_skill"], st.status)
+			}
+			if len(stub.calls) != 0 {
+				t.Fatalf("downloader was called %d times, want 0", len(stub.calls))
+			}
+		})
+	}
+}
+
 func TestDownloadDoneMsg_Success(t *testing.T) {
 	stub := &stubDownloader{dest: "/tmp/.agents/skills/foo_skill"}
 	m := readyModel(t, stub.fn())

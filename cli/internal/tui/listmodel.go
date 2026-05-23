@@ -133,7 +133,10 @@ type ListModel struct {
 
 // NewList constructs a ready-to-run ListModel.
 //
-// `ctx` scopes any in-flight downloads (cancelled by the host program on quit).
+// `ctx` is the cobra command's context; it's threaded into each download so
+// the underlying `gh` subprocess is cancelled when the host process receives
+// a signal. Hitting `q` inside the TUI does *not* cancel ctx — bubbletea
+// returns to cobra cleanly and downloads run to completion.
 // `repo` is shown in the header chip (e.g. "owner/repo").
 // `loader` is invoked once after the spinner mounts. Pre-filter inside
 // the loader if you want a narrowed initial view.
@@ -205,9 +208,6 @@ func runLoader(loader RowLoader) tea.Cmd {
 }
 
 func startDownload(ctx context.Context, d Downloader, slug string) tea.Cmd {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	return func() tea.Msg {
 		dest, reused, err := d(ctx, slug)
 		return downloadDoneMsg{slug: slug, dest: dest, reused: reused, err: err}
@@ -341,7 +341,10 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.download == nil {
 					return m, nil
 				}
-				if m.rowState[it.Slug] == StatusDownloading {
+				// Any non-idle row is a no-op: already downloading (double-
+				// press), already downloaded this session, or previously
+				// failed (retry is out of scope for this feature).
+				if m.rowState[it.Slug] != StatusIdle {
 					return m, nil
 				}
 				m.rowState[it.Slug] = StatusDownloading
