@@ -40,43 +40,58 @@ func runList(ctx context.Context, query string, plain bool) error {
 	if err != nil {
 		return err
 	}
-	summaries, err := client.List(ctx)
-	if err != nil {
-		return err
-	}
-	if len(summaries) == 0 {
-		fmt.Println("No skills in", cfg.Repo)
-		return nil
-	}
 
 	if plain || !isTerminal() {
+		summaries, err := client.List(ctx)
+		if err != nil {
+			return err
+		}
+		if len(summaries) == 0 {
+			fmt.Println("No skills in", cfg.Repo)
+			return nil
+		}
 		printPlainList(cfg.Repo, summaries)
 		return nil
 	}
 
-	rows := make([]tui.SkillRow, 0, len(summaries))
-	for _, s := range summaries {
-		if query != "" && !strings.Contains(strings.ToLower(s.Slug+s.Name+s.Description), strings.ToLower(query)) {
-			continue
+	loader := func() ([]tui.SkillRow, error) {
+		summaries, err := client.List(ctx)
+		if err != nil {
+			return nil, err
 		}
-		rows = append(rows, tui.SkillRow{Slug: s.Slug, Name: s.Name, Desc: s.Description})
+		rows := make([]tui.SkillRow, 0, len(summaries))
+		needle := strings.ToLower(query)
+		for _, s := range summaries {
+			if needle != "" {
+				hay := strings.ToLower(s.Slug + " " + s.Name + " " + s.Description)
+				if !strings.Contains(hay, needle) {
+					continue
+				}
+			}
+			rows = append(rows, tui.SkillRow{Slug: s.Slug, Name: s.Name, Desc: s.Description})
+		}
+		return rows, nil
 	}
-	if len(rows) == 0 {
-		fmt.Printf("No skills matched %q.\n", query)
-		return nil
-	}
-	model := tui.NewList(cfg.Repo+" — skills", rows)
-	out, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
+
+	model := tui.NewList(cfg.Repo, loader)
+	out, err := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	).Run()
 	if err != nil {
 		return err
 	}
 	final := out.(tui.ListModel)
 	if final.Picked != nil {
 		fmt.Println()
-		fmt.Println(tui.TitleStyle.Render(final.Picked.Name + "  (" + final.Picked.Slug + ")"))
-		fmt.Println(final.Picked.Desc)
+		fmt.Println(tui.TitleStyle.Render("✦ " + final.Picked.Name + "  (" + final.Picked.Slug + ")"))
+		if final.Picked.Desc != "" {
+			fmt.Println(final.Picked.Desc)
+		}
 		fmt.Println()
-		fmt.Println(tui.HintStyle.Render("Download with: skill-registry get " + final.Picked.Slug))
+		fmt.Println(tui.HintStyle.Render("Download with: ") +
+			tui.OkStyle.Render("skill-registry get "+final.Picked.Slug))
 	}
 	return nil
 }
