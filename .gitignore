@@ -8,5 +8,10 @@ dist/
 build/
 *.egg-info/
 
+# Test coverage
+.coverage
+coverage.xml
+htmlcov/
+
 # Local env
 .env
