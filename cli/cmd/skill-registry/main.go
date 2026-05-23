@@ -138,14 +138,6 @@ func bareRouteDecision(isTTY bool, jsonMode bool, loadErr error) bareRoute {
 	}
 }
 
-// runWizard is the first-run onboarding entry point. F2.1 will replace
-// this with a full Bubble Tea alt-screen wizard; until then we shell
-// into the existing `bootstrap` flow so users without a config still
-// land on a working setup path.
-func runWizard(ctx context.Context) error {
-	return runBootstrap(ctx, bootstrapOpts{})
-}
-
 // runHub is the returning-user dashboard entry point. F3.1 will replace
 // this with a full Bubble Tea alt-screen hub; until then we shell into
 // the existing `list` TUI so the bare command still does something
