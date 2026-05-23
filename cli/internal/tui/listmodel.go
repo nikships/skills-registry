@@ -888,9 +888,9 @@ func newSkillDelegate(statusOf func(string) RowStatus) skillDelegate {
 	}
 }
 
-func (d skillDelegate) Height() int                               { return 2 }
-func (d skillDelegate) Spacing() int                              { return 1 }
-func (d skillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd   { return nil }
+func (d skillDelegate) Height() int                             { return 2 }
+func (d skillDelegate) Spacing() int                            { return 1 }
+func (d skillDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 
 func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	row, ok := item.(SkillRow)
@@ -930,10 +930,27 @@ func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	// Only render the right-side slug column when it adds information — i.e.
 	// when the slug isn't just the canonical Slugify(name). When they
 	// effectively match, the column is pure noise (the title already says it).
+	//
+	// Budget math has to be done with the slug in mind: leftLine is
+	//   bullet(3) + " "(1) + title(titleBudget) + badge(0 or 2)
+	// rightLine is
+	//   slug(slugBudget)
+	// plus at least one space of gap between them. Reserving 7 cells
+	// (4 for bullet+space, 2 for the badge slot, 1 for the gap) keeps the
+	// row inside the list width regardless of badge state, so a row doesn't
+	// reflow when a download badge appears.
 	showSlug := row.Slug != "" && row.Name != "" && !slugMatchesName(row.Slug, row.Name)
+	slugBudget := 0
 	titleBudget := width - 6
 	if showSlug {
-		titleBudget = width - 14
+		slugBudget = max(16, width/3)
+		if slugBudget > width-7 {
+			slugBudget = max(0, width-7)
+		}
+		titleBudget = width - slugBudget - 7
+		if titleBudget < 1 {
+			titleBudget = 1
+		}
 	}
 	titleText := truncate(row.Title(), titleBudget)
 	descText := truncate(strings.ReplaceAll(row.Desc, "\n", " "), width-6)
@@ -943,8 +960,8 @@ func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	// and the slug.
 	leftLine := bullet + " " + title.Render(titleText) + badge
 	line1 := leftLine
-	if showSlug {
-		slugText := truncate(row.Slug, max(16, width/3))
+	if showSlug && slugBudget > 0 {
+		slugText := truncate(row.Slug, slugBudget)
 		rightLine := slug.Render(slugText)
 		gap := width - lipgloss.Width(leftLine) - lipgloss.Width(rightLine)
 		if gap < 1 {

@@ -1074,8 +1074,15 @@ func parseFlatYAML(body []string) map[string]string {
 		key := strings.TrimSpace(k)
 		val := strings.TrimSpace(v)
 
-		if blockScalarMarkers[val] {
-			folded := strings.HasPrefix(val, ">")
+		// YAML allows an inline comment after the block-scalar indicator
+		// (e.g. "description: > # multi-line"). Compare against the first
+		// whitespace-separated token so the comment doesn't make us miss it.
+		head := val
+		if fields := strings.Fields(val); len(fields) > 0 {
+			head = fields[0]
+		}
+		if blockScalarMarkers[head] {
+			folded := strings.HasPrefix(head, ">")
 			var block []string
 			i++
 			for i < len(body) {

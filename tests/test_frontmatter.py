@@ -114,6 +114,22 @@ def test_block_scalar_marker_alone_not_stored_as_value() -> None:
 	assert "Some real description here." in meta["description"]
 
 
+def test_block_scalar_with_inline_comment() -> None:
+	# YAML lets you stick a comment on the indicator line itself. The
+	# previous version required an exact match against the marker set so a
+	# trailing comment hid the block from us.
+	text = (
+		"---\n"
+		"description: > # short label\n"
+		"  Real description here that spans\n"
+		"  multiple lines.\n"
+		"---\n"
+		"body"
+	)
+	meta, _ = parse_frontmatter(text)
+	assert meta["description"] == "Real description here that spans multiple lines."
+
+
 def test_block_scalar_followed_by_next_key() -> None:
 	text = "---\ndescription: >\n  Two-line\n  description.\nname: my-skill\n---\nbody"
 	meta, _ = parse_frontmatter(text)

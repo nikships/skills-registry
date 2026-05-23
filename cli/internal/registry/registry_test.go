@@ -645,6 +645,17 @@ func TestParseSummary_LiteralBlockScalar(t *testing.T) {
 	}
 }
 
+func TestParseSummary_InlineCommentAfterBlockMarker(t *testing.T) {
+	// YAML allows a trailing comment on the indicator line itself
+	// (``description: > # label``). The previous matcher required an exact
+	// match against the marker set and so silently dropped the block.
+	text := "---\ndescription: > # quick label\n  Real description here.\n  Spanning two lines.\n---\n"
+	_, desc := parseSummary(text, "x")
+	if desc != "Real description here. Spanning two lines." {
+		t.Fatalf("desc = %q", desc)
+	}
+}
+
 func TestParseSummary_RegressionMarkerNotStored(t *testing.T) {
 	// The old parser stored ">" / ">-" verbatim as the description; this
 	// regression test pins the new behavior.

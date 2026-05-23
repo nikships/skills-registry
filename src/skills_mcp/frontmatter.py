@@ -48,12 +48,18 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 		key = k.strip()
 		value_text = v.strip()
 
-		if value_text in _BLOCK_SCALAR_MARKERS:
+		# YAML allows an inline comment after the block-scalar indicator
+		# (e.g. ``description: > # multi-line``). Split on whitespace and
+		# match the first token so a trailing comment doesn't hide the
+		# marker from us.
+		parts = value_text.split()
+		head = parts[0] if parts else ""
+		if head in _BLOCK_SCALAR_MARKERS:
 			# Collect subsequent indented (or blank) lines as the block value.
 			# Indentation rules: any line indented past column 0 belongs to the
 			# block, blank lines are paragraph breaks. We stop at the first
 			# zero-indent non-blank line.
-			folded = value_text.startswith(">")
+			folded = head.startswith(">")
 			block_lines: list[str] = []
 			i += 1
 			while i < len(body_lines):

@@ -118,8 +118,10 @@ func printPlainList(repo string, summaries []registry.Summary) {
 		desc := s.Description
 		// Plain output is meant for piping; clip long descriptions so a
 		// `grep` consumer sees one entry per line without unexpected wraps.
-		if len(desc) > 80 {
-			desc = desc[:79] + "…"
+		// Slice on runes — not bytes — so a multi-byte UTF-8 char doesn't get
+		// cut in half and emit an invalid sequence to stdout.
+		if r := []rune(desc); len(r) > 80 {
+			desc = string(r[:79]) + "…"
 		}
 		fmt.Printf("  %s  %s\n", pad(s.Slug), desc)
 	}
