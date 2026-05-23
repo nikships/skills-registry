@@ -1,6 +1,8 @@
+<div align="center">
+
 # skills-mcp
 
-> Your AI skills, **in a GitHub repo you own**, fetched on demand. One command bootstraps the repo, installs a Go-powered TUI, and wires every MCP-compatible client into your personal skill registry. No more skills auto-loading into every agent's startup context.
+**One GitHub repo, every AI agent. Skills fetched on demand — not auto-loaded into every startup context.**
 
 [![CI](https://github.com/anand-92/skills-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anand-92/skills-mcp/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -8,91 +10,158 @@
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
 
-`skills-mcp` turns a single GitHub repository into your personal skill registry. Run one command and you get:
+<!-- TODO(maintainer): drop in a TUI screenshot or short GIF here. Suggestion: `skill-registry list` mid-fuzzy-filter, saved as docs/img/hero.png. -->
+<img src="docs/img/hero.png" alt="skill-registry TUI" width="720">
 
-1. A new private (or public) `skill-registry` repo on your GitHub account, pre-populated with every skill we found in your AI tool dot-folders.
-2. A Charmbracelet-powered Go TUI (`skill-registry`) for browsing, downloading, syncing, adding, and publishing skills.
-3. A FastMCP server (`skill-registry-mcp`) that exposes the registry to any MCP client through three tools: `list_skills`, `get_skill`, `publish_skill`.
-4. A generated `skill-registry/SKILL.md` installed into every AI tool dot-folder you select, teaching each agent how to fetch skills on demand instead of loading them all at startup.
+</div>
 
 ---
 
-## Why this redesign
+## What it does
 
-Every AI tool ships its own skills folder. Pre-loading 20+ skills into every agent's context window wastes tokens at startup. And the same skill ends up duplicated across `~/.claude/skills`, `~/.factory/skills`, `~/.cursor/skills`, …
+Your AI tools — Claude Code, Cursor, Codex, Goose, Windsurf, all of them — auto-load every skill you've installed into the agent's startup context. That's tokens you pay for whether the agent uses the skill or not.
 
-This version reverses the model:
+`skills-mcp` flips the model: skills live in **one GitHub repo you own**, and agents fetch them on demand through an MCP server. The only thing each agent auto-loads is a tiny pointer file that teaches it *how* to fetch the rest.
 
-- **Skills live in one GitHub repo** you own — single source of truth, versioned, sharable.
-- **Agents fetch on demand** via MCP tools (or CLI) rather than auto-loading.
-- **One tiny `SKILL.md` per agent** is the only thing that auto-loads; it teaches the agent to discover and fetch the rest.
+**You get:**
+
+- 🪶 **Lighter agent startup.** A directory of `SKILL.md` files no longer balloons every conversation's context window. Agents pull what they need, when they need it.
+- 🏠 **One home for your skills.** No more keeping `~/.claude/skills`, `~/.cursor/skills`, and `~/.factory/skills` in sync by hand. Edit once, every agent sees it.
+- 🚀 **Share and version like code.** Your registry is a Git repo. Branch it, PR it, fork your teammate's, restore old versions, the works.
+
+---
+
+## What's a "skill"?
+
+A skill is a folder containing a `SKILL.md` (Markdown with optional YAML frontmatter) plus any supporting files the agent might need.
+
+```markdown
+---
+name: PDF Processing
+description: Extract and summarize PDF documents
+---
+
+# PDF Processing
+
+When the user asks about a PDF, do the following:
+1. Read the file with the pdf-text tool
+2. Summarize section by section
+...
+```
+
+That's it — one file, plus whatever reference docs or examples the agent should be able to see. Most modern AI coding tools already understand this format; `skills-mcp` lets you keep them all in one place.
 
 ---
 
 ## Quick start
 
-You need [GitHub CLI](https://cli.github.com/) authenticated (`gh auth status` should succeed).
+> **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` should succeed) and [uv](https://github.com/astral-sh/uv) (`pipx install uv` if you don't have it).
 
 ```bash
-# Install + bootstrap in one command:
 uvx skills-mcp init
 ```
 
-What happens:
+That's the whole install. The bootstrap will:
 
-```mermaid
-flowchart TD
-  A[uvx skills-mcp init] --> B{gh authed?}
-  B -- no --> X[show install/auth steps, exit]
-  B -- yes --> C[install skill-registry-mcp]
-  C --> D[download skill-registry Go binary]
-  D --> E[exec skill-registry bootstrap]
-  E --> F[scan dot-folders for skills]
-  F --> G[prompt: repo name + visibility]
-  G --> H[gh repo create + push all skills]
-  H --> I[multi-select agent install targets]
-  I --> J[write SKILL.md to each]
-  J --> K[print MCP JSON snippet]
-```
+1. Scan your AI tool dot-folders for existing skills.
+2. Prompt you for a registry repo name + visibility.
+3. Create the GitHub repo and push every skill it found.
+4. Ask which agents to wire up (multi-select TUI).
+5. Print the MCP config snippet to paste into your client.
 
-After it finishes, paste the printed MCP JSON into your client of choice and you're done.
+<!-- TODO(maintainer): capture an asciinema of the bootstrap end-to-end and embed/link here. -->
+
+After it finishes, paste the printed JSON into your MCP client config, reload, and ask your agent something like:
+
+> *"What skills do I have available?"*
+> *"Get the `code-review` skill and use it on this PR."*
+
+The agent calls `list_skills` and `get_skill` automatically — you never touch the MCP tools directly.
 
 ---
 
-## The Go CLI: `skill-registry`
+## Daily use
 
-Everything you need day-to-day lives in this binary. Built with Charmbracelet (Bubble Tea + Lip Gloss + Bubbles).
+Once you're set up, everything lives in the `skill-registry` TUI:
 
-| Command | What it does |
+| What you want | Command |
 |---|---|
-| `skill-registry list` | Fuzzy-filterable list of every skill in the registry. Enter shows the description. |
-| `skill-registry get <slug>` | Downloads a skill into `./skill-registry/<slug>/` (or `--dest`). |
-| `skill-registry sync` | Scans your dot-folders, multi-selects which skills aren't yet in the registry, pushes them. |
-| `skill-registry add <source>` | `<source>` = local path, `owner/repo`, or git URL. Clones, multi-selects, pushes to **registry** (not local). |
-| `skill-registry publish <path>` | Publishes one local skill folder. |
-| `skill-registry bootstrap` | The same flow `skills-mcp init` runs. Safe to re-run. |
+| Browse what's in your registry | `skill-registry list` |
+| Pull one skill into the current folder | `skill-registry get <slug>` |
+| Push skills sitting in `.claude/skills` etc. into the registry | `skill-registry sync` |
+| Pull a skill from someone else's repo into yours | `skill-registry add <owner/repo>` |
+| Publish a new skill from a local folder | `skill-registry publish <path>` |
+| Re-run the bootstrap (idempotent) | `skill-registry bootstrap` |
+
+<!-- TODO(maintainer): drop a short GIF of `skill-registry sync` here — the multi-select TUI sells the experience. -->
+<img src="docs/img/sync.gif" alt="skill-registry sync" width="640">
+
+Most users only ever touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search and Enter to preview.
 
 ---
 
-## The MCP server: `skill-registry-mcp`
+## vs. the alternatives
 
-Three tools, designed for desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) whose process environment doesn't inherit your shell `PATH`:
-
-| Tool | Behavior |
-|---|---|
-| `list_skills` | Returns a markdown table of every skill (slug, name, description). |
-| `get_skill(slug)` | Downloads the skill into a local cache (`~/.cache/skills-mcp/skills/<slug>/`) and returns the absolute path. Cache is keyed on the registry's tree SHA so repeat calls are free. |
-| `publish_skill(name, files \| local_folder)` | Atomically replaces `<slug>/` in the registry via the Git Data API (no `git` binary, no SSH agent). Retries on non-fast-forward. |
-
-It locates `gh` itself (PATH first, then `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`) so it Just Works in GUI launchers.
+|  | Local dot-folders | Dotfiles repo | **skills-mcp** |
+|---|:---:|:---:|:---:|
+| One home for all your agents | ❌ duplicated | ✅ | ✅ |
+| Fetched on demand (no startup tokens) | ❌ | ❌ | ✅ |
+| Versioned + branchable | ❌ | ✅ | ✅ |
+| Works in every MCP client | partial | ❌ | ✅ |
+| Share / fork between users | ❌ | clunky | ✅ (just clone the repo) |
+| No shell or SSH config needed | ✅ | ❌ | ✅ |
 
 ---
 
-## How to configure clients
+## Configuration
 
-`skills-mcp init` prints platform-correct JSON, but here are the canonical forms:
+Most people never touch these — `skills-mcp init` sets up sensible defaults. Override them via your shell or MCP client environment when you need to:
 
-### Claude Code / Claude Desktop / Cursor / VS Code (`mcp.json`)
+| Variable | Default | What it does |
+|---|---|---|
+| `SKILLS_REGISTRY` | (from config) | Point at a different registry for one command: `owner/repo` or `owner/repo@branch`. Great for browsing a teammate's. |
+| `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` if something's misbehaving. |
+| `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
+
+The registry repo URL itself is stored in `~/.config/skills-mcp/registry.toml`.
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>"gh not found" or exit code 3</strong></summary>
+
+Install GitHub CLI from <https://cli.github.com/> and run `gh auth login`. `skills-mcp` deliberately uses `gh` for every GitHub call — no SSH key shenanigans, no `git config user.email` required — so it has to be on your `PATH` (or in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`).
+</details>
+
+<details>
+<summary><strong>"No registry configured"</strong></summary>
+
+You haven't run `skills-mcp init` yet, or your config file at `~/.config/skills-mcp/registry.toml` is missing. Run `skills-mcp init`, or set `SKILLS_REGISTRY=owner/repo` directly.
+</details>
+
+<details>
+<summary><strong>The MCP server doesn't show up in my client</strong></summary>
+
+Make sure you pasted the JSON snippet `skills-mcp init` printed (the absolute path to `skill-registry-mcp` matters — desktop MCP clients don't inherit your shell `PATH`). Then fully restart the client (not just reload).
+</details>
+
+<details>
+<summary><strong>Multiple GitHub accounts</strong></summary>
+
+`skills-mcp` uses whichever account `gh auth status` says is active. Use `gh auth switch` before `init` to pick the right one.
+</details>
+
+---
+
+## Manual MCP client config
+
+`skills-mcp init` prints platform-correct JSON, but if you prefer to set it up by hand:
+
+<details>
+<summary>Claude Code / Claude Desktop / Cursor / VS Code (<code>mcp.json</code>)</summary>
+
 ```json
 {
   "mcpServers": {
@@ -102,63 +171,33 @@ It locates `gh` itself (PATH first, then `~/.local/bin`, `/opt/homebrew/bin`, `/
   }
 }
 ```
+</details>
 
-### Codex (`~/.codex/config.toml`)
+<details>
+<summary>Codex (<code>~/.codex/config.toml</code>)</summary>
+
 ```toml
 [mcp_servers.skill-registry]
 command = "/Users/you/.local/bin/skill-registry-mcp"
 ```
-
-The registry repo URL is stored in `~/.config/skills-mcp/registry.toml` (override per-process via `SKILLS_REGISTRY=owner/repo[@branch]`).
-
----
-
-## Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `SKILLS_REGISTRY` | (from config file) | `owner/repo` or `owner/repo@branch`. Overrides the on-disk config for one process. |
-| `XDG_CONFIG_HOME` | `~/.config` | Where `registry.toml` lives. |
-| `XDG_CACHE_HOME` | `~/.cache` | Where `get_skill` caches downloads. |
-| `SKILLS_BIN_DIR` | `~/.local/bin` | Where `skills-mcp init` installs the Go binary. |
-| `SKILLS_CLI_REPO` | `anand-92/skills-mcp` | GitHub repo to download CLI releases from. |
-| `SKILLS_MAX_FILE_BYTES` | `2097152` | Per-file size limit for `publish_skill`. |
-| `SKILLS_LOG_LEVEL` | `INFO` | Log level for the MCP server. |
+</details>
 
 ---
 
-## Security
+## Project status
 
-- The MCP server **never shells out to `git`** — all writes go through the GitHub Git Data API via authenticated `gh api` calls. This sidesteps missing SSH agents, missing `user.email`, and credential helper drama in GUI MCP clients.
-- `gh` authentication is the only trust anchor. If `gh auth status` fails, every command exits before touching the network.
-- `publish_skill` rejects paths with `..` segments and skips hidden files (`.DS_Store`, `.git`, `__pycache__`).
-- The Go CLI uses identical logic for parity.
+`skills-mcp` is at **v0.4** — usable day-to-day but pre-1.0. The MCP tool surface (`list_skills`, `get_skill`, `publish_skill`) is stable. The CLI commands are stable. Internals may shift between minor versions; pin to a specific version if that worries you.
 
----
-
-## Development
-
-```bash
-git clone https://github.com/anand-92/skills-mcp
-cd skills-mcp
-
-# Python
-uv sync --group dev
-uv run pytest -v --cov=skills_mcp --cov-report=term-missing
-uv run ruff check .
-uv run ruff format --check .
-
-# Go CLI
-cd cli
-go build ./...
-go test ./...
-go vet ./...
-```
-
-See [`docs/registry.md`](docs/registry.md) for a deep dive into the architecture, and [`AGENTS.md`](AGENTS.md) for contributor notes.
+Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-mcp/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
-## License
+## More
 
-[Apache-2.0](LICENSE) © anand-92
+- 📖 [`docs/registry.md`](docs/registry.md) — architecture deep dive (Git Data API, caching, atomic publish)
+- 🛡️ [`SECURITY.md`](SECURITY.md) — threat model and reporting
+- 🤖 [`AGENTS.md`](AGENTS.md) — contributor notes for AI assistants working in this repo
+
+---
+
+[Apache-2.0](LICENSE) · made by [@anand-92](https://github.com/anand-92)
