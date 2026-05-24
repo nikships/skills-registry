@@ -2,7 +2,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -136,12 +135,4 @@ func bareRouteDecision(isTTY bool, jsonMode bool, loadErr error) bareRoute {
 	default:
 		return bareRouteHub
 	}
-}
-
-// runHub is the returning-user dashboard entry point. F3.1 will replace
-// this with a full Bubble Tea alt-screen hub; until then we shell into
-// the existing `list` TUI so the bare command still does something
-// useful when a registry is already configured.
-func runHub(ctx context.Context) error {
-	return runList(ctx, "", false)
 }

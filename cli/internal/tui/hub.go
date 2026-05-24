@@ -1,0 +1,310 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// HubModel — the F3.1 dashboard for returning users
+//
+// The hub is launched whenever `skill-registry` is invoked without a
+// subcommand AND a registry is already configured. It's an alt-screen
+// Bubble Tea model so it can render the same hero chrome as the list /
+// wizard TUIs.
+//
+// F3.1 (this file) builds the frame: animated header, responsive card
+// grid, footer. The launcher reads HubModel.Selection() after the model
+// quits and dispatches to the matching subcommand. F3.2 will wire each
+// HubAction* branch into the real subcommand implementations.
+// ────────────────────────────────────────────────────────────────────────────
+
+// Hub action IDs. Each constant matches one tile in the default card grid
+// and is the value HubModel.Selection() returns when the user picks that
+// tile. Callers should compare against these constants rather than
+// hard-coded strings.
+const (
+	HubActionBrowse   = "browse"
+	HubActionSync     = "sync"
+	HubActionAdd      = "add"
+	HubActionPublish  = "publish"
+	HubActionRemove   = "remove"
+	HubActionSettings = "settings"
+)
+
+// DefaultHubCards returns the six tiles the dashboard ships with.
+// Exposed so the launcher can render the same labels in non-TUI fallback
+// paths and tests can reference the same data the production view does.
+func DefaultHubCards() []HubCard {
+	return []HubCard{
+		{
+			ID:          HubActionBrowse,
+			Icon:        "📚",
+			Title:       "Browse",
+			Description: "Fuzzy-search every skill in the registry and download what you need.",
+		},
+		{
+			ID:          HubActionSync,
+			Icon:        "🔄",
+			Title:       "Sync",
+			Description: "Push any new local skills up to the registry in one batch.",
+		},
+		{
+			ID:          HubActionAdd,
+			Icon:        "➕",
+			Title:       "Add",
+			Description: "Clone a remote source and multi-select which skills to publish.",
+		},
+		{
+			ID:          HubActionPublish,
+			Icon:        "📤",
+			Title:       "Publish",
+			Description: "Upload a single local skill folder to the registry.",
+		},
+		{
+			ID:          HubActionRemove,
+			Icon:        "🗑",
+			Title:       "Remove",
+			Description: "Delete a skill from the registry by slug.",
+		},
+		{
+			ID:          HubActionSettings,
+			Icon:        "⚙",
+			Title:       "Settings",
+			Description: "Inspect or edit your repo, branch, cache, and MCP wiring.",
+		},
+	}
+}
+
+// HubCountLoader fetches the number of skills in the registry. Invoked
+// once on Init(); the result arrives as a hubCountMsg.
+type HubCountLoader func(ctx context.Context) (int, error)
+
+// hubCountMsg is the terminal signal from the count loader goroutine.
+type hubCountMsg struct {
+	count int
+	err   error
+}
+
+// HubModel is the alt-screen dashboard model.
+type HubModel struct {
+	ctx    context.Context
+	repo   string
+	loader HubCountLoader
+
+	width, height int
+	spinner       spinner.Model
+	sparkleIdx    int
+
+	grid CardGrid
+
+	countLoaded bool
+	count       int
+	countErr    error
+
+	// Final state inspected by the launcher after tea.Quit returns.
+	selection string
+	quit      bool
+}
+
+// NewHub builds a HubModel with the given repo slug and async count loader.
+// A nil loader is treated as "skill count unavailable" — the header just
+// shows the repo and a muted hint, no spinner.
+func NewHub(ctx context.Context, repo string, loader HubCountLoader) HubModel {
+	sp := spinner.New()
+	sp.Spinner = spinner.Points
+	sp.Style = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
+	m := HubModel{
+		ctx:     ctx,
+		repo:    repo,
+		loader:  loader,
+		spinner: sp,
+		grid:    NewCardGrid(DefaultHubCards()),
+	}
+	// Without a loader there's nothing to count — surface that on the
+	// first frame so the header doesn't spin forever.
+	if loader == nil {
+		m.countLoaded = true
+	}
+	return m
+}
+
+// Selection returns the ID of the card the user chose, or "" if the user
+// quit without selecting. The launcher dispatches off this value.
+func (m HubModel) Selection() string { return m.selection }
+
+// Quit reports whether the user explicitly chose to exit (q / esc /
+// ctrl+c) without selecting a card.
+func (m HubModel) Quit() bool { return m.quit }
+
+// Init implements tea.Model. Kicks off the persistent sparkle / spinner
+// animations and, when wired, fires the skill-count loader.
+func (m HubModel) Init() tea.Cmd {
+	cmds := []tea.Cmd{sparkleTick(), m.spinner.Tick}
+	if m.loader != nil {
+		cmds = append(cmds, runHubCountLoader(m.ctx, m.loader))
+	}
+	return tea.Batch(cmds...)
+}
+
+// runHubCountLoader fires the loader in a goroutine and posts the result
+// back to the model. Errors land in countErr; the header surfaces a
+// muted "unavailable" caption rather than failing the whole TUI.
+func runHubCountLoader(ctx context.Context, loader HubCountLoader) tea.Cmd {
+	return func() tea.Msg {
+		n, err := loader(ctx)
+		return hubCountMsg{count: n, err: err}
+	}
+}
+
+// Update implements tea.Model.
+func (m HubModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		return m, nil
+	case sparkleTickMsg:
+		m.sparkleIdx++
+		return m, sparkleTick()
+	case spinner.TickMsg:
+		return m.handleSpinnerTick(msg)
+	case hubCountMsg:
+		m.countLoaded = true
+		m.count = msg.count
+		m.countErr = msg.err
+		return m, nil
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+// handleSpinnerTick keeps the spinner glyph animating until the skill
+// count arrives. Idle ticks would burn CPU for no visible gain.
+func (m HubModel) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
+	if m.countLoaded {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.spinner, cmd = m.spinner.Update(msg)
+	return m, cmd
+}
+
+// handleKey routes navigation, selection, and quit keys. Arrow keys and
+// the matching hjkl bindings walk the grid; enter locks in the focused
+// card; q / esc / ctrl+c exit without a selection.
+func (m HubModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cols := m.grid.Cols(m.width)
+	switch msg.String() {
+	case "ctrl+c", "q", "esc":
+		m.quit = true
+		return m, tea.Quit
+	case "left", "h":
+		m.grid = m.grid.Move("left", cols)
+	case "right", "l":
+		m.grid = m.grid.Move("right", cols)
+	case "up", "k":
+		m.grid = m.grid.Move("up", cols)
+	case "down", "j":
+		m.grid = m.grid.Move("down", cols)
+	case "enter":
+		m.selection = m.grid.Selected().ID
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// View implements tea.Model.
+func (m HubModel) View() string {
+	header := m.renderHeader()
+	footer := m.renderFooter()
+	body := m.grid.Render(m.bodyWidth())
+	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+}
+
+// bodyWidth returns the width available to the card grid. Reserves 2
+// cols so the grid doesn't sit flush against the terminal edge.
+func (m HubModel) bodyWidth() int {
+	if m.width <= 4 {
+		return 40
+	}
+	return m.width - 2
+}
+
+// renderHeader builds the top line: sparkle-bracketed hero on the left,
+// repo chip + skill count on the right, gap-filled so the right cluster
+// pins to the edge.
+func (m HubModel) renderHeader() string {
+	hero := lipgloss.JoinHorizontal(lipgloss.Top,
+		SparkleStyle.Render("✦"),
+		" ",
+		HeroStyle.Render("Skills Registry · Hub"),
+		" ",
+		SparkleStyle.Render("✧"),
+	)
+	right := m.renderHeaderRight()
+	gap := m.width - lipgloss.Width(hero) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, hero, strings.Repeat(" ", gap), right)
+}
+
+// renderHeaderRight renders the skill-count + repo cluster shown on the
+// right side of the header.
+func (m HubModel) renderHeaderRight() string {
+	repoChip := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).Render(m.repo)
+	sep := KeySepStyle.Render("  ·  ")
+	return lipgloss.JoinHorizontal(lipgloss.Top, m.renderCount(), sep, repoChip)
+}
+
+// renderCount returns the skill-count chip. While the loader is in
+// flight we surface a spinner + "counting…" caption; on success we
+// render "<N> skills"; on error we drop to a muted "unavailable" hint
+// so a transient network failure doesn't dominate the header.
+func (m HubModel) renderCount() string {
+	if !m.countLoaded {
+		return lipgloss.JoinHorizontal(lipgloss.Top,
+			m.spinner.View(),
+			lipgloss.NewStyle().Foreground(ColMuted).Render(" counting skills…"),
+		)
+	}
+	if m.countErr != nil {
+		return lipgloss.NewStyle().Foreground(ColPeach).Italic(true).
+			Render("· skill count unavailable")
+	}
+	noun := "skills"
+	if m.count == 1 {
+		noun = "skill"
+	}
+	return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
+		Render(fmt.Sprintf("%d %s", m.count, noun))
+}
+
+// renderFooter renders the keybinding hints + animated dots.
+func (m HubModel) renderFooter() string {
+	keys := []struct{ k, d string }{
+		{"←/→/↑/↓", "navigate"},
+		{"enter", "select"},
+		{"q", "quit"},
+	}
+	parts := make([]string, 0, len(keys)*3)
+	for i, kv := range keys {
+		if i > 0 {
+			parts = append(parts, KeySepStyle.Render(" · "))
+		}
+		parts = append(parts, KeyStyle.Render(kv.k), " ", KeyDescStyle.Render(kv.d))
+	}
+	left := strings.Join(parts, "")
+	right := SubtitleStyle.Render(animationDots(m.sparkleIdx))
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+}
