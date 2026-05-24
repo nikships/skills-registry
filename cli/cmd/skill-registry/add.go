@@ -13,10 +13,22 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anand-92/skills-registry/cli/internal/config"
+	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/scan"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
+
+// addJSONResult is the payload emitted by `add --json [--yes]`.
+// Mirrors syncJSONResult so an agent driving both commands sees a
+// consistent {pushed, skipped} shape. `skipped` carries slugs that
+// were discovered inside the source but already exist in the registry
+// (the safe "no-op" path) so the consumer can decide whether to flag
+// drift.
+type addJSONResult struct {
+	Pushed  []string `json:"pushed"`
+	Skipped []string `json:"skipped"`
+}
 
 var ghShorthandRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
@@ -33,12 +45,81 @@ you multi-select what to publish, and pushes the selected skills to your
 GitHub registry repo — not your local folder.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAdd(cmd.Context(), args[0], yes, all)
+			if jsonout.Enabled() {
+				cmd.SilenceErrors = true
+				return runAddJSON(cmd.Context(), args[0])
+			}
+			return runAdd(cmd.Context(), args[0], yes || shouldAutoYes(), all)
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt.")
 	cmd.Flags().BoolVar(&all, "all", false, "Publish every skill found in the source.")
 	return cmd
+}
+
+// runAddJSON is the --json code path: skips the multi-select prompt,
+// publishes every SKILL.md found in the resolved source that isn't
+// already in the registry, and emits {pushed, skipped}. Failures
+// surface as {"error": "..."} + a non-zero exit.
+func runAddJSON(ctx context.Context, source string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	dir, cleanup, err := resolveSource(source)
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	defer cleanup()
+	skills, err := scan.Discover([]scan.Source{{Path: dir, Label: source}})
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	if len(skills) == 0 {
+		err := fmt.Errorf("no SKILL.md files found under %s", source)
+		jsonout.PrintError(err)
+		return err
+	}
+	existing, err := client.Slugs(ctx)
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	var pushed, skipped []string
+	for _, sk := range skills {
+		if _, dup := existing[sk.Slug]; dup {
+			skipped = append(skipped, sk.Slug)
+			continue
+		}
+		files := map[string][]byte{}
+		if err := walkSkillIntoFiles(sk, files); err != nil {
+			jsonout.PrintError(err)
+			return err
+		}
+		bySlug := rekeyBySlug(sk.Slug, files)
+		msg := fmt.Sprintf("add: %s (from %s)", sk.Slug, source)
+		if _, err := client.Publish(ctx, sk.Slug, bySlug, msg); err != nil {
+			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
+			jsonout.PrintError(err)
+			return err
+		}
+		pushed = append(pushed, sk.Slug)
+	}
+	if pushed == nil {
+		pushed = []string{}
+	}
+	if skipped == nil {
+		skipped = []string{}
+	}
+	return jsonout.Print(addJSONResult{Pushed: pushed, Skipped: skipped})
 }
 
 func runAdd(ctx context.Context, source string, yes, all bool) error {
@@ -163,7 +244,9 @@ func resolveSource(source string) (string, func(), error) {
 		return "", noopCleanup, err
 	}
 	cleanup := func() { _ = os.RemoveAll(tmp) }
-	fmt.Println(tui.HintStyle.Render("cloning " + url + " …"))
+	if !jsonout.Enabled() {
+		fmt.Println(tui.HintStyle.Render("cloning " + url + " …"))
+	}
 	cmd := exec.Command("git", "clone", "--depth", "1", "--single-branch", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()

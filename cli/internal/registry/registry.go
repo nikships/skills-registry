@@ -225,6 +225,125 @@ func (c *Client) downloadRecursive(ctx context.Context, repoPath, destDir string
 	return nil
 }
 
+// ErrSlugNotFound is returned by Delete when the requested slug doesn't
+// exist in the registry. Callers (e.g. the `remove` subcommand) treat
+// this as a clean exit-1 condition rather than a generic API failure.
+var ErrSlugNotFound = errors.New("slug not found in registry")
+
+// Delete atomically removes the entire <slug>/ subtree from the
+// registry. Returns the new commit SHA, or ErrSlugNotFound if the slug
+// has no files in the current tree. Retries on 409/422 with the same
+// exponential backoff Publish uses.
+//
+// The Git Data API call sequence mirrors Publish (so writers and
+// deleters can't race their way into a corrupt tree):
+//
+//	GET  refs/heads/<branch>             → parent SHA
+//	GET  commits/<parent>                → base tree SHA
+//	GET  trees/<base>?recursive=1        → list blobs under <slug>/
+//	POST trees (base_tree + null SHAs)   → new tree without those blobs
+//	POST commits (msg, tree, parents)    → new commit
+//	PATCH refs/heads/<branch>            → fast-forward ref
+func (c *Client) Delete(ctx context.Context, slug string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < c.MaxRetries; attempt++ {
+		sha, err := c.deleteOnce(ctx, slug)
+		if err == nil {
+			return sha, nil
+		}
+		if errors.Is(err, ErrSlugNotFound) {
+			return "", err
+		}
+		if !isStatus(err, 409) && !isStatus(err, 422) {
+			return "", err
+		}
+		lastErr = err
+		delay := time.Duration(c.RetryBaseS*float64(int(1)<<attempt)*1000) * time.Millisecond
+		time.Sleep(delay)
+	}
+	return "", fmt.Errorf("delete %q: conflict after %d retries: %w", slug, c.MaxRetries, lastErr)
+}
+
+func (c *Client) deleteOnce(ctx context.Context, slug string) (string, error) {
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/ref/heads/%s", c.Repo, c.DefaultBranch), &ref); err != nil {
+		return "", err
+	}
+	parentSHA := ref.Object.SHA
+
+	var commit struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/commits/%s", c.Repo, parentSHA), &commit); err != nil {
+		return "", err
+	}
+	baseTreeSHA := commit.Tree.SHA
+
+	previous, err := c.listTreePaths(ctx, baseTreeSHA, slug)
+	if err != nil {
+		return "", err
+	}
+	if len(previous) == 0 {
+		return "", ErrSlugNotFound
+	}
+
+	// Deterministic ordering keeps the resulting tree payload identical
+	// across runs — matters for testability and for any caller that
+	// hashes the request body.
+	staleKeys := make([]string, 0, len(previous))
+	for k := range previous {
+		staleKeys = append(staleKeys, k)
+	}
+	sort.Strings(staleKeys)
+	entries := make([]treeEntry, 0, len(staleKeys))
+	for _, stale := range staleKeys {
+		entries = append(entries, treeEntry{
+			Path: slug + "/" + stale,
+			Mode: "100644",
+			Type: "blob",
+			SHA:  nil,
+		})
+	}
+
+	treePayload, _ := json.Marshal(map[string]any{
+		"base_tree": baseTreeSHA,
+		"tree":      entries,
+	})
+	var newTree struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/trees", c.Repo), treePayload, &newTree); err != nil {
+		return "", err
+	}
+
+	commitPayload, _ := json.Marshal(map[string]any{
+		"message": "remove: " + slug,
+		"tree":    newTree.SHA,
+		"parents": []string{parentSHA},
+	})
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/commits", c.Repo), commitPayload, &newCommit); err != nil {
+		return "", err
+	}
+
+	refPayload, _ := json.Marshal(map[string]any{
+		"sha":   newCommit.SHA,
+		"force": false,
+	})
+	if err := c.patchJSON(ctx, fmt.Sprintf("repos/%s/git/refs/heads/%s", c.Repo, c.DefaultBranch), refPayload, nil); err != nil {
+		return "", err
+	}
+	return newCommit.SHA, nil
+}
+
 // Publish atomically replaces <slug>/ with files (path → bytes).
 // Returns the new commit SHA. Retries on 409/422 (non-fast-forward).
 func (c *Client) Publish(ctx context.Context, slug string, files map[string][]byte, message string) (string, error) {

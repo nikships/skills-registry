@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -696,5 +697,234 @@ func TestPushTreeViaGitGitMissing(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "git ") {
 		t.Fatalf("expected error from git subprocess, got: %v", err)
+	}
+}
+
+// TestDeleteRemovesSubtree exercises the happy path: ref → commit → tree
+// lookup discovers two blobs under code-review/, the resulting POST tree
+// payload carries null SHAs for both, and the new commit SHA is returned.
+func TestDeleteRemovesSubtree(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+		{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+		{
+			"key": "GET repos/x/y/git/trees/base?recursive=1",
+			"body": map[string]any{"tree": []any{
+				map[string]any{"path": "code-review/SKILL.md", "type": "blob"},
+				map[string]any{"path": "code-review/resources/extra.md", "type": "blob"},
+				map[string]any{"path": "other-skill/SKILL.md", "type": "blob"},
+			}},
+		},
+		{"key": "POST repos/x/y/git/trees", "body": map[string]any{"sha": "new-tree"}},
+		{"key": "POST repos/x/y/git/commits", "body": map[string]any{"sha": "new-commit"}},
+		{"key": "PATCH repos/x/y/git/refs/heads/main", "body": map[string]any{"object": map[string]any{"sha": "new-commit"}}},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+	sha, err := c.Delete(context.Background(), "code-review")
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if sha != "new-commit" {
+		t.Fatalf("Delete returned sha = %q, want new-commit", sha)
+	}
+}
+
+// TestDeleteReturnsNotFoundOnMissingSlug verifies the contract that
+// callers (notably `skill-registry remove`) use to drive the exit-1
+// "slug not found" path: when the recursive tree listing returns no
+// blobs under <slug>/, Delete must return ErrSlugNotFound and skip the
+// commit/ref-update calls entirely.
+func TestDeleteReturnsNotFoundOnMissingSlug(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+		{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+		{
+			"key": "GET repos/x/y/git/trees/base?recursive=1",
+			"body": map[string]any{"tree": []any{
+				map[string]any{"path": "other-skill/SKILL.md", "type": "blob"},
+			}},
+		},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+	_, err := c.Delete(context.Background(), "missing-slug")
+	if err == nil {
+		t.Fatal("expected ErrSlugNotFound, got nil")
+	}
+	if !errors.Is(err, ErrSlugNotFound) {
+		t.Fatalf("expected ErrSlugNotFound, got %v", err)
+	}
+}
+
+// TestDeleteRetriesOnConflict mirrors TestPublishRetriesOnConflict: a
+// 422 from the ref update on the first attempt must trigger a retry
+// against freshly-fetched HEAD on the second pass.
+func TestDeleteRetriesOnConflict(t *testing.T) {
+	makeRound := func(commitSHA string, conflict bool) []map[string]any {
+		patchBody := map[string]any{"object": map[string]any{"sha": commitSHA}}
+		exit := 0
+		var bodyValue any = patchBody
+		if conflict {
+			bodyValue = "HTTP 422: non-fast-forward"
+			exit = 1
+		}
+		return []map[string]any{
+			{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+			{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+			{
+				"key": "GET repos/x/y/git/trees/base?recursive=1",
+				"body": map[string]any{"tree": []any{
+					map[string]any{"path": "code-review/SKILL.md", "type": "blob"},
+				}},
+			},
+			{"key": "POST repos/x/y/git/trees", "body": map[string]any{"sha": "new-tree"}},
+			{"key": "POST repos/x/y/git/commits", "body": map[string]any{"sha": commitSHA}},
+			{"key": "PATCH repos/x/y/git/refs/heads/main", "body": bodyValue, "exit": exit},
+		}
+	}
+	entries := append(makeRound("c1", true), makeRound("c2", false)...)
+	bin, _ := stubGH(t, entries)
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+	start := time.Now()
+	sha, err := c.Delete(context.Background(), "code-review")
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if sha != "c2" {
+		t.Fatalf("Delete returned sha = %q after retry, want c2", sha)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("retry should be quick when RetryBaseS=0")
+	}
+}
+
+// TestDeleteSurfacesUnexpectedErrors verifies that non-409/422 failures
+// propagate immediately without retries. A 500 from the GET ref call
+// has nothing to do with concurrent writers; retrying would just stall
+// the user with a stuck progress indicator.
+func TestDeleteSurfacesUnexpectedErrors(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": "HTTP 500: server unavailable", "exit": 1},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+	_, err := c.Delete(context.Background(), "code-review")
+	if err == nil {
+		t.Fatal("expected error on 500, got nil")
+	}
+	if errors.Is(err, ErrSlugNotFound) {
+		t.Fatalf("500 misclassified as ErrSlugNotFound: %v", err)
+	}
+}
+
+// TestDeleteEmitsSortedNullSHAEntries documents the deterministic-tree
+// guarantee: the POST trees payload must list slug paths in lexical
+// order so a SHA-of-the-request fingerprint stays stable across runs.
+// We capture the JSON sent to `gh` for the POST trees call via a
+// dedicated shim that mirrors stubGH but echoes the stdin into a file
+// the test can inspect.
+func TestDeleteEmitsSortedNullSHAEntries(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	capturePath := filepath.Join(dir, "trees-body.json")
+	entries := []map[string]any{
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+		{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+		{
+			"key": "GET repos/x/y/git/trees/base?recursive=1",
+			"body": map[string]any{"tree": []any{
+				map[string]any{"path": "demo/zzz.md", "type": "blob"},
+				map[string]any{"path": "demo/SKILL.md", "type": "blob"},
+				map[string]any{"path": "demo/abc.md", "type": "blob"},
+			}},
+		},
+		{"key": "POST repos/x/y/git/trees", "body": map[string]any{"sha": "new-tree"}, "capture": capturePath},
+		{"key": "POST repos/x/y/git/commits", "body": map[string]any{"sha": "new-commit"}},
+		{"key": "PATCH repos/x/y/git/refs/heads/main", "body": map[string]any{"object": map[string]any{"sha": "new-commit"}}},
+	}
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(statePath, raw, 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+	// Capture stdin to a temp file BEFORE invoking python via heredoc —
+	// the heredoc itself consumes stdin, so the script can't read the
+	// JSON body gh would have forwarded. We pass the captured path as
+	// an extra argv element python re-reads when an entry has a
+	// "capture" target.
+	script := fmt.Sprintf(`#!/bin/sh
+state=%q
+stdin_file=$(mktemp)
+cat > "$stdin_file"
+python3 - "$state" "$stdin_file" "$@" <<'PY'
+import fcntl, json, os, sys
+state = sys.argv[1]
+stdin_path = sys.argv[2]
+argv = " ".join(sys.argv[3:])
+with open(state, "r+") as f:
+    fcntl.flock(f, fcntl.LOCK_EX)
+    data = json.load(f)
+    for i, entry in enumerate(data):
+        if entry["key"] in argv:
+            body = entry.get("body", "")
+            capture = entry.get("capture")
+            exit_code = entry.get("exit", 0)
+            if capture:
+                with open(stdin_path, "r") as src:
+                    payload = src.read()
+                with open(capture, "w") as cap:
+                    cap.write(payload)
+            data.pop(i)
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+            fcntl.flock(f, fcntl.LOCK_UN)
+            if body:
+                sys.stdout.write(body if isinstance(body, str) else json.dumps(body))
+            sys.exit(exit_code)
+    fcntl.flock(f, fcntl.LOCK_UN)
+sys.stderr.write(f"unexpected gh call: {argv}\n")
+sys.exit(99)
+PY
+rm -f "$stdin_file"
+`, statePath)
+	bin := filepath.Join(dir, "gh")
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+	if _, err := c.Delete(context.Background(), "demo"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	body, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("capture not written: %v", err)
+	}
+	var payload struct {
+		BaseTree string `json:"base_tree"`
+		Tree     []struct {
+			Path string  `json:"path"`
+			SHA  *string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("captured body is not JSON: %v\nbody=%s", err, body)
+	}
+	if payload.BaseTree != "base" {
+		t.Fatalf("base_tree = %q, want base", payload.BaseTree)
+	}
+	wantPaths := []string{"demo/SKILL.md", "demo/abc.md", "demo/zzz.md"}
+	if len(payload.Tree) != len(wantPaths) {
+		t.Fatalf("tree entries = %d, want %d (%+v)", len(payload.Tree), len(wantPaths), payload.Tree)
+	}
+	for i, want := range wantPaths {
+		if payload.Tree[i].Path != want {
+			t.Fatalf("tree[%d].path = %q, want %q", i, payload.Tree[i].Path, want)
+		}
+		if payload.Tree[i].SHA != nil {
+			t.Fatalf("tree[%d].sha = %v, want nil (deletion)", i, *payload.Tree[i].SHA)
+		}
 	}
 }

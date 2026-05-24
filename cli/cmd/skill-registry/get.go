@@ -9,10 +9,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anand-92/skills-registry/cli/internal/config"
+	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/scan"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
+
+// getJSONResult is the payload emitted by `get --json`. Field order
+// matches the JSON-002 contract ({slug, path}) so a `jq '.path'`
+// consumer always finds the on-disk destination it just downloaded to.
+type getJSONResult struct {
+	Slug string `json:"slug"`
+	Path string `json:"path"`
+}
 
 func newGetCmd() *cobra.Command {
 	var destFlag string
@@ -21,11 +30,41 @@ func newGetCmd() *cobra.Command {
 		Short: "Download a registry skill into a local folder",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonout.Enabled() {
+				cmd.SilenceErrors = true
+				return runGetJSON(cmd.Context(), args[0], destFlag)
+			}
 			return runGet(cmd.Context(), args[0], destFlag)
 		},
 	}
 	cmd.Flags().StringVar(&destFlag, "dest", "", "Where to write the skill (default ./.agents/skills/<slug>).")
 	return cmd
+}
+
+// runGetJSON is the --json code path: downloads the skill and emits
+// {slug, path} to stdout. Failures land as {"error": "..."} with a
+// non-zero exit, so a `jq '.error // empty'` consumer can branch on success.
+func runGetJSON(ctx context.Context, slug, dest string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	cwd, _ := os.Getwd()
+	finalDest, _, err := DownloadSkill(ctx, client, slug, dest, cwd)
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	return jsonout.Print(getJSONResult{
+		Slug: scan.Slugify(slug),
+		Path: finalDest,
+	})
 }
 
 func runGet(ctx context.Context, slug, dest string) error {

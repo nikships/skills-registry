@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -574,7 +575,18 @@ func (m ListModel) renderPreviewPanel() string {
 	if !ok {
 		body = EmptyHint.Render("No skill selected.\n\nUse ↑/↓ to move,\n/ to filter,\nenter to download a skill.")
 	} else {
-		title := PreviewTitle.Render(row.Title())
+		// Inner width available for any single-line element in the
+		// preview pane. The pane itself already accounts for the
+		// rounded border + padding; we reserve two extra cells so a
+		// title that fits exactly doesn't sit flush against the
+		// right edge.
+		innerWidth := m.preview.Width - 2
+		if innerWidth < 8 {
+			innerWidth = 8
+		}
+		// Multi-byte / very long names get cell-aware truncation so
+		// the title row never overflows the panel.
+		title := PreviewTitle.Render(truncate(row.Title(), innerWidth))
 		// Slug line only adds info when the slug isn't just a trivial
 		// normalization of the name. Suppress on either exact match or when
 		// the only difference is hyphens→underscores+lowercase (the normal
@@ -583,13 +595,17 @@ func (m ListModel) renderPreviewPanel() string {
 		// title.
 		slugLine := ""
 		if row.Slug != "" && !slugMatchesName(row.Slug, row.Name) {
-			slugLine = PreviewSlug.Render("slug · " + row.Slug)
+			slugLine = PreviewSlug.Render(truncate("slug · "+row.Slug, innerWidth))
 		}
 		desc := row.Desc
 		if desc == "" {
 			desc = lipgloss.NewStyle().Foreground(ColMuted).Italic(true).Render("(no description)")
 		}
-		descBlock := PreviewBody.Width(m.preview.Width - 2).Render(desc)
+		// PreviewBody.Width(...) soft-wraps long descriptions to fit
+		// the panel; combined with the explicit innerWidth budget
+		// above, the whole preview stays inside the rounded border
+		// regardless of the source string's length.
+		descBlock := PreviewBody.Width(innerWidth).Render(desc)
 
 		gradient := miniGradientBar(m.preview.Width-2, m.sparkleIdx)
 		dest := ".agents/skills/" + row.Slug + "/"
@@ -806,19 +822,37 @@ func (m *ListModel) refreshPreview() {
 	m.preview.GotoTop()
 }
 
-// truncate cuts s at n runes and appends an ellipsis.
+// truncate clamps s to a maximum of n display cells, appending an
+// ellipsis when truncation is necessary. The function is rune-aware
+// (slices the input as []rune so multi-byte UTF-8 sequences are never
+// cut mid-codepoint) AND display-width aware (uses lipgloss.Width so a
+// CJK glyph or emoji that occupies two terminal cells counts as two
+// toward the budget). Returns "" when n ≤ 0 and "…" when n == 1 and
+// the source would overflow.
 func truncate(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= n {
+	if lipgloss.Width(s) <= n {
 		return s
 	}
-	if n <= 1 {
-		return string(r[:n])
+	if n == 1 {
+		return "…"
 	}
-	return string(r[:n-1]) + "…"
+	runes := []rune(s)
+	w := 0
+	cut := 0
+	for i, r := range runes {
+		rw := runewidth.RuneWidth(r)
+		// Reserve one cell for the trailing ellipsis.
+		if w+rw+1 > n {
+			cut = i
+			break
+		}
+		w += rw
+		cut = i + 1
+	}
+	return string(runes[:cut]) + "…"
 }
 
 func padRight(s string, n int) string {

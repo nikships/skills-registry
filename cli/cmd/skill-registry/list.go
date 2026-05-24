@@ -10,9 +10,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anand-92/skills-registry/cli/internal/config"
+	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
+
+// listJSONRow is the per-skill payload emitted by `list --json`. Field
+// order matches the JSON-001 contract (slug, name, description) so
+// consumers reading `jq '.[].slug'` see a stable shape across releases.
+type listJSONRow struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
 
 func newListCmd() *cobra.Command {
 	var (
@@ -23,12 +33,54 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "Browse your registry as an interactive list",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonout.Enabled() {
+				return runListJSON(cmd.Context(), queryFlag)
+			}
 			return runList(cmd.Context(), queryFlag, plain)
 		},
 	}
 	cmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Initial filter substring.")
 	cmd.Flags().BoolVar(&plain, "plain", false, "Print a plain table instead of opening the TUI.")
 	return cmd
+}
+
+// runListJSON is the --json code path: never enters a TUI, prints a
+// single JSON array (one row per registry skill) to stdout, and exits
+// with a non-zero code via os.Exit when an error occurs. The empty
+// registry is rendered as `[]` so consumers can `jq 'length'` without
+// special-casing a missing payload.
+func runListJSON(ctx context.Context, query string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		jsonout.PrintError(err)
+		os.Exit(1)
+	}
+	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+	if err != nil {
+		jsonout.PrintError(err)
+		os.Exit(1)
+	}
+	summaries, err := client.List(ctx)
+	if err != nil {
+		jsonout.PrintError(err)
+		os.Exit(1)
+	}
+	rows := make([]listJSONRow, 0, len(summaries))
+	needle := strings.ToLower(query)
+	for _, s := range summaries {
+		if needle != "" {
+			hay := strings.ToLower(s.Slug + " " + s.Name + " " + s.Description)
+			if !strings.Contains(hay, needle) {
+				continue
+			}
+		}
+		rows = append(rows, listJSONRow{
+			Slug:        s.Slug,
+			Name:        s.Name,
+			Description: s.Description,
+		})
+	}
+	return jsonout.Print(rows)
 }
 
 func runList(ctx context.Context, query string, plain bool) error {
@@ -127,7 +179,44 @@ func printPlainList(repo string, summaries []registry.Summary) {
 	}
 }
 
+// isTerminal reports whether os.Stdout is attached to a character
+// device (i.e. an interactive terminal). The check tolerates a failed
+// Stat — that path only fires in pathological environments (closed
+// stdout on Windows, broken FDs), and treating it as non-interactive
+// is the right default for both the routing in main.go and the plain
+// fallback below.
 func isTerminal() bool {
-	fi, _ := os.Stdout.Stat()
+	fi, err := os.Stdout.Stat()
+	if err != nil || fi == nil {
+		return false
+	}
 	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// isStdinTerminal reports whether os.Stdin is attached to a character
+// device. Used together with jsonout.Enabled() to decide whether to
+// auto-promote --yes on commands that support it: agents piping
+// commands into the CLI (`echo ... | skill-registry sync --json`) need
+// the destructive-action confirmation to skip itself silently rather
+// than hang on a Bubble Tea prompt that can't render.
+//
+// Implemented as a package-level variable rather than a free function
+// so unit tests can swap in a deterministic stub — `go test`'s harness
+// may or may not attach a TTY stdin depending on the runner, which
+// would otherwise make `shouldAutoYes` tests environment-dependent.
+var isStdinTerminal = func() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi == nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// shouldAutoYes reports whether destructive-action confirmations
+// should be skipped automatically. Triggers when --json is set AND
+// stdin is not a TTY — the combination an agent driving the CLI with
+// piped stdin uses. Callers OR this into their `yes` flag so explicit
+// `--yes` users keep their existing behavior unchanged.
+func shouldAutoYes() bool {
+	return jsonout.Enabled() && !isStdinTerminal()
 }
