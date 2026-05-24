@@ -57,11 +57,18 @@ request against descriptions, not just slugs.
 skill-registry get <slug> [--dest PATH]
 ` + "```" + `
 
-Prints the absolute path to a local folder containing the skill's
-` + "`SKILL.md`" + ` plus any supporting files (` + "`scripts/`" + `, ` + "`assets/`" + `, ` + "`resources/`" + `, …).
-**Read the ` + "`SKILL.md`" + ` at the root first** — it tells you which supporting
-files to load and when. Cached at ` + "`~/.cache/skills-mcp/skills/<slug>/`" + ` and
-refreshed automatically when the upstream tree changes.
+Fetches the **entire upstream directory tree** for the skill and writes it to a
+local folder. The returned path is a complete, self-contained skill package —
+every file and subfolder that exists in the registry is already present on disk.
+
+**After fetching, always inspect the folder contents:**
+- Read ` + "`SKILL.md`" + ` at the root first.
+- Check for common subfolders: ` + "`references/`" + `, ` + "`scripts/`" + `, ` + "`assets/`" + `, ` + "`resources/`" + `, etc.
+- Follow local file references in ` + "`SKILL.md`" + ` by reading the already-fetched
+  files at the returned path — do not re-fetch individual referenced files.
+
+Cached at ` + "`~/.cache/skills-mcp/skills/<slug>/`" + ` and refreshed automatically
+when the upstream tree changes.
 
 ## 3. Publish a new or updated skill
 
