@@ -57,11 +57,32 @@ request against descriptions, not just slugs.
 skill-registry get <slug> [--dest PATH]
 ` + "```" + `
 
-Prints the absolute path to a local folder containing the skill's
-` + "`SKILL.md`" + ` plus any supporting files (` + "`scripts/`" + `, ` + "`assets/`" + `, ` + "`resources/`" + `, …).
-**Read the ` + "`SKILL.md`" + ` at the root first** — it tells you which supporting
-files to load and when. Cached at ` + "`~/.cache/skills-mcp/skills/<slug>/`" + ` and
-refreshed automatically when the upstream tree changes.
+Fetches the **entire upstream directory tree** for the skill and writes it to a
+local folder. The returned path is a complete, self-contained skill package —
+every file and subfolder belonging to the skill in the registry is already present on disk.
+
+**After fetching, always inspect the folder contents:**
+- Read ` + "`SKILL.md`" + ` at the root first.
+- Check for common subfolders: ` + "`references/`" + `, ` + "`scripts/`" + `, ` + "`assets/`" + `, ` + "`resources/`" + `, etc.
+- Follow local file references in ` + "`SKILL.md`" + ` by reading the already-fetched
+  files at the returned path — do not re-fetch individual referenced files.
+
+By default, writes to ` + "`./.agents/skills/<slug>/`" + ` under the current working directory (or the path you pass via ` + "`--dest`" + `).
+Re-run ` + "`skill-registry get`" + ` to refresh the folder when the upstream tree changes.
+
+**After reading the skill, offer cleanup.** The fetched skill files are now in
+your agent context — the on-disk copy is only needed if you plan to edit the
+skill itself or if the user wants to keep it for offline use. Always inform the
+user where the skill was installed (the ` + "`path`" + ` returned by ` + "`get`" + `) and ask:
+
+> "The ` + "`<slug>`" + ` skill has been fetched to ` + "`<path>`" + `. It's already loaded into my
+> context, so I don't need the files on disk anymore. Would you like me to
+> delete the local copy now?"
+
+If the user says yes, delete the folder at the returned path. Do **not** use
+` + "`skill-registry remove`" + ` for this — that command deletes the skill from the
+public registry, the cache, and every agent dot-folder. For simple local
+cleanup, just remove the specific folder the ` + "`get`" + ` command returned.
 
 ## 3. Publish a new or updated skill
 
