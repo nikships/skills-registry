@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // stubDownloader returns a Downloader that records every slug it sees and
@@ -273,4 +275,147 @@ func drainForDone(msg tea.Msg) (downloadDoneMsg, bool) {
 		}
 	}
 	return downloadDoneMsg{}, false
+}
+
+// TestTruncatePinsDisplayCellBudget pins the F3.5/F3.3 contract: the
+// truncate helper measures the result in lipgloss-reported display cells
+// (not raw rune counts) so wide-char input never overflows the budget.
+func TestTruncatePinsDisplayCellBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		in    string
+		n     int
+		wantW int
+	}{
+		{"ascii_short_unchanged", "hello", 10, 5},
+		{"ascii_long_truncated", strings.Repeat("ab", 100), 20, 20},
+		{"emoji_wide_chars", "🌈 the future is bright", 10, 10},
+		{"cjk_double_width", "こんにちは世界の皆様へ", 8, 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := truncate(tc.in, tc.n)
+			if w := lipgloss.Width(got); w > tc.n {
+				t.Errorf("truncate(%q, %d) = %q (width %d), want ≤ %d",
+					tc.in, tc.n, got, w, tc.n)
+			}
+			// When truncation actually happened, the result must end
+			// with the ellipsis sentinel.
+			if lipgloss.Width(tc.in) > tc.n && !strings.HasSuffix(got, "…") {
+				t.Errorf("truncate(%q, %d) = %q, expected … suffix",
+					tc.in, tc.n, got)
+			}
+		})
+	}
+}
+
+// TestSkillDelegateRenderLongDescription drives skillDelegate.Render
+// with a 250-char ASCII description and verifies neither line of the
+// rendered row exceeds the supplied list width. Catches regressions
+// where the delegate forgot to clamp the description column.
+func TestSkillDelegateRenderLongDescription(t *testing.T) {
+	desc := strings.Repeat("This skill does many useful things. ", 7) // 252 chars
+	row := SkillRow{Slug: "long_desc", Name: "Long Skill", Desc: desc}
+	rendered := renderSingleDelegate(t, row, 80)
+	for _, line := range strings.Split(rendered, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("delegate line exceeds width 80: %d cells: %q", w, line)
+		}
+	}
+}
+
+// TestSkillDelegateRenderMultiByteName covers the multi-byte UTF-8
+// path: a name composed of emoji + CJK runes must (a) not crash, (b)
+// not produce lines wider than the list budget, and (c) preserve the
+// rune boundary in any truncation.
+func TestSkillDelegateRenderMultiByteName(t *testing.T) {
+	row := SkillRow{
+		Slug: "wide_chars",
+		Name: "🌈 ようこそ to my skill — let's build 世界",
+		Desc: "🚀 builds futures · 🪐 spaces · 🌟 stars · 💎 jewels · " +
+			strings.Repeat("✨", 50),
+	}
+	rendered := renderSingleDelegate(t, row, 60)
+	for _, line := range strings.Split(rendered, "\n") {
+		if w := lipgloss.Width(line); w > 60 {
+			t.Errorf("delegate line exceeds width 60: %d cells: %q", w, line)
+		}
+	}
+}
+
+// TestPreviewPanelClampsLongTitle exercises the preview pane with a
+// pathologically long title and asserts every rendered row stays within
+// the panel width. Mirrors the F3.5 fix that added truncate() calls on
+// the title and slug rows.
+func TestPreviewPanelClampsLongTitle(t *testing.T) {
+	m := buildListWithRow(SkillRow{
+		Slug: "long_title_slug",
+		Name: strings.Repeat("Looooong-title-segment ", 20),
+		Desc: strings.Repeat("payload ", 40),
+	})
+	rendered := m.renderPreviewPanel()
+	for _, line := range strings.Split(rendered, "\n") {
+		// Preview panel = m.preview.Width + 4 (border + padding). The
+		// inner clamp should keep every text row ≤ m.preview.Width + 4.
+		max := m.preview.Width + 4
+		if w := lipgloss.Width(line); w > max {
+			t.Errorf("preview line exceeds panel width %d: %d cells: %q",
+				max, w, line)
+		}
+	}
+}
+
+// TestPreviewPanelMultiByteDescription drives the preview with emoji +
+// CJK in the description. Because PreviewBody uses lipgloss soft-wrap,
+// the description spans several rows but no individual row may exceed
+// the preview width.
+func TestPreviewPanelMultiByteDescription(t *testing.T) {
+	m := buildListWithRow(SkillRow{
+		Slug: "multibyte",
+		Name: "Multi-byte 🌍",
+		Desc: "Mixes 🌈 and 世界 and " + strings.Repeat("é", 220),
+	})
+	rendered := m.renderPreviewPanel()
+	for _, line := range strings.Split(rendered, "\n") {
+		max := m.preview.Width + 4
+		if w := lipgloss.Width(line); w > max {
+			t.Errorf("preview line exceeds panel width %d: %d cells: %q",
+				max, w, line)
+		}
+	}
+}
+
+// renderSingleDelegate constructs a list with one item and renders the
+// skillDelegate at index 0, returning the captured bytes. The list is
+// wired with the same delegate hooks as the production NewList path so
+// the test exercises the real skillDelegate.Render.
+func renderSingleDelegate(t *testing.T, row SkillRow, width int) string {
+	t.Helper()
+	l := newDelegateRenderHarness(width)
+	l.SetItems([]list.Item{row})
+	d := newSkillDelegate(func(string) RowStatus { return StatusIdle })
+	var buf strings.Builder
+	d.Render(&buf, l, 0, row)
+	return buf.String()
+}
+
+// newDelegateRenderHarness builds a bubbles list.Model with a non-zero
+// width and a no-op delegate so the skillDelegate.Render call has a
+// real m.Width() to query.
+func newDelegateRenderHarness(width int) list.Model {
+	d := newSkillDelegate(func(string) RowStatus { return StatusIdle })
+	l := list.New(nil, d, width, 10)
+	l.SetSize(width, 10)
+	return l
+}
+
+// buildListWithRow returns a ListModel sized to a wide-enough terminal
+// to exercise the dual-pane preview rendering path, pre-loaded with a
+// single row and stateReady so renderPreviewPanel sees a selected row.
+func buildListWithRow(row SkillRow) ListModel {
+	m := NewList(context.Background(), "owner/repo",
+		func() ([]SkillRow, error) { return []SkillRow{row}, nil }, nil)
+	gm, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = gm.(ListModel)
+	gm, _ = m.Update(rowsLoadedMsg{rows: []SkillRow{row}})
+	return gm.(ListModel)
 }

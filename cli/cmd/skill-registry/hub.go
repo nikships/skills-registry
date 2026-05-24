@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/anand-92/skills-registry/cli/internal/cache"
 	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
@@ -93,9 +94,56 @@ func dispatchHubAction(ctx context.Context, action string) hubToast {
 	case tui.HubActionRemove:
 		return hubToast{text: "remove · wiring lands in F4.1", ok: true}
 	case tui.HubActionSettings:
-		return hubToast{text: "settings · wiring lands in F3.3", ok: true}
+		return runSettingsFromHub(ctx)
 	}
 	return hubToast{text: fmt.Sprintf("✗ unknown action: %s", action), ok: false}
+}
+
+// runSettingsFromHub launches the F3.3 Settings alt-screen sub-TUI.
+// The model owns its own alt-screen lifecycle (matching the
+// Browse/list pattern from runBrowseFromHub), so the hub's alt-screen
+// is released cleanly before this one starts. On exit, the toast
+// surfaces either the saved-at path or any error the user encountered.
+func runSettingsFromHub(ctx context.Context) hubToast {
+	cfg, err := config.Load()
+	if err != nil {
+		return errToast("settings", err)
+	}
+	mcpBin, _ := locateMCPBinary()
+	model := tui.NewSettings(
+		cfg.Repo, cfg.DefaultBranch,
+		cache.CacheRoot(),
+		mcpBin,
+		settingsSaver(),
+	)
+	out, err := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),
+		tea.WithContext(ctx),
+	).Run()
+	if err != nil {
+		return errToast("settings", err)
+	}
+	final, ok := out.(tui.SettingsModel)
+	if !ok {
+		return errToast("settings", fmt.Errorf("settings returned unexpected model %T", out))
+	}
+	if err := final.SaveError(); err != nil {
+		return errToast("settings", err)
+	}
+	if final.SavedPath() != "" {
+		return hubToast{text: fmt.Sprintf("✓ settings saved → %s", final.SavedPath()), ok: true}
+	}
+	return hubToast{text: "settings · closed", ok: true}
+}
+
+// settingsSaver returns the SettingsSaver closure wired to config.Save.
+// Kept out of NewSettings so the TUI package stays decoupled from
+// internal/config.
+func settingsSaver() tui.SettingsSaver {
+	return func(repo, branch string) (string, error) {
+		return config.Save(config.Config{Repo: repo, DefaultBranch: branch})
+	}
 }
 
 // runBrowseFromHub launches the existing list TUI as its own alt-screen

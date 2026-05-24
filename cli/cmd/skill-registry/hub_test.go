@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
 
@@ -86,15 +87,70 @@ func TestDispatchHubActionRemovePlaceholder(t *testing.T) {
 	}
 }
 
-// TestDispatchHubActionSettingsPlaceholder mirrors the remove placeholder
-// test for the Settings tile (deferred to F3.3).
-func TestDispatchHubActionSettingsPlaceholder(t *testing.T) {
+// TestDispatchHubActionSettingsMissingConfig pins the F3.3 wiring: with
+// no config on disk, runSettingsFromHub bails before launching the
+// alt-screen TUI and surfaces an "ErrMissing"-style error toast that
+// still names the action (so the hub frame says ✗ settings: …). We
+// point XDG_CONFIG_HOME at an isolated tempdir so the test never reads
+// or writes the developer's real registry.toml.
+func TestDispatchHubActionSettingsMissingConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SKILLS_REGISTRY", "")
 	r := dispatchHubAction(context.Background(), tui.HubActionSettings)
-	if !r.ok {
-		t.Errorf("settings placeholder should be neutral (ok=true), got ok=%v", r.ok)
+	if r.ok {
+		t.Errorf("settings without config should produce error toast, got ok=true: %q", r.text)
 	}
-	if !strings.Contains(r.text, "F3.3") {
-		t.Errorf("settings placeholder should reference follow-up feature: %q", r.text)
+	if !strings.Contains(r.text, "settings") {
+		t.Errorf("settings toast should name the action: %q", r.text)
+	}
+	// Crucially, the F3.3 placeholder is gone — the dispatch now runs
+	// the real flow.
+	if strings.Contains(r.text, "wiring lands in F3.3") {
+		t.Errorf("settings still using placeholder text: %q", r.text)
+	}
+}
+
+// TestSettingsSaverWritesConfig verifies the closure passed to
+// tui.NewSettings round-trips through config.Save and produces a path
+// the user can find on disk. Uses XDG_CONFIG_HOME isolation so the
+// developer's real registry.toml is untouched.
+func TestSettingsSaverWritesConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("SKILLS_REGISTRY", "")
+	saver := settingsSaver()
+	path, err := saver("new-owner/new-repo", "develop")
+	if err != nil {
+		t.Fatalf("saver returned err: %v", err)
+	}
+	if !strings.HasPrefix(path, dir) {
+		t.Errorf("saver wrote to %q, expected prefix %q", path, dir)
+	}
+	if !strings.HasSuffix(path, "registry.toml") {
+		t.Errorf("saver wrote to %q, want suffix registry.toml", path)
+	}
+	// The follow-up Load() should round-trip the values verbatim.
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("post-save Load() err: %v", err)
+	}
+	if cfg.Repo != "new-owner/new-repo" {
+		t.Errorf("post-save repo = %q, want new-owner/new-repo", cfg.Repo)
+	}
+	if cfg.DefaultBranch != "develop" {
+		t.Errorf("post-save branch = %q, want develop", cfg.DefaultBranch)
+	}
+}
+
+// TestSettingsSaverRejectsBadRepo guarantees the saver propagates
+// config.Save validation failures back to the SettingsModel so it can
+// surface them as an error caption.
+func TestSettingsSaverRejectsBadRepo(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("SKILLS_REGISTRY", "")
+	saver := settingsSaver()
+	if _, err := saver("not-a-valid-repo", "main"); err == nil {
+		t.Fatal("saver accepted invalid repo, want error")
 	}
 }
 
