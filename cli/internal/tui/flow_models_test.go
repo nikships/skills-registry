@@ -103,3 +103,19 @@ func TestPublishFlowRejectsUnsafePath(t *testing.T) {
 		t.Fatalf("path err = %v, want absolute error", mm.path.err)
 	}
 }
+
+func TestAddFlowRedactsCredentialedSourceInPersistentLabel(t *testing.T) {
+	m := NewAddFlow(context.Background(), "owner/repo", AddFlowDeps{})
+	m.source.Input.SetValue("https://user@example.com/org/repo.git")
+	got, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm := got.(AddFlowModel)
+	if cmd == nil {
+		t.Fatal("safe remote source should start loading")
+	}
+	if strings.Contains(mm.sourceText, "user@") {
+		t.Fatalf("sourceText retained credentials: %q", mm.sourceText)
+	}
+	if mm.sourceText != "https://example.com/org/repo.git" {
+		t.Fatalf("sourceText = %q, want redacted URL", mm.sourceText)
+	}
+}

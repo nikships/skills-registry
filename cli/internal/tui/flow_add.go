@@ -137,7 +137,7 @@ func (m AddFlowModel) handleSourceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.source.err = err
 			return m, nil
 		}
-		m.sourceText = source
+		m.sourceText = redactSourceUserInfo(source)
 		m.state = addStateLoading
 		return m, tea.Batch(m.spinner.Tick, m.startLoad(source))
 	}

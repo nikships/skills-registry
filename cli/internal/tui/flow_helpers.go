@@ -115,6 +115,15 @@ func validateSafeRelativePathInput(input, label string) error {
 	return nil
 }
 
+func redactSourceUserInfo(source string) string {
+	parsed, err := url.Parse(source)
+	if err != nil || parsed == nil || parsed.User == nil || parsed.Scheme == "" {
+		return source
+	}
+	parsed.User = nil
+	return parsed.String()
+}
+
 func isWindowsDrivePath(path string) bool {
 	if len(path) < 2 || path[1] != ':' {
 		return false

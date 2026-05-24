@@ -98,6 +98,7 @@ func runAddJSON(ctx context.Context, source string) error {
 		return err
 	}
 	var pushed, skipped []string
+	safeSource := redactSourceUserInfo(source)
 	for _, sk := range skills {
 		if _, dup := existing[sk.Slug]; dup {
 			skipped = append(skipped, sk.Slug)
@@ -109,7 +110,7 @@ func runAddJSON(ctx context.Context, source string) error {
 			return err
 		}
 		bySlug := rekeyBySlug(sk.Slug, files)
-		msg := fmt.Sprintf("add: %s (from %s)", sk.Slug, source)
+		msg := fmt.Sprintf("add: %s (from %s)", sk.Slug, safeSource)
 		if _, err := client.Publish(ctx, sk.Slug, bySlug, msg); err != nil {
 			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
 			jsonout.PrintError(err)
@@ -162,8 +163,9 @@ func runAdd(ctx context.Context, source string, yes, all bool) error {
 		return nil
 	}
 
+	safeSource := redactSourceUserInfo(source)
 	return publishSkills(ctx, client, picked, func(slug string) string {
-		return fmt.Sprintf("add: %s (from %s)", slug, source)
+		return fmt.Sprintf("add: %s (from %s)", slug, safeSource)
 	})
 }
 
@@ -288,6 +290,15 @@ func validateLocalSourcePath(source string) (string, error) {
 		}
 	}
 	return path, nil
+}
+
+func redactSourceUserInfo(source string) string {
+	parsed, err := url.Parse(source)
+	if err != nil || parsed == nil || parsed.User == nil || parsed.Scheme == "" {
+		return source
+	}
+	parsed.User = nil
+	return parsed.String()
 }
 
 func noopCleanup() {}

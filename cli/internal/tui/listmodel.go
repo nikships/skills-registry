@@ -961,7 +961,7 @@ func (m ListModel) renderRemoveOverlay() string {
 	}
 	title := ErrorStyle.Render("Remove " + slug + "?")
 	body := lipgloss.NewStyle().Foreground(ColInk).
-		Render("This deletes the skill from the registry and local skill caches.")
+		Render("This deletes the skill from the registry, local cache, and every known agent dot-folder.")
 	cancelBtn := renderOverlayButton("Cancel", m.removeCursor == 0, false)
 	removeBtn := renderOverlayButton("Yes, remove it", m.removeCursor == 1, true)
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top, cancelBtn, "   ", removeBtn)
