@@ -67,8 +67,8 @@ every file and subfolder belonging to the skill in the registry is already prese
 - Follow local file references in ` + "`SKILL.md`" + ` by reading the already-fetched
   files at the returned path — do not re-fetch individual referenced files.
 
-Cached at ` + "`~/.cache/skills-mcp/skills/<slug>/`" + ` and refreshed automatically
-when the upstream tree changes.
+By default, writes to ` + "`./.agents/skills/<slug>/`" + ` under the current working directory (or the path you pass via ` + "`--dest`" + `).
+Re-run ` + "`skill-registry get`" + ` to refresh the folder when the upstream tree changes.
 
 **After reading the skill, offer cleanup.** The fetched skill files are now in
 your agent context — the on-disk copy is only needed if you plan to edit the
