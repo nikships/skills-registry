@@ -2,9 +2,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -50,6 +53,7 @@ Day-to-day, use:
   skill-registry add <source>             clone a source, multi-select what to publish
   skill-registry publish <path>           publish a single local skill folder
   skill-registry remove <slug>            delete a skill from the registry + local copies
+  skill-registry update                   self-update the installed CLI
   skill-registry bootstrap                explicit (re-)run of the bootstrap flow`,
 		Version: version,
 		Args:    cobra.NoArgs,
@@ -69,6 +73,7 @@ Day-to-day, use:
 		newAddCmd(),
 		newPublishCmd(),
 		newRemoveCmd(),
+		newUpdateCmd(),
 	)
 
 	return root
@@ -84,6 +89,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	case bareRouteWizard:
 		return runWizard(cmd.Context())
 	case bareRouteHub:
+		runAutoUpdate(cmd.Context(), os.Stderr)
 		return runHub(cmd.Context())
 	case bareRouteError:
 		return loadErr
@@ -136,5 +142,29 @@ func bareRouteDecision(isTTY bool, jsonMode bool, loadErr error) bareRoute {
 		return bareRouteError
 	default:
 		return bareRouteHub
+	}
+}
+
+func runAutoUpdate(ctx context.Context, stderr io.Writer) {
+	if !autoUpdateEnabled() {
+		return
+	}
+	fmt.Fprintln(stderr, "checking for skill-registry updates...")
+	res, err := updateRunner(ctx, updateOpts{})
+	if err != nil {
+		fmt.Fprintf(stderr, "warning: auto-update failed: %v\n", err)
+		return
+	}
+	if res.Updated {
+		fmt.Fprintln(stderr, res.Message)
+	}
+}
+
+func autoUpdateEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SKILLS_REGISTRY_AUTO_UPDATE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
