@@ -333,6 +333,19 @@ func TestDeleteConfirmSuccessRemovesRow(t *testing.T) {
 	}
 }
 
+func TestHelpShowsRemoveOnlyWhenDeleterEnabled(t *testing.T) {
+	withoutDelete := readyModel(t, nil).renderHelp()
+	if strings.Contains(withoutDelete, "remove selected skill") {
+		t.Fatalf("help without deleter advertised remove:\n%s", withoutDelete)
+	}
+
+	stub := &stubDeleter{sha: "abcdef123"}
+	withDelete := readyModel(t, nil).WithDeleter(stub.fn()).renderHelp()
+	if !strings.Contains(withDelete, "remove selected skill") {
+		t.Fatalf("help with deleter missing remove:\n%s", withDelete)
+	}
+}
+
 // TestSlugMatchesName pins the suppression rule used by both the preview
 // "slug · …" line and the list-row right column. Anything that's just the
 // canonical Slugify of the title is treated as redundant and hidden.

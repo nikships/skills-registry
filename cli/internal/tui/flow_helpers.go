@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -67,6 +69,58 @@ func newFlowConfirm(title, prompt, yesLabel string) ChoiceModel {
 		{Value: "yes", Label: yesLabel, Hint: "Continue with the registry write"},
 		{Value: "no", Label: "Cancel", Hint: "Make no changes"},
 	})
+}
+
+func validateFlowSourceInput(source string) error {
+	if !looksLikeLocalPath(source) {
+		return nil
+	}
+	return validateSafeRelativePathInput(source, "source")
+}
+
+func validateFlowPublishPath(path string) error {
+	return validateSafeRelativePathInput(path, "path")
+}
+
+func looksLikeLocalPath(input string) bool {
+	return strings.HasPrefix(input, "./") ||
+		strings.HasPrefix(input, "/") ||
+		strings.HasPrefix(input, "../") ||
+		strings.HasPrefix(input, "~") ||
+		strings.Contains(input, `\`) ||
+		isWindowsDrivePath(input)
+}
+
+func validateSafeRelativePathInput(input, label string) error {
+	decoded, err := url.PathUnescape(input)
+	if err != nil {
+		return fmt.Errorf("invalid %s encoding: %w", label, err)
+	}
+	lowerInput := strings.ToLower(input)
+	switch {
+	case strings.Contains(decoded, `\`) || strings.Contains(lowerInput, "%5c"):
+		return fmt.Errorf("invalid %s: backslashes are not allowed", label)
+	case strings.Contains(lowerInput, "%2f"):
+		return fmt.Errorf("invalid %s: encoded separators are not allowed", label)
+	case strings.HasPrefix(decoded, "~"):
+		return fmt.Errorf("invalid %s: tilde expansion is not allowed", label)
+	case filepath.IsAbs(decoded) || isWindowsDrivePath(decoded):
+		return fmt.Errorf("invalid %s: absolute paths are not allowed", label)
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(decoded), "/") {
+		if segment == ".." {
+			return fmt.Errorf("invalid %s: traversal is not allowed", label)
+		}
+	}
+	return nil
+}
+
+func isWindowsDrivePath(path string) bool {
+	if len(path) < 2 || path[1] != ':' {
+		return false
+	}
+	c := path[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 func skillsToItems(skills []scan.Skill) []MultiSelectItem {

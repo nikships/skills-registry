@@ -71,3 +71,35 @@ func TestAddFlowEscCancelsWithoutTeaQuit(t *testing.T) {
 		t.Fatalf("esc cmd returned %T, want flowExitMsg", cmd())
 	}
 }
+
+func TestAddFlowRejectsUnsafeLocalSource(t *testing.T) {
+	m := NewAddFlow(context.Background(), "owner/repo", AddFlowDeps{})
+	m.source.Input.SetValue("../outside")
+	got, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm := got.(AddFlowModel)
+	if cmd != nil {
+		t.Fatalf("unsafe source returned cmd %T, want nil", cmd)
+	}
+	if mm.state != addStateSource {
+		t.Fatalf("state = %v, want addStateSource", mm.state)
+	}
+	if mm.source.err == nil || !strings.Contains(mm.source.err.Error(), "traversal") {
+		t.Fatalf("source err = %v, want traversal error", mm.source.err)
+	}
+}
+
+func TestPublishFlowRejectsUnsafePath(t *testing.T) {
+	m := NewPublishFlow(context.Background(), PublishFlowDeps{})
+	m.path.Input.SetValue("/tmp/skill")
+	got, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm := got.(PublishFlowModel)
+	if cmd != nil {
+		t.Fatalf("unsafe path returned cmd %T, want nil", cmd)
+	}
+	if mm.state != publishStatePath {
+		t.Fatalf("state = %v, want publishStatePath", mm.state)
+	}
+	if mm.path.err == nil || !strings.Contains(mm.path.err.Error(), "absolute") {
+		t.Fatalf("path err = %v, want absolute error", mm.path.err)
+	}
+}

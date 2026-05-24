@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +31,10 @@ type addJSONResult struct {
 	Skipped []string `json:"skipped"`
 }
 
-var ghShorthandRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+var (
+	ghShorthandRe      = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	windowsDrivePathRe = regexp.MustCompile(`^[A-Za-z]:`)
+)
 
 func newAddCmd() *cobra.Command {
 	var (
@@ -72,7 +76,7 @@ func runAddJSON(ctx context.Context, source string) error {
 		jsonout.PrintError(err)
 		return err
 	}
-	dir, cleanup, err := resolveSource(source)
+	dir, cleanup, err := resolveSource(ctx, source)
 	if err != nil {
 		jsonout.PrintError(err)
 		return err
@@ -132,7 +136,7 @@ func runAdd(ctx context.Context, source string, yes, all bool) error {
 		return err
 	}
 
-	dir, cleanup, err := resolveSource(source)
+	dir, cleanup, err := resolveSource(ctx, source)
 	if err != nil {
 		return err
 	}
@@ -217,8 +221,8 @@ func promptAddSelection(skills []scan.Skill) ([]scan.Skill, error) {
 	return picked, nil
 }
 
-func resolveSource(source string) (string, func(), error) {
-	return resolveSourceWithNotice(context.Background(), source, !jsonout.Enabled())
+func resolveSource(ctx context.Context, source string) (string, func(), error) {
+	return resolveSourceWithNotice(ctx, source, !jsonout.Enabled())
 }
 
 func resolveSourceQuiet(ctx context.Context, source string) (string, func(), error) {
@@ -227,10 +231,9 @@ func resolveSourceQuiet(ctx context.Context, source string) (string, func(), err
 
 func resolveSourceWithNotice(ctx context.Context, source string, announce bool) (string, func(), error) {
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "/") || strings.HasPrefix(source, "../") || strings.HasPrefix(source, "~") {
-		path := source
-		if strings.HasPrefix(path, "~") {
-			home, _ := os.UserHomeDir()
-			path = filepath.Join(home, path[1:])
+		path, err := validateLocalSourcePath(source)
+		if err != nil {
+			return "", noopCleanup, err
 		}
 		abs, err := filepath.Abs(path)
 		if err != nil {
@@ -261,6 +264,30 @@ func resolveSourceWithNotice(ctx context.Context, source string, announce bool) 
 		return "", noopCleanup, fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(out)))
 	}
 	return tmp, cleanup, nil
+}
+
+func validateLocalSourcePath(source string) (string, error) {
+	path, err := url.PathUnescape(source)
+	if err != nil {
+		return "", fmt.Errorf("invalid source path encoding: %w", err)
+	}
+	lowerSource := strings.ToLower(source)
+	switch {
+	case strings.Contains(path, `\`) || strings.Contains(lowerSource, "%5c"):
+		return "", fmt.Errorf("invalid source path: backslashes are not allowed")
+	case strings.Contains(lowerSource, "%2f"):
+		return "", fmt.Errorf("invalid source path: encoded separators are not allowed")
+	case strings.HasPrefix(path, "~"):
+		return "", fmt.Errorf("invalid source path: tilde expansion is not allowed")
+	case filepath.IsAbs(path) || windowsDrivePathRe.MatchString(path):
+		return "", fmt.Errorf("invalid source path: absolute paths are not allowed")
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("invalid source path: traversal is not allowed")
+		}
+	}
+	return path, nil
 }
 
 func noopCleanup() {}

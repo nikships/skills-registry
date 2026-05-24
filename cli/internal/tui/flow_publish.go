@@ -101,6 +101,10 @@ func (m PublishFlowModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.path.err = fmt.Errorf("path is required")
 			return m, nil
 		}
+		if err := validateFlowPublishPath(path); err != nil {
+			m.path.err = err
+			return m, nil
+		}
 		m.pathText = path
 		m.state = publishStatePublishing
 		return m, tea.Batch(m.spinner.Tick, m.startPublish(path))

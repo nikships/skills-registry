@@ -133,6 +133,10 @@ func (m AddFlowModel) handleSourceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.source.err = fmt.Errorf("source is required")
 			return m, nil
 		}
+		if err := validateFlowSourceInput(source); err != nil {
+			m.source.err = err
+			return m, nil
+		}
 		m.sourceText = source
 		m.state = addStateLoading
 		return m, tea.Batch(m.spinner.Tick, m.startLoad(source))
@@ -161,19 +165,19 @@ func (m AddFlowModel) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = addStateConfirm
 		return m, nil
 	}
-	next, _ := m.selectModel.Update(msg)
+	next, cmd := m.selectModel.Update(msg)
 	m.selectModel = next.(MultiSelectModel)
-	return m, nil
+	return m, cmd
 }
 
 func (m AddFlowModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	next, _ := m.confirmModel.Update(msg)
-	m.confirmModel = next.(ChoiceModel)
 	if msg.String() == "ctrl+c" || msg.String() == "esc" {
 		return m.exit("add · cancelled", true)
 	}
+	next, cmd := m.confirmModel.Update(msg)
+	m.confirmModel = next.(ChoiceModel)
 	if msg.String() != "enter" {
-		return m, nil
+		return m, cmd
 	}
 	if m.confirmModel.Value() != "yes" {
 		return m.exit("add · cancelled", true)

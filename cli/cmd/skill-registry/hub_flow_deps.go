@@ -64,7 +64,10 @@ func manageDownloader(cfg config.Config) tui.Downloader {
 		if err != nil {
 			return "", "", err
 		}
-		cwd, _ := os.Getwd()
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", "", fmt.Errorf("resolve current working directory: %w", err)
+		}
 		return DownloadSkill(downloadCtx, client, slug, "", cwd)
 	}
 }
@@ -147,8 +150,14 @@ func buildSyncFlowDeps(cfg config.Config) tui.SyncFlowDeps {
 }
 
 func discoverLocalSkills() ([]scan.Skill, error) {
-	home, _ := os.UserHomeDir()
-	cwd, _ := os.Getwd()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve home directory: %w", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve current working directory: %w", err)
+	}
 	dotDirs := make([]string, 0, len(agents.All()))
 	for _, a := range agents.All() {
 		dotDirs = append(dotDirs, a.DotDir)

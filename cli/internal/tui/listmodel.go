@@ -920,10 +920,14 @@ func (m ListModel) renderHelp() string {
 		{"/", "start filtering"},
 		{"esc", "clear filter (or quit)"},
 		{"enter", "download into ./.agents/skills/<slug>/"},
-		{"d", "remove selected skill"},
-		{"?", "toggle this help"},
-		{"q / ctrl+c", "quit"},
 	}
+	if m.delete != nil {
+		rows = append(rows, struct{ k, d string }{"d", "remove selected skill"})
+	}
+	rows = append(rows,
+		struct{ k, d string }{"?", "toggle this help"},
+		struct{ k, d string }{"q / ctrl+c", "quit"},
+	)
 	var lines []string
 	for _, r := range rows {
 		lines = append(lines,

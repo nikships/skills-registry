@@ -127,19 +127,19 @@ func (m SyncFlowModel) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = syncStateConfirm
 		return m, nil
 	}
-	next, _ := m.selectModel.Update(msg)
+	next, cmd := m.selectModel.Update(msg)
 	m.selectModel = next.(MultiSelectModel)
-	return m, nil
+	return m, cmd
 }
 
 func (m SyncFlowModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	next, _ := m.confirmModel.Update(msg)
-	m.confirmModel = next.(ChoiceModel)
 	if msg.String() == "ctrl+c" || msg.String() == "esc" {
 		return m, flowExitCmd("sync · cancelled", true)
 	}
+	next, cmd := m.confirmModel.Update(msg)
+	m.confirmModel = next.(ChoiceModel)
 	if msg.String() != "enter" {
-		return m, nil
+		return m, cmd
 	}
 	if m.confirmModel.Value() != "yes" {
 		return m, flowExitCmd("sync · cancelled", true)

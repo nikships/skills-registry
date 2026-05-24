@@ -430,7 +430,8 @@ func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 	t.Setenv("HOME", homeDir)
 	writeRegistryConfig(t, "x/y")
 
-	source := t.TempDir()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
 	skillDir := filepath.Join(source, "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -454,9 +455,8 @@ func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 	installGHEnv(t, bin)
 
 	buf := captureJSONOut(t)
-	// Use an absolute path so resolveSource takes the local-dir
-	// branch and doesn't try to git-clone.
-	if err := runAddJSON(context.Background(), source); err != nil {
+	t.Chdir(root)
+	if err := runAddJSON(context.Background(), "./source"); err != nil {
 		t.Fatalf("runAddJSON: %v", err)
 	}
 	var payload addJSONResult
