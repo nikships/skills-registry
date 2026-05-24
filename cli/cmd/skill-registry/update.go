@@ -112,6 +112,7 @@ func performUpdate(ctx context.Context, opts updateOpts) (updateResult, error) {
 			return updateResult{}, tagErr
 		}
 		targetVersion = tag
+		opts.version = targetVersion
 	}
 	res := updateResult{
 		Version: targetVersion,
