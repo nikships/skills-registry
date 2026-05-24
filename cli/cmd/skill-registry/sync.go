@@ -11,10 +11,22 @@ import (
 
 	"github.com/anand-92/skills-registry/cli/internal/agents"
 	"github.com/anand-92/skills-registry/cli/internal/config"
+	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/scan"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
+
+// syncJSONResult is the payload emitted by `sync --json --yes`. Field
+// order matches the JSON-004 contract ({pushed, skipped}). Each array
+// holds canonical slugs (no source labels) so a consumer can pipe
+// `.pushed | .[]` straight into another `skill-registry get` call.
+// Both arrays are always present (possibly empty) so `jq 'length'`
+// users don't have to special-case the missing field.
+type syncJSONResult struct {
+	Pushed  []string `json:"pushed"`
+	Skipped []string `json:"skipped"`
+}
 
 func newSyncCmd() *cobra.Command {
 	var (
@@ -28,12 +40,120 @@ func newSyncCmd() *cobra.Command {
 ~/.factory/skills, .agents/skills) for skills whose slug isn't already in
 your registry. Pick which to push with the interactive multi-select.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(cmd.Context(), yes, all)
+			if jsonout.Enabled() {
+				return runSyncJSON(cmd.Context())
+			}
+			return runSync(cmd.Context(), yes || shouldAutoYes(), all)
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip the confirmation prompt.")
 	cmd.Flags().BoolVar(&all, "all", false, "Select every missing skill without prompting.")
 	return cmd
+}
+
+// runSyncJSON is the --json code path: never prompts, treats every
+// locally-discovered slug missing from the registry as eligible, and
+// emits {pushed, skipped}. A registry-side push failure ends the
+// command with {"error": "..."} + os.Exit(1) — we don't try to
+// partial-push because the user would have no easy way to know which
+// slugs landed and which didn't.
+func runSyncJSON(ctx context.Context) error {
+	plan, err := planSync(ctx)
+	if err != nil {
+		jsonout.PrintError(err)
+		os.Exit(1)
+	}
+	for _, sk := range plan.missing {
+		files := map[string][]byte{}
+		if err := walkSkillIntoFiles(sk, files); err != nil {
+			jsonout.PrintError(err)
+			os.Exit(1)
+		}
+		bySlug := rekeyBySlug(sk.Slug, files)
+		if _, err := plan.client.Publish(ctx, sk.Slug, bySlug, fmt.Sprintf("sync: %s", sk.Slug)); err != nil {
+			jsonout.PrintError(fmt.Errorf("publish %s: %w", sk.Slug, err))
+			os.Exit(1)
+		}
+	}
+	pushed := make([]string, 0, len(plan.missing))
+	for _, sk := range plan.missing {
+		pushed = append(pushed, sk.Slug)
+	}
+	skipped := plan.skippedSlugs()
+	if skipped == nil {
+		skipped = []string{}
+	}
+	return jsonout.Print(syncJSONResult{
+		Pushed:  pushed,
+		Skipped: skipped,
+	})
+}
+
+// syncPlan carries the resolved state for one sync invocation: the
+// registry client used for pushes, the local slugs already mirrored in
+// the registry (the "skipped" set), and the local skills missing
+// upstream (the "would-push" set).
+type syncPlan struct {
+	client  *registry.Client
+	missing []scan.Skill
+	skipped []scan.Skill
+}
+
+// skippedSlugs returns the canonical slugs of every local skill that
+// was NOT pushed (already in the registry). Returned as a fresh slice
+// so the caller can mutate without touching syncPlan.
+func (p syncPlan) skippedSlugs() []string {
+	out := make([]string, 0, len(p.skipped))
+	for _, s := range p.skipped {
+		out = append(out, s.Slug)
+	}
+	return out
+}
+
+// planSync resolves the local + remote slug sets and computes the
+// missing / skipped partitions. Shared by runSync and runSyncJSON so
+// the dedupe logic stays in one place.
+func planSync(ctx context.Context) (syncPlan, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return syncPlan{}, err
+	}
+	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+	if err != nil {
+		return syncPlan{}, err
+	}
+	home, _ := os.UserHomeDir()
+	cwd, _ := os.Getwd()
+	dotDirs := make([]string, 0, len(agents.All()))
+	for _, a := range agents.All() {
+		dotDirs = append(dotDirs, a.DotDir)
+	}
+	sources := scan.DiscoverSources(home, cwd, nil, dotDirs)
+	local, err := scan.Discover(sources)
+	if err != nil {
+		return syncPlan{}, err
+	}
+	remote, err := client.Slugs(ctx)
+	if err != nil {
+		return syncPlan{}, err
+	}
+	missing := scan.DedupeAgainst(local, remote)
+	missingSet := map[string]struct{}{}
+	for _, m := range missing {
+		missingSet[m.Slug] = struct{}{}
+	}
+	var skipped []scan.Skill
+	for _, s := range local {
+		if _, ok := missingSet[s.Slug]; ok {
+			continue
+		}
+		skipped = append(skipped, s)
+	}
+	return syncPlan{
+		client:  client,
+		missing: missing,
+		skipped: skipped,
+	}, nil
 }
 
 func runSync(ctx context.Context, yes, all bool) error {

@@ -74,7 +74,7 @@ that don't pipe --json), or --json to opt into structured stdout output
 (which implies --yes — JSON callers never get a TUI prompt).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRemoveCmd(cmd.Context(), args[0], yes)
+			return runRemoveCmd(cmd.Context(), args[0], yes || shouldAutoYes())
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip the confirmation prompt.")
