@@ -21,7 +21,7 @@ func freshHub() HubModel {
 
 // TestNewHubInitialState pins down the constructor contract: focus
 // starts at the first card, the user hasn't quit, and the grid carries
-// the six default tiles.
+// the five default tiles.
 func TestNewHubInitialState(t *testing.T) {
 	m := freshHub()
 	if got := m.Selection(); got != "" {
@@ -30,26 +30,25 @@ func TestNewHubInitialState(t *testing.T) {
 	if m.Quit() {
 		t.Error("fresh hub Quit() = true")
 	}
-	if len(m.grid.Cards) != 6 {
-		t.Fatalf("default hub has %d cards, want 6", len(m.grid.Cards))
+	if len(m.grid.Cards) != 5 {
+		t.Fatalf("default hub has %d cards, want 5", len(m.grid.Cards))
 	}
 	if m.grid.Focused != 0 {
 		t.Errorf("fresh hub Focused = %d, want 0", m.grid.Focused)
 	}
 }
 
-// TestDefaultHubCardsCoverAllActions enumerates the six action constants
+// TestDefaultHubCardsCoverAllActions enumerates the five action constants
 // and asserts each appears exactly once in the default card list. A
 // regression here would mean the launcher's switch statement loses a
 // branch.
 func TestDefaultHubCardsCoverAllActions(t *testing.T) {
 	cards := DefaultHubCards()
 	want := map[string]bool{
-		HubActionBrowse:   false,
+		HubActionManage:   false,
 		HubActionSync:     false,
 		HubActionAdd:      false,
 		HubActionPublish:  false,
-		HubActionRemove:   false,
 		HubActionSettings: false,
 	}
 	for _, c := range cards {
@@ -78,7 +77,7 @@ func TestDefaultHubCardsCoverAllActions(t *testing.T) {
 // at width=120 (set by freshHub).
 func TestHubArrowNavigation(t *testing.T) {
 	m := freshHub()
-	for _, key := range []string{"right", "right", "down"} {
+	for _, key := range []string{"right", "down"} {
 		nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
 		// Bubble Tea doesn't map "right" / "down" runes to KeyRight /
 		// KeyDown — we emit the appropriate KeyType instead.
@@ -87,11 +86,10 @@ func TestHubArrowNavigation(t *testing.T) {
 	// Direct KeyType deliveries.
 	m2 := freshHub()
 	nm, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRight})
-	nm, _ = nm.(HubModel).Update(tea.KeyMsg{Type: tea.KeyRight})
 	nm, _ = nm.(HubModel).Update(tea.KeyMsg{Type: tea.KeyDown})
 	wiz := nm.(HubModel)
-	if wiz.grid.Focused != 5 {
-		t.Errorf("after right,right,down at cols=3: Focused = %d, want 5", wiz.grid.Focused)
+	if wiz.grid.Focused != 4 {
+		t.Errorf("after right,down at cols=3: Focused = %d, want 4", wiz.grid.Focused)
 	}
 }
 
@@ -107,22 +105,28 @@ func TestHubHJKLNavigation(t *testing.T) {
 	}
 }
 
-// TestHubEnterRecordsSelection pins down the F3.1 hand-off contract:
-// pressing enter records the focused card's ID in Selection() and emits
-// tea.Quit so the launcher returns.
+// TestHubEnterLaunchesFlow pins down the long-lived hand-off contract:
+// pressing enter emits a hubLaunchMsg instead of quitting the program.
 func TestHubEnterRecordsSelection(t *testing.T) {
 	m := freshHub()
 	m.grid.Focused = 2 // "Add"
 	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	wiz := nm.(HubModel)
-	if wiz.Selection() != HubActionAdd {
-		t.Errorf("Selection() = %q, want %q", wiz.Selection(), HubActionAdd)
+	if wiz.Selection() != "" {
+		t.Errorf("Selection() = %q, want empty after embedded launch", wiz.Selection())
 	}
 	if wiz.Quit() {
 		t.Error("Quit() = true after selecting; selection should not flag Quit")
 	}
 	if cmd == nil {
-		t.Fatal("Enter did not return a Quit Cmd")
+		t.Fatal("Enter did not return a launch Cmd")
+	}
+	msg, ok := cmd().(hubLaunchMsg)
+	if !ok {
+		t.Fatalf("cmd returned %T, want hubLaunchMsg", cmd())
+	}
+	if msg.action != HubActionAdd {
+		t.Errorf("launch action = %q, want %q", msg.action, HubActionAdd)
 	}
 }
 
@@ -160,7 +164,7 @@ func TestHubViewSurfacesChrome(t *testing.T) {
 		"Skills Registry",
 		"Hub",        // hero suffix
 		"owner/repo", // repo chip
-		"Browse",     // first card
+		"Manage",     // first card
 		"Settings",   // last card
 		"navigate",   // footer
 		"select",     // footer
@@ -295,5 +299,55 @@ func TestHubToastClearsAfterReconstruction(t *testing.T) {
 	next := NewHub(context.Background(), "owner/repo", nil)
 	if got := next.renderToast(); got != "" {
 		t.Errorf("NewHub carried over toast: %q", got)
+	}
+}
+
+func TestHubProgramFlowExitReturnsToDashboardWithToast(t *testing.T) {
+	p := NewHubProgram(context.Background(), HubDeps{Repo: "owner/repo"})
+	p.flow = NewPublishFlow(context.Background(), PublishFlowDeps{})
+	nm, cmd := p.Update(flowExitMsg{toast: "✓ done", ok: true})
+	if cmd != nil {
+		t.Fatalf("flowExitMsg returned cmd %T, want nil", cmd)
+	}
+	hp := nm.(HubProgram)
+	if hp.flow != nil {
+		t.Fatalf("flow still active after flowExitMsg: %T", hp.flow)
+	}
+	if hp.hub.toast != "✓ done" || !hp.hub.toastOK {
+		t.Fatalf("hub toast = %q ok=%v", hp.hub.toast, hp.hub.toastOK)
+	}
+}
+
+func TestHubProgramLaunchesManageFlow(t *testing.T) {
+	p := NewHubProgram(context.Background(), HubDeps{
+		Repo: "owner/repo",
+		Manage: ManageFlowDeps{
+			Rows: func() ([]SkillRow, error) {
+				return []SkillRow{{Slug: "demo", Name: "Demo"}}, nil
+			},
+		},
+	})
+	nm, cmd := p.Update(hubLaunchMsg{action: HubActionManage})
+	hp := nm.(HubProgram)
+	if _, ok := hp.flow.(ListModel); !ok {
+		t.Fatalf("flow = %T, want ListModel", hp.flow)
+	}
+	if cmd == nil {
+		t.Fatal("launching manage should return init command")
+	}
+}
+
+func TestHubProgramUnknownActionToastsError(t *testing.T) {
+	p := NewHubProgram(context.Background(), HubDeps{Repo: "owner/repo"})
+	nm, cmd := p.Update(hubLaunchMsg{action: "bogus"})
+	if cmd != nil {
+		t.Fatalf("unknown launch returned cmd %T, want nil", cmd)
+	}
+	hp := nm.(HubProgram)
+	if hp.flow != nil {
+		t.Fatalf("unknown action should not set flow, got %T", hp.flow)
+	}
+	if hp.hub.toastOK || !strings.Contains(hp.hub.toast, "bogus") {
+		t.Fatalf("hub toast = %q ok=%v, want error mentioning bogus", hp.hub.toast, hp.hub.toastOK)
 	}
 }

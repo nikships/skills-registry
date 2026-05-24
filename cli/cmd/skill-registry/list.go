@@ -129,8 +129,18 @@ func runList(ctx context.Context, query string, plain bool) error {
 	downloader := func(downloadCtx context.Context, slug string) (string, string, error) {
 		return DownloadSkill(downloadCtx, client, slug, "", cwd)
 	}
+	deleter := func(deleteCtx context.Context, slug string) (string, error) {
+		report, err := runRemove(deleteCtx, slug, true, true)
+		if err != nil {
+			return "", err
+		}
+		if report == nil {
+			return "", fmt.Errorf("remove %s cancelled", slug)
+		}
+		return report.CommitSHA, nil
+	}
 
-	model := tui.NewList(ctx, cfg.Repo, loader, downloader)
+	model := tui.NewList(ctx, cfg.Repo, loader, downloader).WithDeleter(deleter)
 	if _, err := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),

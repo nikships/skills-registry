@@ -291,6 +291,26 @@ func TestSettingsQuitKeysSetQuitFlag(t *testing.T) {
 	}
 }
 
+func TestSettingsOnExitSwapsQuitMessage(t *testing.T) {
+	m := freshSettings(nil).WithOnExit(func(SettingsModel) tea.Msg {
+		return flowExitMsg{toast: "settings · closed", ok: true}
+	})
+	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	if !nm.(SettingsModel).Quit() {
+		t.Fatal("q did not set Quit()")
+	}
+	if cmd == nil {
+		t.Fatal("q with OnExit returned nil cmd")
+	}
+	msg, ok := cmd().(flowExitMsg)
+	if !ok {
+		t.Fatalf("exit cmd returned %T, want flowExitMsg", cmd())
+	}
+	if msg.toast != "settings · closed" || !msg.ok {
+		t.Fatalf("flowExitMsg = %+v", msg)
+	}
+}
+
 // TestSettingsCtrlCWhileEditingStillQuits verifies the
 // editing-mode-doesn't-trap-ctrl+c contract — matches the wizard / hub
 // behaviour so users always have a working escape hatch.

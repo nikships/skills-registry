@@ -26,6 +26,19 @@ func (s *stubDownloader) fn() Downloader {
 	}
 }
 
+type stubDeleter struct {
+	calls []string
+	sha   string
+	err   error
+}
+
+func (s *stubDeleter) fn() Deleter {
+	return func(_ context.Context, slug string) (string, error) {
+		s.calls = append(s.calls, slug)
+		return s.sha, s.err
+	}
+}
+
 // readyModel returns a ListModel in stateReady with two rows loaded.
 func readyModel(t *testing.T, dl Downloader) ListModel {
 	t.Helper()
@@ -45,6 +58,8 @@ func readyModel(t *testing.T, dl Downloader) ListModel {
 }
 
 func enterKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
+
+func deleteKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")} }
 
 func TestEnter_TriggersDownload(t *testing.T) {
 	stub := &stubDownloader{dest: "/tmp/.agents/skills/foo_skill"}
@@ -230,6 +245,94 @@ func TestEnter_NoOpWithoutDownloader(t *testing.T) {
 	}
 }
 
+func TestDeleteKeyNoOpWithoutDeleter(t *testing.T) {
+	m := readyModel(t, nil)
+	got, cmd := m.Update(deleteKey())
+	mm := got.(ListModel)
+	if mm.confirmRemoval {
+		t.Fatal("delete key opened confirmation without a deleter")
+	}
+	if cmd != nil {
+		t.Fatalf("expected nil cmd without deleter, got %T", cmd)
+	}
+}
+
+func TestDeleteKeyOpensConfirmWithCancelDefault(t *testing.T) {
+	stub := &stubDeleter{sha: "abcdef123"}
+	m := readyModel(t, nil).WithDeleter(stub.fn())
+	got, cmd := m.Update(deleteKey())
+	mm := got.(ListModel)
+	if cmd != nil {
+		t.Fatalf("opening confirmation should not start delete, got %T", cmd)
+	}
+	if !mm.confirmRemoval {
+		t.Fatal("delete key did not open remove confirmation")
+	}
+	if mm.removeCursor != 0 {
+		t.Fatalf("removeCursor = %d, want 0 (Cancel default)", mm.removeCursor)
+	}
+	if !strings.Contains(mm.View(), "Remove foo_skill?") {
+		t.Fatalf("remove overlay missing selected slug:\n%s", mm.View())
+	}
+}
+
+func TestDeleteConfirmCancelDoesNotDelete(t *testing.T) {
+	stub := &stubDeleter{sha: "abcdef123"}
+	m := readyModel(t, nil).WithDeleter(stub.fn())
+	got, _ := m.Update(deleteKey())
+	got, cmd := got.(ListModel).Update(enterKey())
+	mm := got.(ListModel)
+	if mm.confirmRemoval {
+		t.Fatal("enter on default Cancel should close confirmation")
+	}
+	if cmd != nil {
+		t.Fatalf("cancel returned cmd %T, want nil", cmd)
+	}
+	if len(stub.calls) != 0 {
+		t.Fatalf("deleter calls = %v, want none", stub.calls)
+	}
+}
+
+func TestDeleteConfirmSuccessRemovesRow(t *testing.T) {
+	stub := &stubDeleter{sha: "abcdef123"}
+	m := readyModel(t, nil).WithDeleter(stub.fn())
+	got, _ := m.Update(deleteKey())
+	got, _ = got.(ListModel).Update(tea.KeyMsg{Type: tea.KeyRight})
+	got, cmd := got.(ListModel).Update(enterKey())
+	mm := got.(ListModel)
+	if mm.rowState["foo_skill"] != StatusRemoving {
+		t.Fatalf("rowState[foo_skill] = %v, want StatusRemoving", mm.rowState["foo_skill"])
+	}
+	if mm.inflight != 1 {
+		t.Fatalf("inflight = %d, want 1", mm.inflight)
+	}
+	if cmd == nil {
+		t.Fatal("confirm yes returned nil cmd")
+	}
+	done, ok := drainForDelete(cmd())
+	if !ok {
+		t.Fatal("did not get deleteDoneMsg from cmd output")
+	}
+	if done.slug != "foo_skill" || done.sha != "abcdef123" {
+		t.Fatalf("deleteDoneMsg = %+v", done)
+	}
+	if len(stub.calls) != 1 || stub.calls[0] != "foo_skill" {
+		t.Fatalf("deleter calls = %v, want [foo_skill]", stub.calls)
+	}
+
+	got, _ = mm.Update(done)
+	mm = got.(ListModel)
+	if mm.inflight != 0 {
+		t.Fatalf("inflight after delete done = %d, want 0", mm.inflight)
+	}
+	if mm.findRow("foo_skill") != nil {
+		t.Fatal("foo_skill row still present after successful delete")
+	}
+	if !mm.toastOK || !strings.Contains(mm.toast, "removed Foo") {
+		t.Fatalf("toast = %q ok=%v, want removed Foo success", mm.toast, mm.toastOK)
+	}
+}
+
 // TestSlugMatchesName pins the suppression rule used by both the preview
 // "slug · …" line and the list-row right column. Anything that's just the
 // canonical Slugify of the title is treated as redundant and hidden.
@@ -275,6 +378,23 @@ func drainForDone(msg tea.Msg) (downloadDoneMsg, bool) {
 		}
 	}
 	return downloadDoneMsg{}, false
+}
+
+func drainForDelete(msg tea.Msg) (deleteDoneMsg, bool) {
+	switch v := msg.(type) {
+	case deleteDoneMsg:
+		return v, true
+	case tea.BatchMsg:
+		for _, c := range v {
+			if c == nil {
+				continue
+			}
+			if d, ok := drainForDelete(c()); ok {
+				return d, true
+			}
+		}
+	}
+	return deleteDoneMsg{}, false
 }
 
 // TestTruncatePinsDisplayCellBudget pins the F3.5/F3.3 contract: the

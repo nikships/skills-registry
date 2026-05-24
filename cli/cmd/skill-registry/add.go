@@ -218,6 +218,14 @@ func promptAddSelection(skills []scan.Skill) ([]scan.Skill, error) {
 }
 
 func resolveSource(source string) (string, func(), error) {
+	return resolveSourceWithNotice(context.Background(), source, !jsonout.Enabled())
+}
+
+func resolveSourceQuiet(ctx context.Context, source string) (string, func(), error) {
+	return resolveSourceWithNotice(ctx, source, false)
+}
+
+func resolveSourceWithNotice(ctx context.Context, source string, announce bool) (string, func(), error) {
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "/") || strings.HasPrefix(source, "../") || strings.HasPrefix(source, "~") {
 		path := source
 		if strings.HasPrefix(path, "~") {
@@ -244,10 +252,10 @@ func resolveSource(source string) (string, func(), error) {
 		return "", noopCleanup, err
 	}
 	cleanup := func() { _ = os.RemoveAll(tmp) }
-	if !jsonout.Enabled() {
+	if announce {
 		fmt.Println(tui.HintStyle.Render("cloning " + url + " …"))
 	}
-	cmd := exec.Command("git", "clone", "--depth", "1", "--single-branch", url, tmp)
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--single-branch", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
 		return "", noopCleanup, fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(out)))

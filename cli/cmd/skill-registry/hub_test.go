@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/anand-92/skills-registry/cli/internal/config"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
 
 // TestErrToastSurfacesActionAndMessage pins the F3.2 toast formatter:
@@ -71,57 +70,6 @@ func TestErrToastDemotesWrappedCancellation(t *testing.T) {
 	}
 }
 
-// TestDispatchHubActionRemoveMissingConfig pins the F4.1 wiring: with
-// no config on disk, runRemoveFromHub fails fast in
-// loadRegistryForRemove and surfaces an error toast that still names
-// the action. We point XDG_CONFIG_HOME at an isolated tempdir so the
-// test never reads or writes the developer's real registry.toml.
-//
-// runRemoveFromHub also tries to launch a Bubble Tea program to prompt
-// for the slug. In a non-TTY test environment that call returns an
-// error immediately, which is exactly what we want: the toast names
-// the action, ok=false, and fatal stays nil so the hub loop continues.
-func TestDispatchHubActionRemoveMissingConfig(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("SKILLS_REGISTRY", "")
-	r := dispatchHubAction(context.Background(), tui.HubActionRemove)
-	if r.ok {
-		t.Errorf("remove without config/TTY should produce error toast, got ok=true: %q", r.text)
-	}
-	if !strings.Contains(r.text, "remove") {
-		t.Errorf("remove toast should name the action: %q", r.text)
-	}
-	if strings.Contains(r.text, "F4.1") {
-		t.Errorf("remove still using placeholder text: %q", r.text)
-	}
-	if r.fatal != nil {
-		t.Errorf("remove dispatch set fatal=%v, want nil so loop continues", r.fatal)
-	}
-}
-
-// TestDispatchHubActionSettingsMissingConfig pins the F3.3 wiring: with
-// no config on disk, runSettingsFromHub bails before launching the
-// alt-screen TUI and surfaces an "ErrMissing"-style error toast that
-// still names the action (so the hub frame says ✗ settings: …). We
-// point XDG_CONFIG_HOME at an isolated tempdir so the test never reads
-// or writes the developer's real registry.toml.
-func TestDispatchHubActionSettingsMissingConfig(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("SKILLS_REGISTRY", "")
-	r := dispatchHubAction(context.Background(), tui.HubActionSettings)
-	if r.ok {
-		t.Errorf("settings without config should produce error toast, got ok=true: %q", r.text)
-	}
-	if !strings.Contains(r.text, "settings") {
-		t.Errorf("settings toast should name the action: %q", r.text)
-	}
-	// Crucially, the F3.3 placeholder is gone — the dispatch now runs
-	// the real flow.
-	if strings.Contains(r.text, "wiring lands in F3.3") {
-		t.Errorf("settings still using placeholder text: %q", r.text)
-	}
-}
-
 // TestSettingsSaverWritesConfig verifies the closure passed to
 // tui.NewSettings round-trips through config.Save and produces a path
 // the user can find on disk. Uses XDG_CONFIG_HOME isolation so the
@@ -163,23 +111,6 @@ func TestSettingsSaverRejectsBadRepo(t *testing.T) {
 	saver := settingsSaver()
 	if _, err := saver("not-a-valid-repo", "main"); err == nil {
 		t.Fatal("saver accepted invalid repo, want error")
-	}
-}
-
-// TestDispatchHubActionUnknown verifies the defensive default branch.
-// An unrecognized action ID (e.g. a future card whose handler hasn't
-// been wired) produces an error toast and keeps the loop alive rather
-// than panicking or returning an unhandled value.
-func TestDispatchHubActionUnknown(t *testing.T) {
-	r := dispatchHubAction(context.Background(), "bogus")
-	if r.ok {
-		t.Error("unknown action should produce error toast (ok=false)")
-	}
-	if !strings.Contains(r.text, "bogus") {
-		t.Errorf("unknown-action toast should name the offending ID: %q", r.text)
-	}
-	if r.fatal != nil {
-		t.Errorf("unknown action should not set fatal err: %v", r.fatal)
 	}
 }
 

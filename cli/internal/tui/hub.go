@@ -20,9 +20,8 @@ import (
 //
 // F3.1 builds the frame: animated header, responsive card grid, footer.
 // F3.2 adds the toast row used to surface the outcome of dispatched
-// actions on the next hub iteration. The launcher reads
-// HubModel.Selection() after the model quits, runs the matching
-// subcommand, and re-launches the hub with WithToast(...).
+// actions. The long-lived HubProgram catches hubLaunchMsg, runs the
+// matching embedded flow, then re-renders the dashboard with WithToast.
 // ────────────────────────────────────────────────────────────────────────────
 
 // Hub action IDs. Each constant matches one tile in the default card grid
@@ -30,24 +29,29 @@ import (
 // tile. Callers should compare against these constants rather than
 // hard-coded strings.
 const (
-	HubActionBrowse   = "browse"
+	HubActionManage   = "manage"
 	HubActionSync     = "sync"
 	HubActionAdd      = "add"
 	HubActionPublish  = "publish"
-	HubActionRemove   = "remove"
 	HubActionSettings = "settings"
+
+	// Deprecated action IDs kept so older tests / integrations that
+	// reference the names still compile; the default grid no longer emits
+	// them. HubActionManage absorbs both browse and remove.
+	HubActionBrowse = "browse"
+	HubActionRemove = "remove"
 )
 
-// DefaultHubCards returns the six tiles the dashboard ships with.
+// DefaultHubCards returns the five tiles the dashboard ships with.
 // Exposed so the launcher can render the same labels in non-TUI fallback
 // paths and tests can reference the same data the production view does.
 func DefaultHubCards() []HubCard {
 	return []HubCard{
 		{
-			ID:          HubActionBrowse,
+			ID:          HubActionManage,
 			Icon:        "📚",
-			Title:       "Browse",
-			Description: "Fuzzy-search every skill in the registry and download what you need.",
+			Title:       "Manage skills",
+			Description: "Browse, download, and remove registry skills from one searchable list.",
 		},
 		{
 			ID:          HubActionSync,
@@ -68,12 +72,6 @@ func DefaultHubCards() []HubCard {
 			Description: "Upload a single local skill folder to the registry.",
 		},
 		{
-			ID:          HubActionRemove,
-			Icon:        "🗑",
-			Title:       "Remove",
-			Description: "Delete a skill from the registry by slug.",
-		},
-		{
 			ID:          HubActionSettings,
 			Icon:        "⚙",
 			Title:       "Settings",
@@ -91,6 +89,8 @@ type hubCountMsg struct {
 	count int
 	err   error
 }
+
+type hubLaunchMsg struct{ action string }
 
 // HubModel is the alt-screen dashboard model.
 type HubModel struct {
@@ -151,6 +151,12 @@ func NewHub(ctx context.Context, repo string, loader HubCountLoader) HubModel {
 func (m HubModel) WithToast(text string, ok bool) HubModel {
 	m.toast = text
 	m.toastOK = ok
+	return m
+}
+
+func (m HubModel) WithSelectionReset() HubModel {
+	m.selection = ""
+	m.quit = false
 	return m
 }
 
@@ -215,9 +221,9 @@ func (m HubModel) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// handleKey routes navigation, selection, and quit keys. Arrow keys and
-// the matching hjkl bindings walk the grid; enter locks in the focused
-// card; q / esc / ctrl+c exit without a selection.
+// handleKey routes navigation, launch, and quit keys. Arrow keys and the
+// matching hjkl bindings walk the grid; enter emits hubLaunchMsg; q / esc /
+// ctrl+c exits the long-lived hub program.
 func (m HubModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	cols := m.grid.Cols(m.width)
 	switch msg.String() {
@@ -233,8 +239,9 @@ func (m HubModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.grid = m.grid.Move("down", cols)
 	case "enter":
-		m.selection = m.grid.Selected().ID
-		return m, tea.Quit
+		action := m.grid.Selected().ID
+		m.selection = ""
+		return m, func() tea.Msg { return hubLaunchMsg{action: action} }
 	}
 	return m, nil
 }

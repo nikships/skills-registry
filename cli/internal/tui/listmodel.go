@@ -51,6 +51,10 @@ type RowLoader func() ([]SkillRow, error)
 // directory whose name slugifies to the same canonical slug).
 type Downloader func(ctx context.Context, slug string) (dest string, reused string, err error)
 
+// Deleter removes a skill from the registry and returns the commit SHA that
+// performed the deletion.
+type Deleter func(ctx context.Context, slug string) (sha string, err error)
+
 // RowStatus tracks the per-row download state in the list TUI.
 type RowStatus int
 
@@ -59,6 +63,8 @@ const (
 	StatusDownloading
 	StatusDone
 	StatusErr
+	StatusRemoving
+	StatusRemoved
 )
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -74,6 +80,11 @@ type downloadDoneMsg struct {
 	dest   string
 	reused string
 	err    error
+}
+type deleteDoneMsg struct {
+	slug string
+	sha  string
+	err  error
 }
 
 // sparkleTick paces the header / footer animations. 600ms is slow enough that
@@ -104,7 +115,9 @@ type ListModel struct {
 	repo     string
 	loader   RowLoader
 	download Downloader
+	delete   Deleter
 	ctx      context.Context
+	OnExit   func(ListModel) tea.Msg
 
 	// sub-components
 	spinner spinner.Model
@@ -119,10 +132,15 @@ type ListModel struct {
 	height   int
 	showHelp bool
 
+	confirmRemoval bool
+	removeCursor   int
+	removingSlug   string
+
 	// per-slug download state.
 	rowState map[string]RowStatus
 	rowDest  map[string]string
 	rowErr   map[string]error
+	rowSHA   map[string]string
 	inflight int
 
 	// Last download status, shown above the footer until it's replaced by
@@ -193,7 +211,18 @@ func NewList(ctx context.Context, repo string, loader RowLoader, downloader Down
 		rowState: rowState,
 		rowDest:  map[string]string{},
 		rowErr:   map[string]error{},
+		rowSHA:   map[string]string{},
 	}
+}
+
+func (m ListModel) WithDeleter(deleter Deleter) ListModel {
+	m.delete = deleter
+	return m
+}
+
+func (m ListModel) WithOnExit(onExit func(ListModel) tea.Msg) ListModel {
+	m.OnExit = onExit
+	return m
 }
 
 // Init implements tea.Model.
@@ -219,6 +248,13 @@ func startDownload(ctx context.Context, d Downloader, slug string) tea.Cmd {
 	return func() tea.Msg {
 		dest, reused, err := d(ctx, slug)
 		return downloadDoneMsg{slug: slug, dest: dest, reused: reused, err: err}
+	}
+}
+
+func startDelete(ctx context.Context, d Deleter, slug string) tea.Cmd {
+	return func() tea.Msg {
+		sha, err := d(ctx, slug)
+		return deleteDoneMsg{slug: slug, sha: sha, err: err}
 	}
 }
 
@@ -254,6 +290,8 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case downloadDoneMsg:
 		return m.handleDownloadDone(msg)
+	case deleteDoneMsg:
+		return m.handleDeleteDone(msg)
 	case sparkleTickMsg:
 		m.sparkleIdx++
 		return m, sparkleTick()
@@ -312,6 +350,55 @@ func (m ListModel) handleDownloadDone(msg downloadDoneMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
+func (m ListModel) handleDeleteDone(msg deleteDoneMsg) (tea.Model, tea.Cmd) {
+	if m.inflight > 0 {
+		m.inflight--
+	}
+	row := m.findRow(msg.slug)
+	name := msg.slug
+	if row != nil && row.Name != "" {
+		name = row.Name
+	}
+	if msg.err != nil {
+		m.rowState[msg.slug] = StatusErr
+		m.rowErr[msg.slug] = msg.err
+		errText := strings.ReplaceAll(msg.err.Error(), "\n", " · ")
+		m.toast = fmt.Sprintf("✗ remove %s: %s", name, errText)
+		m.toastOK = false
+		return m, nil
+	}
+	m.rowState[msg.slug] = StatusRemoved
+	m.rowSHA[msg.slug] = msg.sha
+	m.toast = fmt.Sprintf("✓ removed %s", name)
+	if msg.sha != "" {
+		m.toast += "@" + shortFlowSHA(msg.sha)
+	}
+	m.toastOK = true
+	m.dropRow(msg.slug)
+	return m, nil
+}
+
+func (m *ListModel) dropRow(slug string) {
+	filtered := m.rows[:0]
+	for _, row := range m.rows {
+		if row.Slug != slug {
+			filtered = append(filtered, row)
+		}
+	}
+	m.rows = filtered
+	delete(m.rowState, slug)
+	delete(m.rowDest, slug)
+	delete(m.rowErr, slug)
+	delete(m.rowSHA, slug)
+	items := make([]list.Item, len(m.rows))
+	for i, row := range m.rows {
+		items[i] = row
+	}
+	m.revealCap = len(m.rows)
+	m.list.SetItems(items)
+	m.refreshPreview()
+}
+
 func (m ListModel) handleRevealTick() (tea.Model, tea.Cmd) {
 	if m.revealCap < len(m.rows) {
 		m.revealCap++
@@ -326,6 +413,9 @@ func (m ListModel) handleRevealTick() (tea.Model, tea.Cmd) {
 }
 
 func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirmRemoval {
+		return m.handleRemoveConfirmKey(msg)
+	}
 	// Help overlay swallows most keys.
 	if m.showHelp {
 		switch msg.String() {
@@ -338,7 +428,7 @@ func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ctrl+c so users can type freely.
 	if m.list.FilterState() == list.Filtering {
 		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+			return m, m.exitCmd()
 		}
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
@@ -347,17 +437,19 @@ func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "ctrl+c", "q":
-		return m, tea.Quit
+		return m, m.exitCmd()
 	case "esc":
 		if m.list.FilterValue() != "" {
 			m.list.ResetFilter()
 			m.refreshPreview()
 			return m, nil
 		}
-		return m, tea.Quit
+		return m, m.exitCmd()
 	case "?":
 		m.showHelp = true
 		return m, nil
+	case "d":
+		return m.openRemoveConfirm()
 	case "enter":
 		if it, ok := m.list.SelectedItem().(SkillRow); ok {
 			if m.download == nil {
@@ -382,6 +474,72 @@ func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.forwardToList(msg)
 }
 
+func (m ListModel) exitCmd() tea.Cmd {
+	if m.OnExit == nil {
+		return tea.Quit
+	}
+	snapshot := m
+	return func() tea.Msg { return m.OnExit(snapshot) }
+}
+
+func (m ListModel) openRemoveConfirm() (tea.Model, tea.Cmd) {
+	if m.delete == nil {
+		return m, nil
+	}
+	it, ok := m.list.SelectedItem().(SkillRow)
+	if !ok {
+		return m, nil
+	}
+	switch m.rowState[it.Slug] {
+	case StatusDownloading, StatusRemoving:
+		return m, nil
+	}
+	m.confirmRemoval = true
+	m.removeCursor = 0
+	m.removingSlug = it.Slug
+	return m, nil
+}
+
+func (m ListModel) handleRemoveConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "left", "h":
+		m.removeCursor = 0
+		return m, nil
+	case "right", "l":
+		m.removeCursor = 1
+		return m, nil
+	case "esc", "n", "N":
+		m.confirmRemoval = false
+		return m, nil
+	case "y", "Y":
+		m.removeCursor = 1
+		return m.startRemoval()
+	case "enter":
+		if m.removeCursor == 1 {
+			return m.startRemoval()
+		}
+		m.confirmRemoval = false
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m ListModel) startRemoval() (tea.Model, tea.Cmd) {
+	if m.delete == nil || m.removingSlug == "" {
+		m.confirmRemoval = false
+		return m, nil
+	}
+	slug := m.removingSlug
+	m.confirmRemoval = false
+	m.removingSlug = ""
+	m.rowState[slug] = StatusRemoving
+	m.inflight++
+	return m, tea.Batch(
+		startDelete(m.ctx, m.delete, slug),
+		m.spinner.Tick,
+	)
+}
+
 // forwardToList delegates a message to the inner bubbles list and refreshes
 // the preview pane based on the new selection.
 func (m ListModel) forwardToList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -403,6 +561,13 @@ func (m ListModel) View() string {
 		return m.renderLoading()
 	}
 	base := m.renderMain()
+	if m.confirmRemoval {
+		overlay := m.renderRemoveOverlay()
+		if m.width <= 0 || m.height <= 0 {
+			return overlay
+		}
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
+	}
 	if m.showHelp {
 		overlay := m.renderHelp()
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
@@ -494,7 +659,7 @@ func (m ListModel) renderToast() string {
 	var out string
 	if m.inflight > 0 {
 		out = m.spinner.View() + lipgloss.NewStyle().Foreground(ColInk).Render(
-			fmt.Sprintf(" downloading %d skill(s) …", m.inflight))
+			fmt.Sprintf(" working on %d operation(s) …", m.inflight))
 	}
 	if m.toast != "" {
 		style := OkStyle
@@ -558,7 +723,7 @@ func (m ListModel) renderListPanel() string {
 		Foreground(ColPrimary).
 		Bold(true).
 		Padding(0, 1).
-		Render("◆ Browse")
+		Render("◆ Manage skills")
 	content := lipgloss.JoinVertical(lipgloss.Left, title, listView)
 	return style.Render(content)
 }
@@ -627,12 +792,22 @@ func (m ListModel) renderPreviewPanel() string {
 			hint = lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render("✗ failed") +
 				lipgloss.NewStyle().Foreground(ColMuted).Render(" — ") +
 				lipgloss.NewStyle().Foreground(ColInk).Render(m.rowErr[row.Slug].Error())
+		case StatusRemoving:
+			hint = lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ removing") +
+				lipgloss.NewStyle().Foreground(ColMuted).Render(" from registry")
+		case StatusRemoved:
+			hint = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ removed")
 		default:
 			// CTA: an actual keycap chip + arrow + target path. Reads as a
 			// button rather than a sentence.
 			hint = DownloadChip.Render("⏎ enter") +
 				lipgloss.NewStyle().Foreground(ColMuted).Render("  download → ") +
 				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
+			if m.delete != nil {
+				hint += lipgloss.NewStyle().Foreground(ColMuted).Render("  ·  ") +
+					KeyStyle.Render("d") +
+					lipgloss.NewStyle().Foreground(ColMuted).Render(" remove")
+			}
 		}
 
 		meta := PreviewMeta.Render("registry · " + m.repo)
@@ -666,9 +841,14 @@ func (m ListModel) renderFooter() string {
 		{"↑/↓", "navigate"},
 		{"/", "filter"},
 		{"enter", "download"},
-		{"?", "help"},
-		{"q", "quit"},
 	}
+	if m.delete != nil {
+		keys = append(keys, struct{ k, d string }{"d", "remove"})
+	}
+	keys = append(keys,
+		struct{ k, d string }{"?", "help"},
+		struct{ k, d string }{"q", "back"},
+	)
 	parts := make([]string, 0, len(keys)*3)
 	for i, kv := range keys {
 		if i > 0 {
@@ -740,6 +920,7 @@ func (m ListModel) renderHelp() string {
 		{"/", "start filtering"},
 		{"esc", "clear filter (or quit)"},
 		{"enter", "download into ./.agents/skills/<slug>/"},
+		{"d", "remove selected skill"},
 		{"?", "toggle this help"},
 		{"q / ctrl+c", "quit"},
 	}
@@ -765,6 +946,25 @@ func (m ListModel) renderHelp() string {
 			footer,
 		),
 	)
+}
+
+func (m ListModel) renderRemoveOverlay() string {
+	slug := m.removingSlug
+	if slug == "" {
+		if row, ok := m.list.SelectedItem().(SkillRow); ok {
+			slug = row.Slug
+		}
+	}
+	title := ErrorStyle.Render("Remove " + slug + "?")
+	body := lipgloss.NewStyle().Foreground(ColInk).
+		Render("This deletes the skill from the registry and local skill caches.")
+	cancelBtn := renderOverlayButton("Cancel", m.removeCursor == 0, false)
+	removeBtn := renderOverlayButton("Yes, remove it", m.removeCursor == 1, true)
+	buttons := lipgloss.JoinHorizontal(lipgloss.Top, cancelBtn, "   ", removeBtn)
+	hint := SubtitleStyle.Render("←/→ choose · enter confirm · esc cancel")
+	return HelpOverlay.Render(lipgloss.JoinVertical(lipgloss.Left,
+		title, "", body, "", buttons, "", hint,
+	))
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -931,6 +1131,8 @@ func newSkillDelegate(statusOf func(string) RowStatus) skillDelegate {
 			StatusDownloading: lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render(" ⟳"),
 			StatusDone:        lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(" ✓"),
 			StatusErr:         lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render(" ✗"),
+			StatusRemoving:    lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render(" ⟳"),
+			StatusRemoved:     lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(" ✓"),
 		},
 		statusOf: statusOf,
 	}

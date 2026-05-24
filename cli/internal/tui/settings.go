@@ -54,6 +54,7 @@ type SettingsModel struct {
 	focused    settingsField
 	editing    bool
 	saver      SettingsSaver
+	OnExit     func(SettingsModel) tea.Msg
 	saveErr    error
 	savedPath  string
 	statusNote string
@@ -150,7 +151,7 @@ func (m SettingsModel) handleNavKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q", "esc":
 		m.quit = true
-		return m, tea.Quit
+		return m, m.exitCmd()
 	case "tab", "down", "j":
 		m.focused = (m.focused + 1) % settingsFieldCount
 		return m, nil
@@ -194,13 +195,26 @@ func (m SettingsModel) handleEditingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// other TUIs (list, hub, wizard) so users have a consistent
 		// escape hatch.
 		m.quit = true
-		return m, tea.Quit
+		return m, m.exitCmd()
 	case "esc":
 		return m.cancelEdit(), nil
 	case "enter":
 		return m.commitEdit(), nil
 	}
 	return m.forwardToInput(msg)
+}
+
+func (m SettingsModel) WithOnExit(onExit func(SettingsModel) tea.Msg) SettingsModel {
+	m.OnExit = onExit
+	return m
+}
+
+func (m SettingsModel) exitCmd() tea.Cmd {
+	if m.OnExit == nil {
+		return tea.Quit
+	}
+	snapshot := m
+	return func() tea.Msg { return m.OnExit(snapshot) }
 }
 
 // cancelEdit restores the focused field to its pre-edit value and exits
