@@ -243,3 +243,57 @@ func TestHubNilLoaderSkipsSpinner(t *testing.T) {
 		t.Error("NewHub with nil loader did not flip countLoaded=true")
 	}
 }
+
+// TestHubWithToastSurfacesText pins the F3.2 contract that the toast
+// text seeded by WithToast reaches View(), where the launcher's
+// dispatched-action feedback lands.
+func TestHubWithToastSurfacesText(t *testing.T) {
+	m := freshHub().WithToast("✓ published demo-skill", true)
+	if got := m.toast; got != "✓ published demo-skill" {
+		t.Errorf("toast field = %q, want \"✓ published demo-skill\"", got)
+	}
+	if !m.toastOK {
+		t.Error("toastOK should be true after success WithToast")
+	}
+	if !strings.Contains(m.View(), "✓ published demo-skill") {
+		t.Errorf("View() missing toast text:\n%s", m.View())
+	}
+}
+
+// TestHubWithToastErrorVariant exercises the failure styling branch —
+// the rendered toast must still surface the text even though it'll be
+// painted in ErrorStyle red rather than OkStyle green.
+func TestHubWithToastErrorVariant(t *testing.T) {
+	m := freshHub().WithToast("✗ sync failed: gh auth", false)
+	if m.toastOK {
+		t.Error("toastOK should be false on error toast")
+	}
+	if !strings.Contains(m.View(), "✗ sync failed: gh auth") {
+		t.Errorf("View() missing error toast:\n%s", m.View())
+	}
+}
+
+// TestHubWithoutToastSkipsRow guarantees the toast row stays out of the
+// rendered View when no toast is set, so a fresh hub frame keeps its
+// compact layout.
+func TestHubWithoutToastSkipsRow(t *testing.T) {
+	m := freshHub()
+	if got := m.renderToast(); got != "" {
+		t.Errorf("renderToast on fresh hub = %q, want empty", got)
+	}
+}
+
+// TestHubToastClearsAfterReconstruction verifies the launcher's "next
+// hub launch starts toast-free" assumption: NewHub does not carry over
+// the previous iteration's toast.
+func TestHubToastClearsAfterReconstruction(t *testing.T) {
+	prev := freshHub().WithToast("✓ stale", true)
+	if prev.renderToast() == "" {
+		t.Fatal("setup: prev should have a toast")
+	}
+	// Simulate the launcher building the next iteration without a toast.
+	next := NewHub(context.Background(), "owner/repo", nil)
+	if got := next.renderToast(); got != "" {
+		t.Errorf("NewHub carried over toast: %q", got)
+	}
+}

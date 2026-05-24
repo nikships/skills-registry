@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -11,33 +13,185 @@ import (
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
 
-// runHub launches the alt-screen dashboard for returning users.
-//
-// F3.1 owns the frame (sparkle header + responsive card grid + footer).
-// F3.2 will branch on tui.HubModel.Selection() and re-launch the hub
-// after each card action. Until then a selected card prints a one-line
-// "wiring lands in F3.2" notice so the user gets immediate feedback and
-// the launcher exit path stays exercised.
+// runHub is the F3.2 dispatch loop: launch the alt-screen dashboard,
+// run the action the user picks, capture the result as a toast, and
+// re-launch with that toast seeded into the next frame. The loop
+// terminates only when the user explicitly quits the hub (q / esc /
+// ctrl+c) or a launcher-level error makes continuing impossible.
 func runHub(ctx context.Context) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+	var pending hubToast
+	for {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		model := tui.NewHub(ctx, cfg.Repo, hubCountLoader(cfg.Repo, cfg.DefaultBranch))
+		if pending.text != "" {
+			model = model.WithToast(pending.text, pending.ok)
+		}
+		final, err := launchHubProgram(ctx, model)
+		if err != nil {
+			return err
+		}
+		if final.Quit() {
+			return nil
+		}
+		action := final.Selection()
+		if action == "" {
+			return nil
+		}
+		pending = dispatchHubAction(ctx, action)
+		if pending.fatal != nil {
+			return pending.fatal
+		}
 	}
-	loader := hubCountLoader(cfg.Repo, cfg.DefaultBranch)
-	model := tui.NewHub(ctx, cfg.Repo, loader)
+}
+
+// hubToast carries one action's result back into the next hub frame.
+// `fatal` short-circuits the loop when continuing would be pointless
+// (e.g. the registry config was deleted mid-session); per-action
+// failures land as red toasts instead so the user can retry.
+type hubToast struct {
+	text  string
+	ok    bool
+	fatal error
+}
+
+// launchHubProgram runs a single iteration of the alt-screen hub and
+// returns the post-quit model so the caller can read Selection() / Quit().
+func launchHubProgram(ctx context.Context, model tui.HubModel) (tui.HubModel, error) {
 	out, err := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
 		tea.WithContext(ctx),
 	).Run()
 	if err != nil {
-		return fmt.Errorf("run hub: %w", err)
+		return tui.HubModel{}, fmt.Errorf("run hub: %w", err)
 	}
 	final, ok := out.(tui.HubModel)
 	if !ok {
-		return fmt.Errorf("hub returned unexpected model %T", out)
+		return tui.HubModel{}, fmt.Errorf("hub returned unexpected model %T", out)
 	}
-	return finishHub(final)
+	return final, nil
+}
+
+// dispatchHubAction is the per-action switch. Each branch runs the
+// corresponding subcommand handler inline (the hub's alt-screen has
+// already been released, so prompts and progress prints behave like a
+// normal terminal session) and returns the toast the next iteration
+// should display.
+func dispatchHubAction(ctx context.Context, action string) hubToast {
+	switch action {
+	case tui.HubActionBrowse:
+		return runBrowseFromHub(ctx)
+	case tui.HubActionSync:
+		return runSyncFromHub(ctx)
+	case tui.HubActionAdd:
+		return runAddFromHub(ctx)
+	case tui.HubActionPublish:
+		return runPublishFromHub(ctx)
+	case tui.HubActionRemove:
+		return hubToast{text: "remove · wiring lands in F4.1", ok: true}
+	case tui.HubActionSettings:
+		return hubToast{text: "settings · wiring lands in F3.3", ok: true}
+	}
+	return hubToast{text: fmt.Sprintf("✗ unknown action: %s", action), ok: false}
+}
+
+// runBrowseFromHub launches the existing list TUI as its own alt-screen
+// program. The list owns its own quit handling — pressing q in the list
+// just returns here, where we surface a neutral "closed" toast.
+func runBrowseFromHub(ctx context.Context) hubToast {
+	if err := runList(ctx, "", false); err != nil {
+		return errToast("browse", err)
+	}
+	return hubToast{text: "✓ browse · closed", ok: true}
+}
+
+// runSyncFromHub runs the sync subcommand's interactive flow. The
+// multi-select + confirm prompts inside runSync are tea.Programs without
+// alt-screen, so they render as a brief inline UI between hub sessions.
+func runSyncFromHub(ctx context.Context) hubToast {
+	if err := runSync(ctx, false, false); err != nil {
+		return errToast("sync", err)
+	}
+	return hubToast{text: "✓ sync complete", ok: true}
+}
+
+// runAddFromHub prompts for the source (path / owner/repo / git URL),
+// then delegates to runAdd. A cancelled prompt collapses to a neutral
+// toast so the user lands back on the hub without an error.
+func runAddFromHub(ctx context.Context) hubToast {
+	source, cancelled, err := promptHubLine(
+		"Add skills from a source",
+		"owner/repo, git URL, or local path",
+		"esc to cancel · enter to continue",
+	)
+	if err != nil {
+		return errToast("add", err)
+	}
+	if cancelled || source == "" {
+		return hubToast{text: "add · cancelled", ok: true}
+	}
+	if err := runAdd(ctx, source, false, false); err != nil {
+		return errToast("add", err)
+	}
+	return hubToast{text: fmt.Sprintf("✓ added from %s", source), ok: true}
+}
+
+// runPublishFromHub prompts for the local skill folder path then
+// delegates to runPublish. Mirrors runAddFromHub's cancellation rules.
+func runPublishFromHub(ctx context.Context) hubToast {
+	path, cancelled, err := promptHubLine(
+		"Publish a local skill",
+		"path to skill folder (contains SKILL.md)",
+		"esc to cancel · enter to publish",
+	)
+	if err != nil {
+		return errToast("publish", err)
+	}
+	if cancelled || path == "" {
+		return hubToast{text: "publish · cancelled", ok: true}
+	}
+	if err := runPublish(ctx, path, ""); err != nil {
+		return errToast("publish", err)
+	}
+	return hubToast{text: fmt.Sprintf("✓ published %s", path), ok: true}
+}
+
+// promptHubLine runs a one-shot tui.InputModel outside any alt-screen
+// so the prompt appears inline between hub sessions. Returns the
+// trimmed value, a `cancelled` flag (esc / ctrl+c), or an error from
+// the bubble tea program itself.
+func promptHubLine(title, placeholder, help string) (string, bool, error) {
+	model := tui.NewInput(title, "", placeholder, "")
+	model.Help = help
+	out, err := tea.NewProgram(model).Run()
+	if err != nil {
+		return "", false, err
+	}
+	final, ok := out.(tui.InputModel)
+	if !ok {
+		return "", false, fmt.Errorf("input returned unexpected model %T", out)
+	}
+	if final.Cancelled() {
+		return "", true, nil
+	}
+	return final.Value(), false, nil
+}
+
+// errToast formats an action failure as a one-line red toast. A
+// context.Canceled (e.g. user hit ctrl+c inside the sub-action) is
+// demoted to a neutral "cancelled" caption so the dashboard doesn't
+// scream about a clean user-initiated exit. Multi-line errors get
+// flattened to a bullet-separated row so the toast never wraps and
+// pushes the footer off-screen.
+func errToast(action string, err error) hubToast {
+	if errors.Is(err, context.Canceled) {
+		return hubToast{text: fmt.Sprintf("%s · cancelled", action), ok: true}
+	}
+	msg := strings.ReplaceAll(err.Error(), "\n", " · ")
+	return hubToast{text: fmt.Sprintf("✗ %s: %s", action, msg), ok: false}
 }
 
 // hubCountLoader returns a closure that lists the registry and reports the
@@ -56,19 +210,4 @@ func hubCountLoader(repo, branch string) tui.HubCountLoader {
 		}
 		return len(summaries), nil
 	}
-}
-
-// finishHub handles the post-quit handoff. Quit-without-selection exits
-// silently; a selection prints a one-line placeholder until F3.2 lands
-// the real per-action wiring.
-func finishHub(final tui.HubModel) error {
-	if final.Quit() {
-		return nil
-	}
-	sel := final.Selection()
-	if sel == "" {
-		return nil
-	}
-	fmt.Printf("Selected: %s (wiring lands in F3.2)\n", sel)
-	return nil
 }

@@ -18,10 +18,11 @@ import (
 // Bubble Tea model so it can render the same hero chrome as the list /
 // wizard TUIs.
 //
-// F3.1 (this file) builds the frame: animated header, responsive card
-// grid, footer. The launcher reads HubModel.Selection() after the model
-// quits and dispatches to the matching subcommand. F3.2 will wire each
-// HubAction* branch into the real subcommand implementations.
+// F3.1 builds the frame: animated header, responsive card grid, footer.
+// F3.2 adds the toast row used to surface the outcome of dispatched
+// actions on the next hub iteration. The launcher reads
+// HubModel.Selection() after the model quits, runs the matching
+// subcommand, and re-launches the hub with WithToast(...).
 // ────────────────────────────────────────────────────────────────────────────
 
 // Hub action IDs. Each constant matches one tile in the default card grid
@@ -107,6 +108,14 @@ type HubModel struct {
 	count       int
 	countErr    error
 
+	// Toast captures a one-line status string surfaced just above the
+	// footer. The launcher seeds it via WithToast after a dispatched
+	// action returns so the user gets immediate success/failure
+	// feedback without an out-of-band log line. Cleared automatically
+	// by the next NewHub call.
+	toast   string
+	toastOK bool
+
 	// Final state inspected by the launcher after tea.Quit returns.
 	selection string
 	quit      bool
@@ -131,6 +140,17 @@ func NewHub(ctx context.Context, repo string, loader HubCountLoader) HubModel {
 	if loader == nil {
 		m.countLoaded = true
 	}
+	return m
+}
+
+// WithToast attaches a one-line status caption to the hub. The launcher
+// calls this between hub iterations so the next frame surfaces the
+// outcome of the previously-dispatched action (e.g. "✓ sync complete"
+// or "✗ publish: missing SKILL.md"). Passing an empty string clears
+// the toast.
+func (m HubModel) WithToast(text string, ok bool) HubModel {
+	m.toast = text
+	m.toastOK = ok
 	return m
 }
 
@@ -224,7 +244,27 @@ func (m HubModel) View() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	body := m.grid.Render(m.bodyWidth())
-	return lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+	parts := []string{header, "", body}
+	if toast := m.renderToast(); toast != "" {
+		parts = append(parts, "", toast)
+	}
+	parts = append(parts, "", footer)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderToast formats the post-action status caption set via WithToast.
+// Success toasts use OkStyle (green ✓ family); failures use ErrorStyle
+// (red ✗) so the user spots the outcome at a glance. Mirrors the
+// listmodel.go toast pattern so the visual language stays consistent
+// across the hub and the browse list.
+func (m HubModel) renderToast() string {
+	if m.toast == "" {
+		return ""
+	}
+	if m.toastOK {
+		return OkStyle.Render(m.toast)
+	}
+	return ErrorStyle.Render(m.toast)
 }
 
 // bodyWidth returns the width available to the card grid. Reserves 2
