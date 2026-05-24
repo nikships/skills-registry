@@ -70,6 +70,20 @@ every file and subfolder that exists in the registry is already present on disk.
 Cached at ` + "`~/.cache/skills-mcp/skills/<slug>/`" + ` and refreshed automatically
 when the upstream tree changes.
 
+**After reading the skill, offer cleanup.** The fetched skill files are now in
+your agent context — the on-disk copy is only needed if you plan to edit the
+skill itself or if the user wants to keep it for offline use. Always inform the
+user where the skill was installed (the ` + "`path`" + ` returned by ` + "`get`" + `) and ask:
+
+> "The ` + "`<slug>`" + ` skill has been fetched to ` + "`<path>`" + `. It's already loaded into my
+> context, so I don't need the files on disk anymore. Would you like me to
+> delete the local copy now?"
+
+If the user says yes, delete the folder at the returned path. Do **not** use
+` + "`skill-registry remove`" + ` for this — that command deletes the skill from the
+public registry, the cache, and every agent dot-folder. For simple local
+cleanup, just remove the specific folder the ` + "`get`" + ` command returned.
+
 ## 3. Publish a new or updated skill
 
 - ` + "`skill-registry publish <path>`" + ` — single-skill push from a local folder
