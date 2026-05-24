@@ -135,3 +135,35 @@ def test_block_scalar_followed_by_next_key() -> None:
 	meta, _ = parse_frontmatter(text)
 	assert meta["description"] == "Two-line description."
 	assert meta["name"] == "my-skill"
+
+
+def test_plain_multiline_scalar_description() -> None:
+	# YAML plain (implicit) scalars: no ">" / "|" marker, but the value
+	# continues onto subsequent indented lines and folds with single spaces.
+	# This is the camera1-to-camerax shape that the previous parser
+	# silently truncated to the first line.
+	text = (
+		"---\n"
+		"name: camera1-to-camerax\n"
+		"description: Use this skill to migrate legacy Android camera implementations (Camera1\n"
+		"  or raw Camera2 APIs) to CameraX. CameraX is a lifecycle-aware Jetpack library built\n"
+		"  on top of Camera2 that resolves camera rotation issues and handles device dependencies.\n"
+		"license: Complete terms in LICENSE.txt\n"
+		"---\nbody"
+	)
+	meta, _ = parse_frontmatter(text)
+	assert meta["name"] == "camera1-to-camerax"
+	assert meta["description"] == (
+		"Use this skill to migrate legacy Android camera implementations (Camera1 "
+		"or raw Camera2 APIs) to CameraX. CameraX is a lifecycle-aware Jetpack library built "
+		"on top of Camera2 that resolves camera rotation issues and handles device dependencies."
+	)
+	# Following top-level keys must not be absorbed into the description.
+	assert meta["license"] == "Complete terms in LICENSE.txt"
+
+
+def test_plain_multiline_scalar_stops_at_next_key() -> None:
+	text = "---\ndescription: first line\n  continued line\nname: my-skill\n---\n"
+	meta, _ = parse_frontmatter(text)
+	assert meta["description"] == "first line continued line"
+	assert meta["name"] == "my-skill"

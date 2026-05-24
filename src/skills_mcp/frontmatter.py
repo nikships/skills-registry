@@ -61,6 +61,31 @@ def _fold_block(block_lines: list[str], folded: bool) -> str:
 	return "\n\n".join(" ".join(p) for p in paragraphs if p)
 
 
+def _collect_plain_continuation_lines(body_lines: list[str], start: int) -> tuple[list[str], int]:
+	"""Gather plain-scalar continuation lines starting at ``start``.
+
+	A plain (implicit) YAML scalar (``description: first line`` followed
+	by additional indented non-blank lines) continues onto those lines and
+	folds them with single spaces. The first blank line, non-indented
+	line, indented comment line, or EOF terminates the scalar. Indented
+	comments are left for the outer loop's ``startswith("#")`` skip to
+	absorb so the parser preserves the legacy "comments are ignored"
+	contract.
+	"""
+	cont: list[str] = []
+	i = start
+	while i < len(body_lines):
+		peek = body_lines[i]
+		stripped = peek.strip()
+		if stripped == "" or stripped.startswith("#"):
+			break
+		if not peek.startswith((" ", "\t")):
+			break
+		cont.append(stripped)
+		i += 1
+	return cont, i
+
+
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 	"""Extract a YAML-ish frontmatter block (``--- ... ---``) from the top of a file.
 
@@ -99,8 +124,23 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 			meta[key] = _fold_block(block_lines, folded=head.startswith(">"))
 			continue
 
-		meta[key] = value_text.strip('"').strip("'")
-		i += 1
+		# Plain (implicit) scalar. YAML lets the value continue onto
+		# subsequent indented lines, which fold into the value with
+		# single-space separators. We only attempt the fold when the
+		# key line itself carries a non-empty value — an empty value
+		# (``metadata:``) is the YAML signal for a nested mapping or
+		# sequence, which this flat parser intentionally ignores.
+		value = value_text.strip('"').strip("'")
+		if value:
+			cont, next_i = _collect_plain_continuation_lines(body_lines, i + 1)
+			if cont:
+				value = " ".join([value, *cont])
+				i = next_i
+			else:
+				i += 1
+		else:
+			i += 1
+		meta[key] = value
 
 	body = "\n".join(lines[end + 1 :]).lstrip("\n")
 	return meta, body

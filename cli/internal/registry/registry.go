@@ -1223,10 +1223,52 @@ func parseFlatYAML(body []string) map[string]string {
 			continue
 		}
 
-		out[key] = strings.Trim(val, "'\"")
-		i++
+		// Plain (implicit) scalar. YAML lets the value continue onto
+		// subsequent indented lines, which fold into the value with
+		// single-space separators. We only attempt the fold when the
+		// key line itself carries a non-empty value — an empty value
+		// ("metadata:") is the YAML signal for a nested mapping or
+		// sequence, which this flat parser intentionally ignores.
+		value := strings.Trim(val, "'\"")
+		if value != "" {
+			cont, nextI := collectPlainContinuationLines(body, i+1)
+			if len(cont) > 0 {
+				pieces := append([]string{value}, cont...)
+				value = strings.Join(pieces, " ")
+				i = nextI
+			} else {
+				i++
+			}
+		} else {
+			i++
+		}
+		out[key] = value
 	}
 	return out
+}
+
+// collectPlainContinuationLines walks the lines after a plain-scalar key,
+// returning the stripped continuation lines and the index of the first line
+// that no longer belongs to the scalar. The scalar ends at a blank line, a
+// non-indented line, an indented comment ("  # …"), or EOF. Indented
+// comments are intentionally left to the outer loop's comment-skip so the
+// "comments are ignored" contract still holds.
+func collectPlainContinuationLines(body []string, start int) ([]string, int) {
+	var cont []string
+	i := start
+	for i < len(body) {
+		peek := body[i]
+		stripped := strings.TrimSpace(peek)
+		if stripped == "" || strings.HasPrefix(stripped, "#") {
+			break
+		}
+		if !strings.HasPrefix(peek, " ") && !strings.HasPrefix(peek, "\t") {
+			break
+		}
+		cont = append(cont, stripped)
+		i++
+	}
+	return cont, i
 }
 
 // collectBlockLines gathers the indented continuation lines of a YAML block
