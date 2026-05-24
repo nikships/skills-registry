@@ -40,9 +40,13 @@ type SettingsModel struct {
 	cacheRoot string
 	mcpBinary string
 
-	// Original values captured at load time so esc can restore them.
+	// Original values captured at load time; updated on successful save.
 	origRepo   string
 	origBranch string
+
+	// Pre-edit values captured when the user enters edit mode so esc
+	// reverts to the state before this specific edit session.
+	preEditValue string
 
 	repoInput   textinput.Model
 	branchInput textinput.Model
@@ -169,10 +173,12 @@ func (m SettingsModel) startEdit() (tea.Model, tea.Cmd) {
 	m.saveErr = nil
 	m.statusNote = ""
 	if m.focused == settingsFieldRepo {
+		m.preEditValue = m.repoInput.Value()
 		m.branchInput.Blur()
 		m.repoInput.Focus()
 		return m, textinput.Blink
 	}
+	m.preEditValue = m.branchInput.Value()
 	m.repoInput.Blur()
 	m.branchInput.Focus()
 	return m, textinput.Blink
@@ -201,10 +207,10 @@ func (m SettingsModel) handleEditingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // editing mode without saving.
 func (m SettingsModel) cancelEdit() SettingsModel {
 	if m.focused == settingsFieldRepo {
-		m.repoInput.SetValue(m.origRepo)
+		m.repoInput.SetValue(m.preEditValue)
 		m.repoInput.Blur()
 	} else {
-		m.branchInput.SetValue(m.origBranch)
+		m.branchInput.SetValue(m.preEditValue)
 		m.branchInput.Blur()
 	}
 	m.editing = false

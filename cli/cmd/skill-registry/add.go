@@ -46,6 +46,7 @@ GitHub registry repo — not your local folder.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
+				cmd.SilenceErrors = true
 				return runAddJSON(cmd.Context(), args[0])
 			}
 			return runAdd(cmd.Context(), args[0], yes || shouldAutoYes(), all)
@@ -59,37 +60,38 @@ GitHub registry repo — not your local folder.`,
 // runAddJSON is the --json code path: skips the multi-select prompt,
 // publishes every SKILL.md found in the resolved source that isn't
 // already in the registry, and emits {pushed, skipped}. Failures
-// surface as {"error": "..."} + os.Exit(1).
+// surface as {"error": "..."} + a non-zero exit.
 func runAddJSON(ctx context.Context, source string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	dir, cleanup, err := resolveSource(source)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	defer cleanup()
 	skills, err := scan.Discover([]scan.Source{{Path: dir, Label: source}})
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	if len(skills) == 0 {
-		jsonout.PrintError(fmt.Errorf("no SKILL.md files found under %s", source))
-		os.Exit(1)
+		err := fmt.Errorf("no SKILL.md files found under %s", source)
+		jsonout.PrintError(err)
+		return err
 	}
 	existing, err := client.Slugs(ctx)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	var pushed, skipped []string
 	for _, sk := range skills {
@@ -100,13 +102,14 @@ func runAddJSON(ctx context.Context, source string) error {
 		files := map[string][]byte{}
 		if err := walkSkillIntoFiles(sk, files); err != nil {
 			jsonout.PrintError(err)
-			os.Exit(1)
+			return err
 		}
 		bySlug := rekeyBySlug(sk.Slug, files)
 		msg := fmt.Sprintf("add: %s (from %s)", sk.Slug, source)
 		if _, err := client.Publish(ctx, sk.Slug, bySlug, msg); err != nil {
-			jsonout.PrintError(fmt.Errorf("publish %s: %w", sk.Slug, err))
-			os.Exit(1)
+			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
+			jsonout.PrintError(err)
+			return err
 		}
 		pushed = append(pushed, sk.Slug)
 	}
@@ -241,7 +244,9 @@ func resolveSource(source string) (string, func(), error) {
 		return "", noopCleanup, err
 	}
 	cleanup := func() { _ = os.RemoveAll(tmp) }
-	fmt.Println(tui.HintStyle.Render("cloning " + url + " …"))
+	if !jsonout.Enabled() {
+		fmt.Println(tui.HintStyle.Render("cloning " + url + " …"))
+	}
 	cmd := exec.Command("git", "clone", "--depth", "1", "--single-branch", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()

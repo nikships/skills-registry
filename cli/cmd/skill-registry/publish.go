@@ -137,6 +137,12 @@ func doPublish(ctx context.Context, path, nameOverride string) (publishOutcome, 
 	}, nil
 }
 
+// maxFileBytes is the per-file size cap, matching the Python
+// SKILLS_MAX_FILE_BYTES default (2 MiB). Files exceeding this
+// limit are skipped with a warning to prevent accidental upload
+// of large binaries.
+const maxFileBytes = 2 * 1024 * 1024
+
 func collectFiles(root, prefix string, out map[string][]byte) error {
 	entries, err := os.ReadDir(filepath.Join(root, prefix))
 	if err != nil {
@@ -155,6 +161,14 @@ func collectFiles(root, prefix string, out map[string][]byte) error {
 			if err := collectFiles(root, rel, out); err != nil {
 				return err
 			}
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > maxFileBytes {
+			fmt.Fprintf(os.Stderr, "warning: skipping %s (%d bytes > %d byte limit)\n", rel, info.Size(), maxFileBytes)
 			continue
 		}
 		body, err := os.ReadFile(filepath.Join(root, rel))

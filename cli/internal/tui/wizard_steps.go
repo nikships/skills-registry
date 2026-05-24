@@ -126,7 +126,8 @@ func (m WizardModel) handleAgentSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startAgentInstall()
 	case "backspace":
 		if len(m.agentFilter) > 0 {
-			m.agentFilter = m.agentFilter[:len(m.agentFilter)-1]
+			runes := []rune(m.agentFilter)
+			m.agentFilter = string(runes[:len(runes)-1])
 			m.agentCursor = 0
 		}
 		return m, nil

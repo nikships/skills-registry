@@ -255,7 +255,7 @@ func promptHubLine(title, placeholder, help string) (string, bool, error) {
 	if final.Cancelled() {
 		return "", true, nil
 	}
-	return final.Value(), false, nil
+	return strings.TrimSpace(final.Value()), false, nil
 }
 
 // errToast formats an action failure as a one-line red toast. A

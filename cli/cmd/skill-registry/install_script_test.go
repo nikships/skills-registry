@@ -17,12 +17,14 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // scriptPath returns the absolute path to install.sh at the repo root.
@@ -50,7 +52,9 @@ func scriptPath(t *testing.T) string {
 // overrides. Returns stdout, stderr, and exit code.
 func runScript(t *testing.T, env map[string]string) (string, string, int) {
 	t.Helper()
-	cmd := exec.Command("/bin/sh", scriptPath(t))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/sh", scriptPath(t))
 	cmd.Env = append(os.Environ(), envSlice(env)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

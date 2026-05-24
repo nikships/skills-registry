@@ -184,8 +184,8 @@ func assertRemoteSlugExists(ctx context.Context, client *registry.Client, slug, 
 // to-fat-finger esc fallback to give the user an obvious safety net.
 func confirmRemove(slug, repo string) (bool, error) {
 	choices := []tui.Choice{
-		{Value: "yes", Label: "Yes, remove it", Hint: "Deletes the slug everywhere"},
 		{Value: "no", Label: "Cancel", Hint: "Make no changes"},
+		{Value: "yes", Label: "Yes, remove it", Hint: "Deletes the slug everywhere"},
 	}
 	model := tui.NewChoice(
 		fmt.Sprintf("Remove %s from %s?", slug, repo),

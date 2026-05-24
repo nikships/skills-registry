@@ -34,7 +34,7 @@ This file is a living guide for AI agents and new contributors. It captures the 
 
 ## Repository Layout
 
-```
+```text
 install.sh               # POSIX `curl | sh` installer — the user-facing entry point.
                          # Downloads the matching skill-registry tarball from GitHub Releases.
 
@@ -80,7 +80,7 @@ docs/
 
 ### Two deliverables, one repo
 
-```
+```text
 [user] → curl https://…/install.sh | sh
             └─ install.sh (POSIX)
                 ├─ detect OS/arch (uname -s/-m)
@@ -154,7 +154,7 @@ Desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) spawn the MCP serv
 
 So the **MCP server** (`registry_api.RegistryClient.publish_skill`) never touches `git`/SSH. Every write goes through the GitHub Git Data API, called via `gh api`. The sequence (mirrored in Go's `registry.Client.Publish`):
 
-```
+```text
 GET  /repos/{r}/git/ref/heads/{branch}        → parent SHA
 GET  /repos/{r}/git/commits/{parent}          → base tree SHA
 GET  /repos/{r}/git/trees/{base}?recursive=1  → list stale files under <slug>/

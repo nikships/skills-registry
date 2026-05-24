@@ -201,9 +201,16 @@ func wizardPushMissing(ctx context.Context, client *registry.Client, skills []sc
 	onStatus func(msg string)) ([]scan.Skill, error) {
 	existing, err := client.Slugs(ctx)
 	if err != nil {
-		// Brand-new repo with no commits yet returns a 404; treat that
-		// as an empty registry rather than failing the whole push.
-		existing = map[string]struct{}{}
+		// Brand-new repo with no commits yet returns a 404 or 409;
+		// treat those as an empty registry rather than failing the push.
+		// Any other error (auth, network) should propagate so the user
+		// sees a meaningful message instead of silent data loss.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "404") || strings.Contains(errMsg, "409") {
+			existing = map[string]struct{}{}
+		} else {
+			return nil, fmt.Errorf("list registry slugs: %w", err)
+		}
 	}
 	missing := scan.DedupeAgainst(skills, existing)
 	if len(missing) == 0 && onStatus != nil {

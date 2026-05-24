@@ -92,11 +92,11 @@ human pick from a list.
 
 | Command | Payload shape |
 |---|---|
-| ` + "`skill-registry list --json`" + ` | ` + "`[{\"slug\", \"name\", \"description\"}, …]`" + ` |
-| ` + "`skill-registry get <slug> --json`" + ` | ` + "`{\"slug\", \"path\"}`" + ` (path is the on-disk dest) |
-| ` + "`skill-registry publish <path> --json`" + ` | ` + "`{\"slug\", \"sha\", \"url\"}`" + ` |
+| ` + "`skill-registry list --json`" + ` | ` + "`[{\"slug\": \"...\", \"name\": \"...\", \"description\": \"...\"}, …]`" + ` |
+| ` + "`skill-registry get <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"path\": \"...\"}`" + ` (path is the on-disk dest) |
+| ` + "`skill-registry publish <path> --json`" + ` | ` + "`{\"slug\": \"...\", \"sha\": \"...\", \"url\": \"...\"}`" + ` |
 | ` + "`skill-registry sync --json`" + ` | ` + "`{\"pushed\": [...slugs], \"skipped\": [...slugs]}`" + ` |
-| ` + "`skill-registry remove <slug> --json`" + ` | ` + "`{\"slug\", \"repo\", \"sha\", \"removed_from\": [\"registry\", \"cache\", \"dotfolders\"]}`" + ` |
+| ` + "`skill-registry remove <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"repo\": \"...\", \"sha\": \"...\", \"removed_from\": [\"registry\", \"cache\", \"dotfolders\"]}`" + ` |
 
 ` + "`--json`" + ` always implies ` + "`--yes`" + ` on destructive commands (` + "`sync`" + `, ` + "`remove`" + `):
 JSON callers never get a Bubble Tea prompt. Combine with ` + "`jq`" + ` to chain

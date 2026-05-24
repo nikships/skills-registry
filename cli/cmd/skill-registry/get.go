@@ -31,6 +31,7 @@ func newGetCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
+				cmd.SilenceErrors = true
 				return runGetJSON(cmd.Context(), args[0], destFlag)
 			}
 			return runGet(cmd.Context(), args[0], destFlag)
@@ -41,24 +42,24 @@ func newGetCmd() *cobra.Command {
 }
 
 // runGetJSON is the --json code path: downloads the skill and emits
-// {slug, path} to stdout. Failures land as {"error": "..."} + non-zero
-// exit, so a `jq '.error // empty'` consumer can branch on success.
+// {slug, path} to stdout. Failures land as {"error": "..."} with a
+// non-zero exit, so a `jq '.error // empty'` consumer can branch on success.
 func runGetJSON(ctx context.Context, slug, dest string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	cwd, _ := os.Getwd()
 	finalDest, _, err := DownloadSkill(ctx, client, slug, dest, cwd)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	return jsonout.Print(getJSONResult{
 		Slug: scan.Slugify(slug),

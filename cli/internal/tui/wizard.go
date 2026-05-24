@@ -1434,9 +1434,13 @@ func (m WizardModel) footerKeys() []struct{ k, d string } {
 // renderCancelOverlay is the WIZARD-013 confirmation panel.
 func (m WizardModel) renderCancelOverlay() string {
 	title := ErrorStyle.Render("Cancel onboarding?")
-	body := lipgloss.NewStyle().Foreground(ColInk).
-		Render("Nothing has been written to GitHub yet.\n" +
-			"You can restart any time with `skill-registry`.")
+	bodyText := "Nothing has been written to GitHub yet.\n" +
+		"You can restart any time with `skill-registry`."
+	if m.pushDone {
+		bodyText = "Your registry has already been created on GitHub.\n" +
+			"You can restart any time with `skill-registry`."
+	}
+	body := lipgloss.NewStyle().Foreground(ColInk).Render(bodyText)
 	keepBtn := renderOverlayButton("No, keep going", m.cancelCursor == 0, false)
 	cancelBtn := renderOverlayButton("Yes, cancel", m.cancelCursor == 1, true)
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top, keepBtn, "   ", cancelBtn)

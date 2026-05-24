@@ -41,6 +41,7 @@ func newSyncCmd() *cobra.Command {
 your registry. Pick which to push with the interactive multi-select.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
+				cmd.SilenceErrors = true
 				return runSyncJSON(cmd.Context())
 			}
 			return runSync(cmd.Context(), yes || shouldAutoYes(), all)
@@ -54,25 +55,26 @@ your registry. Pick which to push with the interactive multi-select.`,
 // runSyncJSON is the --json code path: never prompts, treats every
 // locally-discovered slug missing from the registry as eligible, and
 // emits {pushed, skipped}. A registry-side push failure ends the
-// command with {"error": "..."} + os.Exit(1) — we don't try to
+// command with {"error": "..."} + a non-zero exit — we don't try to
 // partial-push because the user would have no easy way to know which
 // slugs landed and which didn't.
 func runSyncJSON(ctx context.Context) error {
 	plan, err := planSync(ctx)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	for _, sk := range plan.missing {
 		files := map[string][]byte{}
 		if err := walkSkillIntoFiles(sk, files); err != nil {
 			jsonout.PrintError(err)
-			os.Exit(1)
+			return err
 		}
 		bySlug := rekeyBySlug(sk.Slug, files)
 		if _, err := plan.client.Publish(ctx, sk.Slug, bySlug, fmt.Sprintf("sync: %s", sk.Slug)); err != nil {
-			jsonout.PrintError(fmt.Errorf("publish %s: %w", sk.Slug, err))
-			os.Exit(1)
+			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
+			jsonout.PrintError(err)
+			return err
 		}
 	}
 	pushed := make([]string, 0, len(plan.missing))

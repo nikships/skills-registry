@@ -119,7 +119,7 @@ main() {
     fi
 
     log "extracting…"
-    tar -xzf "$tarball" -C "$tmpdir"
+    tar -xzf "$tarball" -C "$tmpdir" "$BINARY"
 
     if [ ! -f "$tmpdir/$BINARY" ]; then
         err "binary '$BINARY' not found inside downloaded archive"

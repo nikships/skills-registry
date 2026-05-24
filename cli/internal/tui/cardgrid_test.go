@@ -121,11 +121,9 @@ func TestCardGridMoveDownLandsInPartialRow(t *testing.T) {
 		t.Errorf("first down from (0,1) = %d, want 3 (1,1)", g.Focused)
 	}
 	g = g.Move("down", 2)
-	// Should land at (2,1) which is empty — clamp to (1,1) = card 3.
-	// Actually the wrap takes us to (0,1) = card 1, then a step below
-	// after the wrap. Just verify it's in bounds and not the empty cell.
-	if g.Focused >= 5 {
-		t.Errorf("second down out of range: %d", g.Focused)
+	// (2,1) is empty so clampToCard drops to (1,1) = card 3.
+	if g.Focused != 3 {
+		t.Errorf("second down from (1,1) = %d, want 3 (clamped to (1,1))", g.Focused)
 	}
 }
 

@@ -31,7 +31,7 @@ Two user-facing deliverables, **single repo**, two languages.
 
 The user-facing entry point is now a single shell command:
 
-```
+```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
 ```
 
@@ -132,7 +132,7 @@ Desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) spawn the MCP serv
 
 So the MCP server's `publish_skill` tool **never** clones, commits, or pushes. It does everything via the Git Data API through `gh api`:
 
-```
+```text
 GET  repos/{owner}/{repo}/git/ref/heads/{branch}        → parent SHA
 GET  repos/{owner}/{repo}/git/commits/{parent}          → base tree SHA
 GET  repos/{owner}/{repo}/git/trees/{base}?recursive=1  → list stale files
@@ -150,7 +150,7 @@ The CLI bootstrap (Go) has stronger guarantees than the MCP server: the user inv
 
 `Client.Delete` (Go) and the analogous Python `delete_skill` use **the same six-call sequence** as `publish_skill`, but build a tree that drops every file under `<slug>/`:
 
-```
+```text
 GET  repos/{owner}/{repo}/git/ref/heads/{branch}        → parent SHA
 GET  repos/{owner}/{repo}/git/commits/{parent}          → base tree SHA
 GET  repos/{owner}/{repo}/git/trees/{base}?recursive=1  → enumerate paths under <slug>/
