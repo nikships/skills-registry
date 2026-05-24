@@ -29,6 +29,19 @@ tells you what else to load and when.
 Requires the ` + "`gh`" + ` CLI to be authenticated (` + "`gh auth status`" + `). All registry
 I/O routes through ` + "`gh api`" + `; no ` + "`git`" + ` or SSH is needed.
 
+## Install the CLI
+
+If the ` + "`skill-registry`" + ` binary isn't already on PATH, install it with the
+one-line curl|sh installer (POSIX):
+
+` + "```" + `
+curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+` + "```" + `
+
+This drops the binary into ` + "`~/.local/bin/skill-registry`" + `. Re-run any time
+to upgrade; the installer downloads the matching release for your
+OS/arch from GitHub Releases.
+
 ## 1. Discover what's available
 
 ` + "```" + `
@@ -57,6 +70,37 @@ refreshed automatically when the upstream tree changes.
   then push selections to the registry
 - ` + "`skill-registry sync`" + ` — scan your AI tool dot-folders for skills not yet in
   the registry; multi-select what to push
+
+## 4. Remove a skill
+
+` + "```" + `
+skill-registry remove <slug>
+` + "```" + `
+
+Deletes the slug end-to-end: from the GitHub registry repo (single
+atomic commit), the local cache (` + "`~/.cache/skills-mcp/skills/<slug>/`" + `),
+and every agent dot-folder copy. Interactive runs prompt for confirmation;
+pass ` + "`--yes`" + ` (or ` + "`--json`" + `, which implies it) to skip the prompt.
+
+## 5. Programmatic / scripted use — ` + "`--json`" + `
+
+Every subcommand accepts a persistent ` + "`--json`" + ` flag that suppresses the
+TUI and emits a single JSON payload to stdout. Errors land as
+` + "`{\"error\": \"...\"}`" + ` with a non-zero exit code. This is the entry point
+when you (the agent) are driving the CLI yourself rather than letting a
+human pick from a list.
+
+| Command | Payload shape |
+|---|---|
+| ` + "`skill-registry list --json`" + ` | ` + "`[{\"slug\", \"name\", \"description\"}, …]`" + ` |
+| ` + "`skill-registry get <slug> --json`" + ` | ` + "`{\"slug\", \"path\"}`" + ` (path is the on-disk dest) |
+| ` + "`skill-registry publish <path> --json`" + ` | ` + "`{\"slug\", \"sha\", \"url\"}`" + ` |
+| ` + "`skill-registry sync --json`" + ` | ` + "`{\"pushed\": [...slugs], \"skipped\": [...slugs]}`" + ` |
+| ` + "`skill-registry remove <slug> --json`" + ` | ` + "`{\"slug\", \"repo\", \"sha\", \"removed_from\": [\"registry\", \"cache\", \"dotfolders\"]}`" + ` |
+
+` + "`--json`" + ` always implies ` + "`--yes`" + ` on destructive commands (` + "`sync`" + `, ` + "`remove`" + `):
+JSON callers never get a Bubble Tea prompt. Combine with ` + "`jq`" + ` to chain
+calls — e.g. ` + "`skill-registry list --json | jq -r '.[].slug' | xargs -I{} skill-registry get {} --json`" + `.
 
 ## Troubleshooting
 
