@@ -59,7 +59,7 @@ skill-registry get <slug> [--dest PATH]
 
 Fetches the **entire upstream directory tree** for the skill and writes it to a
 local folder. The returned path is a complete, self-contained skill package —
-every file and subfolder that exists in the registry is already present on disk.
+every file and subfolder belonging to the skill in the registry is already present on disk.
 
 **After fetching, always inspect the folder contents:**
 - Read ` + "`SKILL.md`" + ` at the root first.
