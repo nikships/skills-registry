@@ -20,7 +20,7 @@ A living guide for AI agents and new contributors. Captures the architecture, pa
 | `skill-registry` (Go) | Go 1.24+ | GitHub Releases tarballs, installed by `install.sh` (`curl … \| sh`) | Charmbracelet TUI + headless commands. Bare invocation routes to wizard / hub / help. Subcommands: `bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`. All subcommands honor a persistent `--json` flag. |
 | `skill-registry-mcp` (Python, hosted) | Python 3.10+ (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server with **2 read-only tools** (`list_skills`, `get_skill`). All writes (`publish` / `sync` / `remove`) go through the Go CLI — the hosted server never mutates the user's repo. OAuth + GitHub App on first connect. Users never install this. |
 
-- **Build (Python, maintainer-only):** `hatchling` + `hatch-vcs` (PEP 517; version pinned via `HATCH_VCS_PRETEND_VERSION` in Dockerfile) — the wheel exists only to provide the `skill-registry-mcp` entry point inside the Docker image.
+- **Build (Python, maintainer-only):** `hatchling` (PEP 517) with a static `version = "0.0.0+server"` in `pyproject.toml`. The server is never published to PyPI, never tagged, and Railway redeploys on every push to `main`, so there's no semver to derive. The wheel exists only to provide the `skill-registry-mcp` entry point inside the Docker image.
 - **Package manager (Python):** `uv`
 - **Test runner (Python):** `pytest` with `pytest-cov`
 - **Lint/Format (Python):** `ruff`
@@ -53,7 +53,7 @@ infa-not-for-users/      # Maintainer-only. Hosted MCP server source + Docker/Ra
     webhooks.py          # /webhooks/github handler: parses `installation` events and writes to LinkStore
     frontmatter.py       # parse_frontmatter / first_paragraph helpers used by github_api
   tests/                 # pytest suite (~81 tests) covering frontmatter, github_api, github_app, linking, remote_server, setup_routes, webhooks
-  pyproject.toml         # hatch-vcs + fastmcp + uvicorn + httpx + PyJWT + cryptography + py-key-value-aio + starlette
+  pyproject.toml         # hatchling + static version + fastmcp + uvicorn + httpx + PyJWT + cryptography + py-key-value-aio + starlette
   Dockerfile             # uv → build wheel → install entry point → run skill-registry-mcp
   railway.json           # Railway service definition (volume mount at /data/oauth)
   .env.example           # OAuth + GitHub App env var template (FASTMCP_*, GITHUB_APP_*, JWT_SIGNING_KEY, STORAGE_ENCRYPTION_KEY)
@@ -239,7 +239,6 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
   ```bash
   cd infa-not-for-users && uv run pytest -v --cov=skills_mcp --cov-report=term-missing
   ```
-  (If `hatch-vcs` complains about a missing tag, prefix with `SETUPTOOLS_SCM_PRETEND_VERSION=0.7.0` — the Dockerfile sets this automatically.)
 - **Go:** Tests for `agents`, `bootstrap`, `config`, `scan`, `registry`, `tui` (also uses a `gh` shim invoked via `/bin/sh` → `python3`). Run with `cd cli && go test ./...`.
 - Run everything:
   ```bash

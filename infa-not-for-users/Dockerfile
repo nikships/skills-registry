@@ -22,15 +22,8 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY skills_mcp ./skills_mcp
 
-# .git is excluded from the build context, so hatch-vcs (setuptools-scm) can't
-# read the tag. Pin a build-time version so the wheel builds without git. We
-# set both the generic and the package-scoped pretend-version env vars because
-# hatch-vcs has been inconsistent about which one it honors when invoked from
-# under `uv pip install`.
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.7.0 \
-    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SKILLS_REGISTRY=0.7.0 \
-    HATCH_BUILD_HOOKS_ENABLE=true
-
+# pyproject.toml carries a static version; no hatch-vcs, no .git probing, no
+# SETUPTOOLS_SCM_PRETEND_VERSION env shim required.
 RUN uv venv /opt/venv \
     && uv pip install --python /opt/venv/bin/python .
 

@@ -1,10 +1,15 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# The hosted MCP server has no semver release: it's never published to
+# PyPI, never tagged, and Railway redeploys it on every push to main. So
+# we pin a static placeholder version and skip hatch-vcs entirely — that
+# also removes the need for SETUPTOOLS_SCM_PRETEND_VERSION env shims in
+# CI, local dev, and the Dockerfile.
 [project]
 name = "skills-registry"
-dynamic = ["version"]
+version = "0.0.0+server"
 description = "Remote FastMCP server for the GitHub-backed skills registry. Authenticates MCP clients via GitHub OAuth and serves skills from each user's linked repo using a GitHub App installation token."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -51,9 +56,6 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["skills_mcp"]
-
-[tool.hatch.version]
-source = "vcs"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

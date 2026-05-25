@@ -15,7 +15,7 @@ auto-deploys this folder on every push to `main`.
 |---|---|
 | `skills_mcp/` | Python package (FastMCP server, GitHub App client, link store, webhooks, OAuth setup routes, frontmatter parser). |
 | `tests/` | `pytest` suite for the server. |
-| `pyproject.toml` | Server build manifest (hatchling + hatch-vcs). |
+| `pyproject.toml` | Server build manifest (hatchling, static placeholder version — the server is never released or tagged). |
 | `ruff.toml` | Lint / format config — server-only. |
 | `uv.lock` | Lock file for `uv sync --group dev`. |
 | `Dockerfile` | Multi-stage build that bakes the wheel into a slim Python runtime. |
