@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,15 +10,16 @@ import (
 )
 
 // ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 5 (Agent select), 6 (Cleanup), 7 (MCP install), 8 (Done)
+// Step 5 (Agent select), 6 (Cleanup), 7 (Connect MCP client), 8 (Done)
 //
 // Each step owns:
 //   - A small handler set (key dispatch + async-message handlers).
 //   - A renderer that fits inside the existing PanelFocused frame.
 //
-// Long-running work (deps.InstallAgents, deps.DeleteCleanup, deps.EnsureMCP)
-// runs in goroutines via tea.Cmd; the spinnerActive() set above keeps the
-// spinner ticking while we wait.
+// Long-running work (deps.InstallAgents, deps.DeleteCleanup) runs in
+// goroutines via tea.Cmd; the spinnerActive() set above keeps the
+// spinner ticking while we wait. Step 7 is purely informational so it
+// has no goroutine.
 // ────────────────────────────────────────────────────────────────────────────
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -417,7 +417,7 @@ func (m WizardModel) handleCleanupLoaded(msg wizardCleanupLoadedMsg) (tea.Model,
 }
 
 // handleCleanupKey moves the cursor between Yes/No and confirms on enter.
-// After the deletion goroutine resolves, enter advances to MCP install.
+// After the deletion goroutine resolves, enter advances to the MCP step.
 func (m WizardModel) handleCleanupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.cleanupChosen {
 		return m.handleCleanupChosenKey(msg)
@@ -601,61 +601,36 @@ func (m WizardModel) renderCleanupSummary(title string) string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Step 7: MCP install
+// Step 7: Connect MCP client
+//
+// The CLI never installs or boots an MCP server — the hosted server at
+// mcp.skills-registry.dev is the only one users talk to. This step is
+// purely informational: it fetches the snippet from deps.MCPSnippet,
+// renders it inside a code panel, and waits for the user to press enter.
 // ────────────────────────────────────────────────────────────────────────────
 
-// startMCPInstall kicks off the EnsureMCP goroutine. The snippet is
-// captured from the dep regardless of install outcome so the user always
-// sees a paste-ready JSON block. Pointer receiver so the mcpStarted
-// flag survives back to onEnterStep's caller.
-func (m *WizardModel) startMCPInstall() tea.Cmd {
+// startMCPConnect snapshots the snippet immediately (synchronous — no
+// goroutine, no install) and flips mcpDone so the renderer shows the
+// finished panel right away. Pointer receiver so mcpStarted survives
+// back to onEnterStep's caller.
+func (m *WizardModel) startMCPConnect() tea.Cmd {
 	m.mcpStarted = true
-	if m.deps.EnsureMCP == nil && m.deps.MCPSnippet == nil {
-		return func() tea.Msg { return wizardMCPDoneMsg{installed: false} }
-	}
-	deps := m.deps
-	ctx := m.ctx
-	return tea.Batch(
-		m.spinner.Tick,
-		func() tea.Msg {
-			return runMCPInstall(ctx, deps)
-		},
-	)
-}
-
-// runMCPInstall is the goroutine body. Split out for unit-testability.
-func runMCPInstall(ctx context.Context, deps WizardDeps) wizardMCPDoneMsg {
-	var installErr error
-	if deps.EnsureMCP != nil {
-		installErr = deps.EnsureMCP(ctx)
-	}
 	snippet := ""
-	binary := ""
-	if deps.MCPSnippet != nil {
-		snippet, binary = deps.MCPSnippet()
+	if m.deps.MCPSnippet != nil {
+		snippet = m.deps.MCPSnippet()
 	}
-	// "Installed" means the entry point now exists on disk. Heuristic:
-	// the resolved binary path doesn't look like a bare command name.
-	installed := binary != "" && strings.ContainsAny(binary, "/\\")
-	return wizardMCPDoneMsg{
-		installed: installed,
-		snippet:   snippet,
-		binary:    binary,
-		err:       installErr,
-	}
+	return func() tea.Msg { return wizardMCPDoneMsg{snippet: snippet} }
 }
 
-// handleMCPDone records the install result for the renderer.
+// handleMCPDone stores the snippet so the renderer can show it.
 func (m WizardModel) handleMCPDone(msg wizardMCPDoneMsg) (tea.Model, tea.Cmd) {
 	m.mcpDone = true
-	m.mcpInstalled = msg.installed
 	m.mcpSnippet = msg.snippet
-	m.mcpBinary = msg.binary
-	m.mcpErr = msg.err
 	return m, nil
 }
 
-// handleMCPKey advances once the install goroutine has resolved.
+// handleMCPKey advances once the snippet has been captured (which is
+// essentially the next tick after entering the step).
 func (m WizardModel) handleMCPKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() != "enter" {
 		return m, nil
@@ -666,50 +641,26 @@ func (m WizardModel) handleMCPKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.advanceStep()
 }
 
-// renderMCPBody renders the four phases: starting, running, success +
-// snippet, and failure.
+// renderMCPBody shows the headline + snippet panel + continue chip.
 func (m WizardModel) renderMCPBody() string {
 	title := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).
 		Render(m.step.Title())
-	if !m.mcpDone {
-		return m.renderMCPInProgress(title)
-	}
-	return m.renderMCPSummary(title)
-}
-
-// renderMCPInProgress shows the spinner caption while we wait for
-// uv/pipx/pip to finish.
-func (m WizardModel) renderMCPInProgress(title string) string {
-	caption := lipgloss.NewStyle().Foreground(ColInk).
-		Render("Installing skill-registry-mcp so desktop MCP clients can launch it…")
-	hint := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-		Render("· tries uv tool install → pipx install → python -m pip install --user")
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", m.spinner.View()+" "+caption, "", hint)
-}
-
-// renderMCPSummary surfaces the install result + the JSON snippet panel.
-func (m WizardModel) renderMCPSummary(title string) string {
-	headline := m.renderMCPHeadline()
+	headline := lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
+		Render("✦ Paste this into your MCP client config.")
+	intro := lipgloss.NewStyle().Foreground(ColInk).
+		Render("The hosted server handles OAuth on first connect — no install needed.")
 	snippet := m.renderMCPSnippetPanel()
+	codex := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
+		Render("· Codex requires stdio MCP — the hosted server doesn't support that yet.")
 	cta := DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
 			Render("  continue")
-	parts := []string{title, "", headline}
+	parts := []string{title, "", headline, "", intro}
 	if snippet != "" {
 		parts = append(parts, "", snippet)
 	}
-	parts = append(parts, "", cta)
+	parts = append(parts, "", codex, "", cta)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-// renderMCPHeadline returns the success / failure banner.
-func (m WizardModel) renderMCPHeadline() string {
-	if m.mcpInstalled {
-		return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-			Render("✓ skill-registry-mcp is ready for desktop clients.")
-	}
-	return lipgloss.NewStyle().Foreground(ColPeach).Italic(true).
-		Render("· skill-registry-mcp not detected on disk — install it manually with one of the commands below, or paste the snippet as-is once you do.")
 }
 
 // renderMCPSnippetPanel renders the JSON snippet inside a rounded-border
@@ -719,7 +670,7 @@ func (m WizardModel) renderMCPSnippetPanel() string {
 		return ""
 	}
 	header := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-		Render("Wire it up in mcp.json (Claude / Cursor / VS Code / Codex):")
+		Render("mcp.json (Claude Code / Claude Desktop / Cursor / VS Code):")
 	body := lipgloss.NewStyle().Foreground(ColInk).Render(m.mcpSnippet)
 	panel := PanelStyle
 	if m.width > 8 {

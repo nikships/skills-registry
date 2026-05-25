@@ -19,10 +19,10 @@ import (
 // ────────────────────────────────────────────────────────────────────────────
 
 // WizardStep enumerates the eight onboarding stages the wizard walks the user
-// through. The order matches the bootstrap CLI flow that F2.2 / F2.3 inline
-// into this model, so a user who runs `skill-registry` for the first time
-// sees the same sequence — just inside an alt-screen Bubble Tea frame
-// instead of a series of synchronous prompts.
+// through. The order matches the legacy bootstrap CLI flow, so a user who
+// runs `skill-registry` for the first time sees the same sequence — just
+// inside an alt-screen Bubble Tea frame instead of a series of synchronous
+// prompts.
 type WizardStep int
 
 const (
@@ -35,14 +35,14 @@ const (
 	// WizardStepPush uploads every local skill in a batched git push.
 	WizardStepPush
 	// WizardStepAgentSelect multi-selects the agent dot-folders to seed
-	// with the skill-registry SKILL.md. (Owned by F2.3.)
+	// with the skill-registry SKILL.md.
 	WizardStepAgentSelect
 	// WizardStepCleanup offers to delete the now-redundant local copies.
-	// (Owned by F2.3.)
 	WizardStepCleanup
-	// WizardStepMCPInstall provisions the MCP entry point for desktop
-	// clients and prints the wire-up JSON snippet. (Owned by F2.3.)
-	WizardStepMCPInstall
+	// WizardStepMCPConnect prints the hosted-MCP JSON snippet for the
+	// user to paste into their client config. The CLI never installs or
+	// boots an MCP server — this step is purely informational.
+	WizardStepMCPConnect
 	// WizardStepDone is the terminal summary panel; pressing enter here
 	// hands off to the hub launcher.
 	WizardStepDone
@@ -68,8 +68,8 @@ func (s WizardStep) Title() string {
 		return "Install into agents"
 	case WizardStepCleanup:
 		return "Tidy local copies"
-	case WizardStepMCPInstall:
-		return "Wire up MCP"
+	case WizardStepMCPConnect:
+		return "Connect MCP client"
 	case WizardStepDone:
 		return "All set!"
 	}
@@ -85,7 +85,7 @@ func (s WizardStep) Title() string {
 // filesystem, or `gh` directly. Any nil callback is treated as a no-op so
 // unit tests can exercise the state machine without stubbing every dep.
 type WizardDeps struct {
-	// Scan discovers local skill folders. F2.2 wires this to scan.Discover.
+	// Scan discovers local skill folders (typically via scan.Discover).
 	Scan func(ctx context.Context) ([]scan.Skill, error)
 	// CreateRepo provisions the GitHub repo and returns "owner/name".
 	CreateRepo func(ctx context.Context, name, visibility string) (string, error)
@@ -116,13 +116,9 @@ type WizardDeps struct {
 	// failed counts. Best-effort — partial failures are surfaced via the
 	// returned `failed` count, never as an error.
 	DeleteCleanup func(entries []WizardCleanupEntry) (deleted, failed int)
-	// EnsureMCP runs the same "uv → pipx → pip" install flow as the
-	// Python shim so desktop MCP clients can launch the entry point.
-	// Best-effort: a returned error is informational only.
-	EnsureMCP func(ctx context.Context) error
-	// MCPSnippet returns the JSON snippet to paste into mcp.json (and
-	// the resolved binary path, if available).
-	MCPSnippet func() (snippet, binaryPath string)
+	// MCPSnippet returns the JSON snippet to paste into mcp.json. The CLI
+	// never installs an MCP server; this step is purely informational.
+	MCPSnippet func() string
 }
 
 // WizardAgent is one row in the embedded agent multi-select on step 5.
@@ -192,14 +188,10 @@ type wizardCleanupDoneMsg struct {
 	failed  int
 }
 
-// wizardMCPDoneMsg lands when the MCP install goroutine finishes; the
-// snippet is captured here so step 7 can render it inside a code-block
-// panel without re-invoking deps.
+// wizardMCPDoneMsg carries the snippet to render in step 7. The CLI
+// doesn't install an MCP server, so just the JSON body is needed.
 type wizardMCPDoneMsg struct {
-	installed bool
-	snippet   string
-	binary    string
-	err       error
+	snippet string
 }
 
 const (
@@ -233,8 +225,8 @@ func wizardScanReveal() tea.Cmd {
 // ────────────────────────────────────────────────────────────────────────────
 
 // WizardModel is the alt-screen Bubble Tea model for the onboarding wizard.
-// F2.1 built the chrome; F2.2 wires steps 1-4 to real business logic via
-// WizardDeps. F2.3 will land steps 5-8.
+// All eight steps are wired to real business logic via WizardDeps; tests
+// drive the state machine with stub deps.
 type WizardModel struct {
 	ctx  context.Context
 	deps WizardDeps
@@ -313,15 +305,13 @@ type WizardModel struct {
 	cleanupDeleted int
 	cleanupFailed  int
 
-	// Step 7: MCP install. mcpInstalled reports whether the entry point
-	// is now on disk; mcpSnippet is the JSON code block; mcpBinary is the
-	// resolved absolute path (or "skill-registry-mcp" fallback).
-	mcpStarted   bool
-	mcpDone      bool
-	mcpInstalled bool
-	mcpSnippet   string
-	mcpBinary    string
-	mcpErr       error
+	// Step 7: Connect MCP client. Purely informational — the CLI never
+	// installs or boots an MCP server. mcpStarted flips on step entry;
+	// mcpDone flips immediately after rendering the snippet so the enter
+	// key advances to Done.
+	mcpStarted bool
+	mcpDone    bool
+	mcpSnippet string
 }
 
 // NewWizard constructs the wizard frame with empty WizardDeps. Callers that
@@ -410,11 +400,6 @@ func (m WizardModel) AgentsInstalled() int { return len(m.agentPaths) }
 // user chose "no").
 func (m WizardModel) CleanupDeleted() int { return m.cleanupDeleted }
 
-// MCPInstalled reports whether the MCP entry point is on disk after step 7.
-// False means the user will need to install the entry point manually
-// (which they can do later — the snippet is still printed).
-func (m WizardModel) MCPInstalled() bool { return m.mcpInstalled }
-
 // ────────────────────────────────────────────────────────────────────────────
 // Update — message dispatch
 // ────────────────────────────────────────────────────────────────────────────
@@ -464,7 +449,7 @@ func (m WizardModel) dispatchStandardMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 }
 
 // dispatchAsyncMsg routes long-operation messages (scan / push / agent
-// install / cleanup / MCP install).
+// install / cleanup / MCP snippet).
 func (m WizardModel) dispatchAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case wizardScanDoneMsg:
@@ -507,8 +492,9 @@ func (m WizardModel) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd)
 }
 
 // spinnerActive returns true while the spinner glyph should keep animating.
-// Inter-step transitions, an in-flight scan, push, agent install, cleanup,
-// and MCP install all qualify.
+// Inter-step transitions, an in-flight scan, push, agent install, and
+// cleanup all qualify. Step 7 (MCP snippet) renders synchronously, so
+// it has no spinner state.
 func (m WizardModel) spinnerActive() bool {
 	switch {
 	case m.transitioning:
@@ -520,8 +506,6 @@ func (m WizardModel) spinnerActive() bool {
 	case m.step == WizardStepAgentSelect && m.agentInstalling && !m.agentInstallDone:
 		return true
 	case m.step == WizardStepCleanup && m.cleanupRunning:
-		return true
-	case m.step == WizardStepMCPInstall && m.mcpStarted && !m.mcpDone:
 		return true
 	}
 	return false
@@ -538,7 +522,7 @@ func (m WizardModel) handleTransitionDone(msg wizardTransitionMsg) (tea.Model, t
 // onEnterStep schedules side effects bound to entering a particular step.
 // Used to auto-start the push goroutine on landing in WizardStepPush, to
 // load the agent multi-select rows on step 5, to scan cleanup candidates
-// on step 6, and to kick off EnsureMCP on step 7.
+// on step 6, and to snapshot the hosted-MCP snippet on step 7.
 func (m *WizardModel) onEnterStep() tea.Cmd {
 	switch m.step {
 	case WizardStepRepoName:
@@ -558,9 +542,9 @@ func (m *WizardModel) onEnterStep() tea.Cmd {
 		if !m.cleanupLoaded {
 			return m.startCleanupLoad()
 		}
-	case WizardStepMCPInstall:
+	case WizardStepMCPConnect:
 		if !m.mcpStarted {
-			return m.startMCPInstall()
+			return m.startMCPConnect()
 		}
 	}
 	return nil
@@ -655,7 +639,7 @@ func (m WizardModel) handleStepKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentSelectKey(msg)
 	case WizardStepCleanup:
 		return m.handleCleanupKey(msg)
-	case WizardStepMCPInstall:
+	case WizardStepMCPConnect:
 		return m.handleMCPKey(msg)
 	case WizardStepDone:
 		return m.handleDoneKey(msg)
@@ -735,8 +719,9 @@ func (m WizardModel) handlePushKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.advanceStep()
 }
 
-// handleDefaultKey is the legacy "enter advances" path used by the F2.3
-// step placeholders until those steps own real renderers.
+// handleDefaultKey is the fallback "enter advances" path for any step
+// without its own handler. Every wired step has one, so this is a safety
+// net rather than a hot path.
 func (m WizardModel) handleDefaultKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() != "enter" {
 		return m, nil
@@ -1022,7 +1007,7 @@ func (m WizardModel) renderStepBody() string {
 		return m.renderAgentSelectBody()
 	case WizardStepCleanup:
 		return m.renderCleanupBody()
-	case WizardStepMCPInstall:
+	case WizardStepMCPConnect:
 		return m.renderMCPBody()
 	case WizardStepDone:
 		return m.renderDoneBody()

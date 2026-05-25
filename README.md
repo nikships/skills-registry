@@ -7,7 +7,6 @@
 **One GitHub repo, every AI agent. Skills fetched on demand — not auto-loaded into every startup context.**
 
 [![CI](https://github.com/anand-92/skills-registry/actions/workflows/ci.yml/badge.svg)](https://github.com/anand-92/skills-registry/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
@@ -22,15 +21,15 @@
 
 ## What it does
 
-Your AI tools — Claude Code, Cursor, Codex, Goose, Windsurf, all of them — auto-load every skill you've installed into the agent's startup context. That's tokens you pay for whether the agent uses the skill or not.
+AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf auto-load every installed skill into the agent's startup context — tokens you pay for whether the agent uses them or not.
 
-`skills-registry` flips the model: skills live in **one GitHub repo you own**, and agents fetch them on demand through an MCP server. The only thing each agent auto-loads is a tiny pointer file that teaches it *how* to fetch the rest.
+`skills-registry` flips this: skills live in **one GitHub repo you own**, and agents fetch them on demand through a hosted MCP server. Each agent auto-loads only a tiny pointer file telling it *how* to fetch the rest.
 
 **You get:**
 
-- 🪶 **Lighter agent startup.** A directory of `SKILL.md` files no longer balloons every conversation's context window. Agents pull what they need, when they need it.
-- 🏠 **One home for your skills.** No more keeping `~/.claude/skills`, `~/.cursor/skills`, and `~/.factory/skills` in sync by hand. Edit once, every agent sees it.
-- 🚀 **Share and version like code.** Your registry is a Git repo. Branch it, PR it, fork your teammate's, restore old versions, the works.
+- 🪶 **Lighter agent startup.** Skills no longer balloon every conversation's context window. Agents pull what they need, when they need it.
+- 🏠 **One home for your skills.** Stop syncing `~/.claude/skills`, `~/.cursor/skills`, and `~/.factory/skills` by hand. Edit once, every agent sees it.
+- 🚀 **Share and version like code.** Your registry is a Git repo — branch it, PR it, fork a teammate's, restore old versions.
 
 ---
 
@@ -52,30 +51,30 @@ When the user asks about a PDF, do the following:
 ...
 ```
 
-That's it — one file, plus whatever reference docs or examples the agent should be able to see. Most modern AI coding tools already understand this format; `skills-registry` lets you keep them all in one place.
+One file, plus any reference docs or examples. Most modern AI coding tools already understand this format; `skills-registry` keeps them in one place.
 
 ---
 
 ## Quick start
 
-> **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` should succeed) and `git` on `PATH` (only required the first time, for the bulk push). No Python or `uv` required.
+> **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` succeeds), and `git` on `PATH` (only for the first-time bulk push). No Python — the MCP server is hosted.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
 skill-registry
 ```
 
-The installer drops the `skill-registry` Go binary into `~/.local/bin/`. The bare `skill-registry` invocation routes you to the right place automatically:
+The installer drops the `skill-registry` Go binary into `~/.local/bin/`. Bare `skill-registry` routes automatically:
 
-- **First-time users** land in the **onboarding wizard** (alt-screen TUI). Steps: scan dot-folders → pick repo name/visibility → push every skill with a single `git push` → pick agents to wire up → optionally delete the now-redundant local copies → install the `skill-registry-mcp` entry point → print the MCP JSON snippet.
-- **Returning users** land in the **dashboard hub** with cards for Browse / Sync / Add / Publish / Remove / Settings.
-- **Piped / `--json` invocations** print usage text instead of starting a TUI (so the binary is safe to drop into scripts).
+- **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → pick agents to wire up → optionally delete the now-redundant local copies → print the hosted-MCP JSON snippet.
+- **Returning users** → **dashboard hub** with cards for Browse / Sync / Add / Publish / Remove / Settings.
+- **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 
-The wizard auto-installs `skill-registry-mcp` (the Python FastMCP server) via `uv tool install` → `pipx install` → `pip install --user`, in that order. The first one that succeeds wins. Total failure prints a manual hint and continues — you'll still get the bootstrap, you'll just have to install the entry point yourself before the MCP server can launch. Opt out entirely with `SKILLS_SKIP_INSTALL=1`.
+The wizard ends with a JSON snippet for your MCP client config, pointing at `https://mcp.skills-registry.dev/mcp`. Your client handles the GitHub OAuth on first connect; the server can then read and (with permission) write to your registry repo.
 
 <!-- TODO(maintainer): capture an asciinema of the wizard end-to-end and embed/link here. -->
 
-After it finishes, paste the printed JSON into your MCP client config, reload, and ask your agent something like:
+Paste the printed JSON into your MCP client config, reload, and ask:
 
 > *"What skills do I have available?"*
 > *"Get the `code-review` skill and use it on this PR."*
@@ -86,7 +85,7 @@ The agent calls `list_skills` and `get_skill` automatically — you never touch 
 
 ## Daily use
 
-Once you're set up, run a bare `skill-registry` to open the dashboard hub, or use the explicit subcommands:
+Run `skill-registry` for the dashboard, or use subcommands directly:
 
 | What you want | Command |
 |---|---|
@@ -102,7 +101,7 @@ Once you're set up, run a bare `skill-registry` to open the dashboard hub, or us
 <!-- TODO(maintainer): drop a short GIF of `skill-registry sync` here — the multi-select TUI sells the experience. -->
 <img src="docs/img/sync.gif" alt="skill-registry sync" width="640">
 
-Most users only ever touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search and Enter to preview.
+Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter to preview.
 
 ### `remove`: delete a skill end-to-end
 
@@ -110,17 +109,17 @@ Most users only ever touch `list`, `get`, and `publish`. The TUI is fuzzy-filter
 skill-registry remove code-review
 ```
 
-`remove` is destructive. It deletes the slug from three places in one go:
+`remove` is destructive. It deletes the slug from three places at once:
 
 1. The GitHub registry repo — single atomic commit via the Git Data API.
-2. The Python MCP server's local cache (`~/.cache/skills-mcp/skills/<slug>/` + `<slug>.meta.json`).
+2. The local cache (`~/.cache/skills-mcp/skills/<slug>/` + `<slug>.meta.json`).
 3. Every known AI tool dot-folder copy (`~/.claude/skills/<slug>/`, `~/.factory/skills/<slug>/`, `.agents/skills/<slug>/`, …).
 
-Interactive runs surface a confirmation prompt before any of it fires. Pass `--yes` to skip the prompt for scripted use, or `--json` (which implies `--yes`) for machine-readable output. Removing a slug that isn't in the registry exits 1 cleanly — nothing destructive runs.
+Interactive runs prompt for confirmation first. Pass `--yes` to skip it, or `--json` (which implies `--yes`) for machine-readable output. Removing a slug that isn't in the registry exits 1 cleanly — nothing destructive runs.
 
 ### Programmatic use — `--json`
 
-Every subcommand accepts a persistent `--json` flag. With it set, the CLI suppresses every TUI and prompt and emits a single JSON payload to stdout. Errors land as `{"error": "..."}` and the process exits non-zero. This is the right flag when an agent (or any script) is driving the binary itself.
+Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses TUIs and prompts and emits a single JSON payload to stdout. Errors land as `{"error": "..."}` with a non-zero exit. Use this when an agent or script drives the binary.
 
 | Command | Payload shape |
 |---|---|
@@ -130,7 +129,7 @@ Every subcommand accepts a persistent `--json` flag. With it set, the CLI suppre
 | `skill-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
 | `skill-registry remove <slug> --json` | `{"slug", "repo", "sha", "removed_from": [...]}` |
 
-Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set, so a piped invocation never hangs on a Bubble Tea prompt that can't render.
+Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set, so piped invocations never hang on a Bubble Tea prompt that can't render.
 
 ---
 
@@ -149,18 +148,17 @@ Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is se
 
 ## Configuration
 
-Most people never touch these — the wizard sets up sensible defaults. Override them via your shell or MCP client environment when you need to:
+The wizard sets sensible defaults. Override via shell env when needed:
 
 | Variable | Default | What it does |
 |---|---|---|
 | `SKILLS_REGISTRY` | (from config) | Point at a different registry for one command: `owner/repo` or `owner/repo@branch`. Great for browsing a teammate's. |
-| `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` if something's misbehaving. |
-| `SKILLS_SKIP_INSTALL` | unset | Set to `1` to keep the wizard from auto-installing `skill-registry-mcp`. Useful when you manage the entry point yourself. |
-| `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a specific release tag (`v0.5.1`, etc.). |
+| `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` when debugging. |
+| `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a release tag (`v0.7.0`, etc.). |
 | `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the `skill-registry` binary. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
-The registry repo URL itself is stored in `~/.config/skills-mcp/registry.toml`.
+The registry repo URL itself lives in `~/.config/skills-mcp/registry.toml`.
 
 ---
 
@@ -169,69 +167,70 @@ The registry repo URL itself is stored in `~/.config/skills-mcp/registry.toml`.
 <details>
 <summary><strong>"gh not found" or exit code 3</strong></summary>
 
-Install GitHub CLI from <https://cli.github.com/> and run `gh auth login`. `skills-registry` deliberately uses `gh` for every GitHub call — no SSH key shenanigans, no `git config user.email` required — so it has to be on your `PATH` (or in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`).
+Install GitHub CLI from <https://cli.github.com/> and run `gh auth login`. `skills-registry` uses `gh` for every GitHub call — no SSH keys, no `git config user.email` required — so it must be on your `PATH` (or in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`).
 </details>
 
 <details>
 <summary><strong>"No registry configured"</strong></summary>
 
-You haven't run the wizard yet, or your config file at `~/.config/skills-mcp/registry.toml` is missing. Run `skill-registry` (which opens the onboarding wizard the first time), or set `SKILLS_REGISTRY=owner/repo` directly.
+The wizard hasn't run yet, or `~/.config/skills-mcp/registry.toml` is missing. Run `skill-registry` (it opens the wizard first run), or set `SKILLS_REGISTRY=owner/repo` directly.
 </details>
 
 <details>
 <summary><strong>The MCP server doesn't show up in my client</strong></summary>
 
-Make sure you pasted the JSON snippet the wizard printed at the end of onboarding (the absolute path to `skill-registry-mcp` matters — desktop MCP clients don't inherit your shell `PATH`). Then fully restart the client (not just reload). If the wizard couldn't auto-install the entry point, install it yourself with `uv tool install skills-registry` or `pipx install skills-registry` and re-run `skill-registry` to refresh the printed path.
+Paste the wizard's JSON snippet into your client's MCP config and fully restart the client (not just reload). On first connect the client opens a browser to authorize the Skills Registry GitHub App on your registry repo — accept it. If the server says "no repo linked yet", install the GitHub App via the link in the error and retry; the webhook auto-links within seconds.
 </details>
 
 <details>
 <summary><strong>Multiple GitHub accounts</strong></summary>
 
-`skills-registry` uses whichever account `gh auth status` says is active. Use `gh auth switch` before running `skill-registry` to pick the right one.
+`skills-registry` uses whichever account `gh auth status` reports active. Use `gh auth switch` to pick the right one.
 </details>
 
 <details>
 <summary><strong>"git not found" during onboarding</strong></summary>
 
-The first-time bulk push uses a single `git push` to dodge GitHub's secondary rate limit. Install git (macOS: `brew install git`; Linux: `apt install git` / `dnf install git`; Windows: https://git-scm.com/downloads) and re-run `skill-registry`. After onboarding, `git` is no longer needed — the MCP server and the single-skill `publish` / `remove` commands all route through `gh api`.
+The first-time bulk push uses a single `git push` to dodge GitHub's secondary rate limit. Install git (macOS: `brew install git`; Linux: `apt install git` / `dnf install git`; Windows: https://git-scm.com/downloads) and re-run. After onboarding, `git` is no longer needed — `publish` and `remove` route through `gh api`.
 </details>
 
 ---
 
 ## Manual MCP client config
 
-The wizard prints platform-correct JSON at the end of onboarding, but if you prefer to set it up by hand:
-
-<details>
-<summary>Claude Code / Claude Desktop / Cursor / VS Code (<code>mcp.json</code>)</summary>
+The wizard prints this JSON; if you prefer wiring it up by hand:
 
 ```json
 {
   "mcpServers": {
     "skill-registry": {
-      "command": "/Users/you/.local/bin/skill-registry-mcp"
+      "url": "https://mcp.skills-registry.dev/mcp"
     }
   }
 }
 ```
-</details>
 
-<details>
-<summary>Codex (<code>~/.codex/config.toml</code>)</summary>
+Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `list_skills` / `get_skill` call goes through the hosted server — no local binary required.
 
-```toml
-[mcp_servers.skill-registry]
-command = "/Users/you/.local/bin/skill-registry-mcp"
-```
-</details>
+> **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the CLI directly (`skill-registry list`, `skill-registry get <slug>`).
 
 ---
 
 ## Project status
 
-`skills-registry` is at **v0.5** — usable day-to-day but pre-1.0. The MCP tool surface (`list_skills`, `get_skill`, `publish_skill`) is stable. The CLI commands are stable. Internals may shift between minor versions; pin to a specific version if that worries you.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The MCP tool surface (`list_skills`, `get_skill`, `publish_skill`) and CLI commands are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+---
+
+## Repo layout
+
+- [`cli/`](cli) — the Go binary users install (TUI + headless subcommands).
+- [`install.sh`](install.sh) — POSIX one-shot installer for the Go binary.
+- [`docs/`](docs) — architecture deep-dive (`registry.md`) and supporting docs.
+- [`infa-not-for-users/`](infa-not-for-users) — the hosted MCP server (Python + FastMCP), Dockerfile, and Railway config. **Maintainer-only**; see its README for deployment details.
+- [`website/`](website) — Next.js landing page (`skills-registry.dev`).
 
 ---
 

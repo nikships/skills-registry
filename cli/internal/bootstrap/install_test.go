@@ -37,12 +37,24 @@ func TestInstallSkillMdWritesEverywhere(t *testing.T) {
 	}
 }
 
-func TestMCPJSONSnippetIncludesBinary(t *testing.T) {
-	out := MCPJSONSnippet("/usr/local/bin/skill-registry-mcp")
-	if !strings.Contains(out, "/usr/local/bin/skill-registry-mcp") {
-		t.Fatalf("snippet missing binary path: %s", out)
+func TestMCPJSONSnippetPointsAtHostedServer(t *testing.T) {
+	out := MCPJSONSnippet()
+	if !strings.Contains(out, HostedMCPURL) {
+		t.Fatalf("snippet missing hosted URL %q: %s", HostedMCPURL, out)
 	}
-	if !strings.Contains(out, "skill-registry") {
+	if !strings.Contains(out, "\"skill-registry\":") {
 		t.Fatalf("snippet missing server name: %s", out)
+	}
+	if strings.Contains(out, "\"command\"") || strings.Contains(out, "\"args\"") {
+		t.Fatalf("hosted snippet must not include stdio command/args: %s", out)
+	}
+	if !strings.Contains(out, "\"url\":") {
+		t.Fatalf("hosted snippet must declare a url: %s", out)
+	}
+}
+
+func TestHostedMCPURLIsHTTPS(t *testing.T) {
+	if !strings.HasPrefix(HostedMCPURL, "https://") {
+		t.Fatalf("HostedMCPURL must be HTTPS, got %q", HostedMCPURL)
 	}
 }

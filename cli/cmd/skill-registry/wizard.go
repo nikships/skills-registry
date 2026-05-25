@@ -16,13 +16,11 @@ import (
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
 
-// runWizard launches the onboarding wizard in alt-screen mode.
-//
-// F2.2 wired the first four steps (scan, repo name, visibility, push)
-// directly into the wizard model. F2.3 inlines the remaining four steps
-// (agent install, cleanup, MCP install, done) so the wizard owns the
-// entire bootstrap flow end-to-end. The legacy `bootstrap` subcommand
-// is still available for headless / scripted invocations.
+// runWizard launches the onboarding wizard in alt-screen mode. The
+// wizard owns the entire bootstrap flow end-to-end (scan → repo →
+// push → agents → cleanup → MCP snippet → done). The legacy
+// `bootstrap` subcommand is still available for headless / scripted
+// invocations.
 func runWizard(ctx context.Context) error {
 	gh, err := registry.FindGH()
 	if err != nil {
@@ -53,7 +51,7 @@ func runWizard(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("wizard returned unexpected model %T", out)
 	}
-	return finishWizard(ctx, final)
+	return finishWizard(final)
 }
 
 // finishWizard handles the post-wizard hand-off. Cancelled runs exit
@@ -61,7 +59,7 @@ func runWizard(ctx context.Context) error {
 // (F3.x) reads `Completed()` to decide whether to open the dashboard;
 // until then we just close the alt-screen and let the user re-invoke
 // `skill-registry` if they want the hub.
-func finishWizard(_ context.Context, final tui.WizardModel) error {
+func finishWizard(final tui.WizardModel) error {
 	if final.Cancelled() {
 		fmt.Println("Onboarding cancelled.")
 		return nil
@@ -112,8 +110,7 @@ func buildWizardDeps(gh string) tui.WizardDeps {
 			return wizardLoadCleanup(c, gh, home, cwd, dotDirs, skills)
 		},
 		DeleteCleanup: wizardDeleteCleanup,
-		EnsureMCP:     wizardEnsureMCP,
-		MCPSnippet:    wizardMCPSnippet,
+		MCPSnippet:    bootstrap.MCPJSONSnippet,
 	}
 }
 
@@ -156,10 +153,10 @@ func wizardCreateRepo(ctx context.Context, gh, name, visibility string) (string,
 	return created, nil
 }
 
-// wizardPushSkills is the F2.2 push driver. It computes the delta against
-// the remote registry, materializes every file, and runs PushTreeViaGit
-// with the supplied progress / status callbacks plugged in. Returns the
-// number of skills uploaded.
+// wizardPushSkills computes the delta against the remote registry,
+// materializes every file, and runs PushTreeViaGit with the supplied
+// progress / status callbacks plugged in. Returns the number of skills
+// uploaded.
 func wizardPushSkills(ctx context.Context, gh, repo string, skills []scan.Skill,
 	onProgress func(done, total int), onStatus func(msg string)) (int, error) {
 	client, err := registry.New(repo, "main")
@@ -327,21 +324,4 @@ func wizardDeleteCleanup(entries []tui.WizardCleanupEntry) (int, int) {
 		deleted++
 	}
 	return deleted, failed
-}
-
-// wizardEnsureMCP shells out to the same EnsureMCPEntryPoint the Python
-// shim uses (uv → pipx → pip). Always returns nil — install failures are
-// captured by the wizard's MCPSnippet path-check heuristic.
-func wizardEnsureMCP(ctx context.Context) error {
-	bootstrap.EnsureMCPEntryPoint(ctx)
-	return nil
-}
-
-// wizardMCPSnippet returns the JSON snippet to paste into mcp.json plus
-// the resolved binary path. The wizard inspects the path to decide
-// whether the entry point is on disk (heuristic: contains a path
-// separator).
-func wizardMCPSnippet() (string, string) {
-	bin, _ := locateMCPBinary()
-	return bootstrap.MCPJSONSnippet(bin), bin
 }

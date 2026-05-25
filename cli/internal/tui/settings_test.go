@@ -31,7 +31,7 @@ func (s *stubSaver) fn() SettingsSaver {
 func freshSettings(saver SettingsSaver) SettingsModel {
 	m := NewSettings("owner/repo", "main",
 		"/home/u/.cache/skills-mcp/skills",
-		"/home/u/.local/bin/skill-registry-mcp",
+		"https://mcp.skills-registry.dev/mcp",
 		saver,
 	)
 	m.width, m.height = 100, 24
@@ -52,8 +52,8 @@ func TestNewSettingsCapturesAllFields(t *testing.T) {
 	if m.cacheRoot != "/home/u/.cache/skills-mcp/skills" {
 		t.Errorf("cacheRoot = %q", m.cacheRoot)
 	}
-	if m.mcpBinary != "/home/u/.local/bin/skill-registry-mcp" {
-		t.Errorf("mcpBinary = %q", m.mcpBinary)
+	if m.hostedMCP != "https://mcp.skills-registry.dev/mcp" {
+		t.Errorf("hostedMCP = %q", m.hostedMCP)
 	}
 	if m.focused != settingsFieldRepo {
 		t.Errorf("initial focus = %v, want repo", m.focused)
@@ -73,8 +73,8 @@ func TestSettingsViewSurfacesAllFields(t *testing.T) {
 		"main",
 		"Cache location",
 		"/home/u/.cache/skills-mcp/skills",
-		"MCP binary path",
-		"/home/u/.local/bin/skill-registry-mcp",
+		"Hosted MCP URL",
+		"https://mcp.skills-registry.dev/mcp",
 	}
 	for _, want := range wants {
 		if !strings.Contains(v, want) {

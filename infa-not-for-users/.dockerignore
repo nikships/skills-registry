@@ -1,0 +1,23 @@
+# Build context = infa-not-for-users/ (Railway rootDirectory). The wheel
+# build only needs pyproject.toml + README.md + skills_mcp/. Exclude the rest
+# to keep the context small and avoid invalidating the install layer when
+# unrelated files change.
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
+tests
+uv.lock
+ruff.toml
+railway.json
+.env.example
+HANDOFF.md
+REMOTE_MCP_PLAN.md

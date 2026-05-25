@@ -1,6 +1,6 @@
 # Skill Registry — architecture deep dive
 
-This document explains how the two pieces (`install.sh` + `skill-registry` Go CLI, and `skill-registry-mcp` Python MCP server) cooperate, what each component does on the wire, and where to look when something breaks.
+How the two pieces (`install.sh` + `skill-registry` Go CLI on the user's machine, and the hosted MCP server) cooperate, what each does on the wire, and where to look when something breaks.
 
 ---
 
@@ -10,26 +10,39 @@ This document explains how the two pieces (`install.sh` + `skill-registry` Go CL
 flowchart LR
   U([user]) -->|"curl … install.sh | sh"| InstallSh["install.sh<br/>(POSIX)"]
   InstallSh -->|"downloads tarball"| GoCLI["skill-registry<br/>(Go + Bubble Tea)"]
-  GoCLI -->|"installs (uv/pipx/pip)"| McpBin["skill-registry-mcp<br/>(Python, FastMCP)"]
   GoCLI -->|"gh api / git push"| GH["gh CLI"]
-  McpBin -->|"gh api"| GH
   GH -->|"REST + Git Data API"| Repo[(GitHub registry)]
-  Agent([MCP agent]) -->|"stdio"| McpBin
+  Agent([MCP client]) -->|"Streamable HTTP + OAuth"| Hosted["mcp.skills-registry.dev<br/>(FastMCP, hosted)"]
+  Hosted -->|"GitHub App token"| GH2["GitHub REST API"]
+  GH2 --> Repo
 ```
 
 Two user-facing deliverables, **single repo**, two languages.
 
 | Piece | Language | Distribution | Role |
 |---|---|---|---|
-| `install.sh` | POSIX sh | Raw GitHub Content (`curl \| sh`) | One-shot installer. Detects OS/arch, downloads the matching Go tarball from the latest release, drops the binary into `~/.local/bin/skill-registry`. |
-| `skill-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`). Every subcommand honors `--json`. |
-| `skill-registry-mcp` | Python | PyPI (auto-installed by the wizard via `uv tool install` → `pipx install` → `pip install --user`) | FastMCP server. Three tools: `list_skills`, `get_skill`, `publish_skill`. |
+| `install.sh` | POSIX sh | Raw GitHub Content (`curl \| sh`) | One-shot installer. Detects OS/arch, downloads the matching Go tarball, drops the binary into `~/.local/bin/skill-registry`. |
+| `skill-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`). All honor `--json`. |
+| `skill-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. Three tools: `list_skills`, `get_skill`, `publish_skill`. Users never install this — their MCP client connects to the URL and does the OAuth dance. |
+
+> **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli). Users see only the CLI; the hosted server is a service, not a deliverable.
+
+### 1.1 Hosted MCP — what runs where
+
+The hosted server is a single FastMCP Streamable-HTTP process behind a TLS-terminating proxy:
+
+1. **Auth.** MCP clients (Claude Code / Cursor / VS Code+Copilot / Claude Desktop) negotiate OAuth on first connect — a browser window opens to the server's `/authorize` endpoint, which hands off to GitHub. The resulting token is scoped to the user's GitHub identity.
+2. **Repo linking.** After OAuth, the server needs to know *which* repo to serve. Users install the **Skills Registry GitHub App** on their registry repo; an `installation` webhook records the `{github_user → owner/repo}` link in the server's key-value store. Subsequent tool calls resolve the user's repo from that link.
+3. **GitHub I/O.** Every read (`list_skills`, `get_skill`) and write (`publish_skill`) uses an installation-scoped GitHub App token. The user's local `gh` is not involved — the server runs in a Docker container with no shell state.
+4. **Persistence.** A small Railway-backed volume at `/data/oauth/` holds the OAuth state + repo-link table. No skills are cached server-side; every `get_skill` reads through to GitHub.
+
+The CLI (`skill-registry list`, `get`, …) is separate — it makes GitHub calls via the user's local `gh`. The hosted MCP and the CLI are two independent paths to the same GitHub data, optimized for different environments (browser-OAuth on remote compute vs. local `gh`).
 
 ---
 
 ## 2. Install + first-run
 
-The user-facing entry point is now a single shell command:
+The user-facing entry point is a single shell command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
@@ -37,17 +50,17 @@ curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/insta
 
 `install.sh` (POSIX `sh`, ~150 LOC):
 
-1. Detect OS via `uname -s`, arch via `uname -m`. Map to `darwin/linux × amd64/arm64`. Unsupported tuples exit 2 with a clear message — never silently wrong-asset.
-2. Build the release URL (`SKILLS_REGISTRY_VERSION=latest` by default, pinnable to `v0.5.1` etc.).
+1. Detect OS via `uname -s`, arch via `uname -m`. Map to `darwin/linux × amd64/arm64`. Unsupported tuples exit 2 — never silently wrong-asset.
+2. Build the release URL (`SKILLS_REGISTRY_VERSION=latest` by default, pinnable to a tag).
 3. Download via `curl -fsSL` (fall back to `wget`).
-4. `tar -xzf` into a `mktemp -d` tempdir, atomically move the binary into `~/.local/bin/skill-registry` (overridable via `SKILLS_BIN_DIR`).
+4. `tar -xzf` into a `mktemp -d`, atomically move the binary into `~/.local/bin/skill-registry` (overridable via `SKILLS_BIN_DIR`).
 5. Warn if the install dir isn't on `PATH`.
 
-The Python `skills-registry init` script that previously orchestrated this is deprecated — it still exists in the wheel for backwards compatibility, but the canonical install flow no longer touches Python during onboarding.
+The CLI never installs Python or an MCP entry point — the hosted server replaces that. The wizard's final step is just a static JSON snippet pointing at the hosted URL.
 
 ### 2.1 Bare-command routing (`skill-registry`, no subcommand)
 
-`cli/cmd/skill-registry/main.go:bareRouteDecision` is the single decision function for `skill-registry` invoked with no subcommand. It's pure (no I/O), unit-tested, and produces one of four routes:
+`cli/cmd/skill-registry/main.go:bareRouteDecision` is the single decision function for bare `skill-registry`. It's pure (no I/O), unit-tested, and produces one of four routes:
 
 | isTTY | --json | config load err | → route | what fires |
 |---|---|---|---|---|
@@ -57,7 +70,7 @@ The Python `skills-registry init` script that previously orchestrated this is de
 | `true` | `false` | nil | `bareRouteHub` | dashboard hub |
 | `true` | `false` | other | `bareRouteError` | surface the parse error |
 
-The point: bare `skill-registry` should always land somewhere safe. Non-TTY → no Bubble Tea. `--json` → no Bubble Tea. Otherwise route based on config presence.
+Bare `skill-registry` should always land somewhere safe. Non-TTY or `--json` → no Bubble Tea. Otherwise route by config presence.
 
 ### 2.2 First-run wizard
 
@@ -72,15 +85,15 @@ flowchart TD
   E --> F[Step 5: agent multi-select]
   F --> G[write SKILL.md into picked dot-folders]
   G --> H[Step 6: offer to delete local copies]
-  H --> I[Step 7: EnsureMCPEntryPoint <br>uv→pipx→pip in-Go]
-  I --> J[Step 8: print MCP JSON snippet + done]
+  H --> I[Step 7: print hosted-MCP JSON snippet]
+  I --> J[Step 8: summary + done]
 ```
 
-All four legacy headless-bootstrap concerns (repo create, push, agent install, cleanup) live inside the wizard now. Re-running is safe — the wizard reuses an existing `~/.config/skills-mcp/registry.toml` and short-circuits the repo-create step. The legacy `skill-registry bootstrap` subcommand still exists for scripted use; the wizard is just the interactive face of the same primitives.
+All four legacy headless-bootstrap concerns (repo create, push, agent install, cleanup) live inside the wizard. Step 7 is informational — the wizard never installs or launches a server; it prints the JSON snippet pointing at `https://mcp.skills-registry.dev/mcp` for the user to paste into their MCP client config. Re-running is safe: the wizard reuses an existing `~/.config/skills-mcp/registry.toml` and short-circuits repo creation. The legacy `skill-registry bootstrap` subcommand still exists for scripted use; the wizard is the interactive face of the same primitives.
 
-**Why `git push` for bootstrap?** A first-time user with 30+ skills (≈100+ files) trips GitHub's secondary rate limit at ~80 POSTs/minute when each file is uploaded as a separate `git/blobs` REST call. `PushTreeViaGit` short-circuits that: one `git push` of the whole tree, regardless of file count. Credentials come from `gh auth setup-git` (idempotent — wires `gh` as git's HTTPS credential helper for github.com).
+**Why `git push` for bootstrap?** A first-time user with 30+ skills (≈100+ files) trips GitHub's secondary rate limit at ~80 POSTs/minute when each file uploads as a separate `git/blobs` REST call. `PushTreeViaGit` collapses that into one `git push` of the whole tree, regardless of file count. Credentials come from `gh auth setup-git` (idempotent — wires `gh` as git's HTTPS credential helper for github.com).
 
-`PushTreeViaGit` requires `git` on PATH; the wizard fails fast before rendering any screen when it's missing. The MCP server (`publish_skill`) does **not** use this path — it stays on the REST blob path so it works in the stripped GUI-client environment described in §3.
+`PushTreeViaGit` requires `git` on PATH; the wizard fails fast before rendering any screen when it's missing. Single-skill CLI `publish` / `remove` do **not** use this — they stay on the REST blob path, well under the rate limit.
 
 ### 2.3 Returning-user hub
 
@@ -102,35 +115,38 @@ flowchart LR
   Toast --> Loop
 ```
 
-Each per-action helper returns a `hubToast`. The next loop iteration seeds that toast into the freshly-built `tui.HubModel` so the user sees "✓ added from owner/repo" / "✗ remove: slug not found" / etc. Per-action errors land as red toasts and the user can retry; only a launcher-level failure (e.g. `config.Load` started failing mid-session) escapes the loop. The hub terminates on quit (`q` / `esc` / `ctrl+c`) or empty selection.
+Each per-action helper returns a `hubToast`. The next loop iteration seeds that toast into the freshly-built `tui.HubModel`, so the user sees "✓ added from owner/repo" / "✗ remove: slug not found" / etc. Per-action errors land as red toasts and the user can retry; only a launcher-level failure (e.g. `config.Load` failing mid-session) escapes the loop. The hub terminates on quit (`q` / `esc` / `ctrl+c`) or empty selection.
 
-### 2.4 MCP entry-point install (Go)
+### 2.4 MCP wire-up
 
-`cli/internal/bootstrap/mcp_install.go:EnsureMCPEntryPoint` is the Go port of the Python `_ensure_mcp_entry_point`. The wizard calls it during step 7; standalone `bootstrap` callers can rely on the same function. Logic:
+The wizard's step 7 (`WizardStepMCPConnect`) and the headless `bootstrap` subcommand both print the same JSON blob:
 
-1. Honor `SKILLS_SKIP_INSTALL=1` — early return.
-2. Probe the curated fallback dirs (`~/.local/bin`, `~/.local/share/uv/tools/skills-registry/bin`, `/opt/homebrew/bin`, `/usr/local/bin`) for `skill-registry-mcp`. If present → early return.
-3. Iterate installers in order:
-   - `uv tool install --force skills-registry`
-   - `pipx install --force skills-registry`
-   - `python3 -m pip install --user --upgrade skills-registry`
-   `uv` / `pipx` are skipped when their binary isn't on PATH; `pip` is always attempted last.
-4. First exit-0 + on-disk presence wins. Total failure prints a manual-install hint to stderr but **never aborts** — the bootstrap flow continues and the printed MCP JSON snippet just references a binary the user has to install themselves.
+```json
+{
+  "mcpServers": {
+    "skill-registry": {
+      "url": "https://mcp.skills-registry.dev/mcp"
+    }
+  }
+}
+```
 
-This decouples installer plumbing from the host package manager: Linux users without `uv` or `pipx` still get the entry point via `pip --user`, and the Go binary never assumes a specific Python ecosystem layout.
+The URL constant lives at `cli/internal/bootstrap/install.go:HostedMCPURL`; `MCPJSONSnippet()` formats it for `mcp.json`. No binary path is computed, no install is attempted, no goroutine runs — `startMCPConnect` synchronously snapshots the snippet, the renderer shows it inside a `PanelStyle` code block, and the user pastes it into their client config.
+
+**Codex is intentionally unsupported by the hosted MCP.** Codex's TOML config only accepts stdio MCP servers (`command = "..."`), and the hosted service speaks Streamable HTTP. The wizard and README call this out; Codex users fall back to the CLI (`skill-registry list`, `skill-registry get <slug>`).
 
 ---
 
-## 3. Why the MCP server avoids `git` (and the CLI bootstrap doesn't)
+## 3. Why the hosted MCP avoids `git` (and the CLI bootstrap doesn't)
 
-Desktop MCP clients (Claude Desktop, Cursor, VS Code/Copilot) spawn the MCP server with a stripped environment:
+The hosted MCP runs in a Docker container on Railway with no shell state:
 
-- `PATH` is *not* your shell PATH; `gh` and `git` aren't necessarily reachable.
-- `SSH_AUTH_SOCK` is unset, so SSH agent isn't accessible.
-- `user.name` / `user.email` may not be configured.
-- Credential helpers may not be linked.
+- `PATH` contains only what the image declares; `gh` is not on it.
+- `SSH_AUTH_SOCK` is unset.
+- `git config user.name` / `user.email` are blank.
+- The only credential is an installation-scoped GitHub App token, fetched per request.
 
-So the MCP server's `publish_skill` tool **never** clones, commits, or pushes. It does everything via the Git Data API through `gh api`:
+So `publish_skill` **never** clones, commits, or pushes. Everything goes through the Git Data API using the GitHub App token:
 
 ```text
 GET  repos/{owner}/{repo}/git/ref/heads/{branch}        → parent SHA
@@ -142,9 +158,9 @@ POST repos/{owner}/{repo}/git/commits                   → create commit
 PATCH repos/{owner}/{repo}/git/refs/heads/{branch}      → fast-forward ref
 ```
 
-If the PATCH returns 409/422 (non-fast-forward), we refetch HEAD and retry up to 3 times with exponential backoff. The implementation lives in `skills_mcp/registry_api.py:RegistryClient.publish_skill` (Python) and is mirrored in `cli/internal/registry/registry.go` (Go) — both clients hit the same endpoints in the same order.
+If the PATCH returns 409/422 (non-fast-forward), the server refetches HEAD and retries up to 3 times with exponential backoff. Implementation lives in `infa-not-for-users/src/skills_mcp/registry_api.py:RegistryClient.publish_skill` (Python) and mirrors in `cli/internal/registry/registry.go` (Go) — same endpoints, same order. (Go shells out to `gh api`; the server uses the GitHub App token via plain HTTP.)
 
-The CLI bootstrap (Go) has stronger guarantees than the MCP server: the user invoked it from an interactive terminal where `git` is virtually always available. So bootstrap uses `registry.Client.PushTreeViaGit`, which `gh auth setup-git`s once, then clones-or-inits a tempdir, writes every file, and does a single `git push`. One network operation regardless of file count; no secondary rate limit. The MCP server can't make those assumptions and stays on the REST blob path.
+The CLI bootstrap (Go) has stronger guarantees: it runs in an interactive terminal where `git` is virtually always available. So bootstrap uses `registry.Client.PushTreeViaGit`: `gh auth setup-git` once, clone-or-init a tempdir, write every file, single `git push`. One network operation regardless of file count; no secondary rate limit. The hosted MCP can't assume `git` and stays on the REST blob path.
 
 ### 3.1 The `remove` API sequence
 
@@ -159,26 +175,28 @@ POST repos/{owner}/{repo}/git/commits                   → "remove: <slug>" poi
 PATCH repos/{owner}/{repo}/git/refs/heads/{branch}      → fast-forward ref
 ```
 
-Setting `sha: null` on a tree entry is GitHub's idiomatic "delete this path" — a single atomic commit removes the entire subtree without ever materializing a working copy locally. Same 409/422 retry budget as `Publish`. If the recursive-tree call returns no entries under `<slug>/`, the function exits with `ErrSlugNotFound` (the `remove` CLI surfaces this as a clean exit-1 with a non-destructive message; nothing on the registry side runs).
+Setting `sha: null` on a tree entry is GitHub's idiomatic "delete this path" — one atomic commit removes the entire subtree without materializing a working copy. Same 409/422 retry budget as `Publish`. If the recursive-tree call returns no entries under `<slug>/`, the function exits with `ErrSlugNotFound` (the `remove` CLI surfaces this as a clean exit-1; nothing destructive runs).
 
-The CLI's `runRemove` then layers two non-registry cleanup steps on top of `Delete`:
+The CLI's `runRemove` then layers two non-registry cleanup steps on `Delete`:
 
-1. **Cache wipe** — `~/.cache/skills-mcp/skills/<slug>/` and the sibling `<slug>.meta.json` are removed if present (so the next `get_skill` re-fetches a fresh copy of whatever slug the user might re-create later under the same name).
+1. **Cache wipe** — `~/.cache/skills-mcp/skills/<slug>/` and the sibling `<slug>.meta.json` are removed if present, so the next `get_skill` re-fetches a fresh copy if the slug is re-created under the same name.
 2. **Dot-folder sweep** — every known agent dot-folder (`~/.claude/skills`, `~/.factory/skills`, `.agents/skills`, …) is scanned for a direct child whose name (or `Slugify`'d name — the hyphen-vs-underscore case) matches the slug; matches are `os.RemoveAll`'d (unlinks symlinks, recursively removes real dirs).
 
-The result is a single command that leaves no trace of the slug across the registry + cache + every agent the user has wired up. JSON callers get a `{"removed_from": [...]}` array indicating which of those three locations actually had anything to delete.
+One command leaves no trace of the slug across the registry + cache + every wired-up agent. JSON callers get a `{"removed_from": [...]}` array showing which locations actually had anything to delete.
 
 ---
 
 ## 4. The cache
 
-`get_skill` writes downloads to `~/.cache/skills-mcp/skills/<slug>/` with a sibling `<slug>.meta.json` recording the registry tree SHA at fetch time. On the next call:
+The CLI's `get` writes downloads to `~/.cache/skills-mcp/skills/<slug>/` with a sibling `<slug>.meta.json` recording the registry tree SHA at fetch time. Next call:
 
 1. `gh api repos/{repo}/contents/` returns the current SHA for `<slug>/`.
-2. If it matches the cached meta SHA, we return the cached path immediately.
-3. Otherwise the folder is wiped and re-downloaded, then the meta is rewritten.
+2. Match the cached meta SHA → return the cached path immediately.
+3. Otherwise wipe the folder, re-download, rewrite the meta.
 
-This is keyed on **tree SHA**, not ETag or `Last-Modified`, so a force-push or any subtree change invalidates correctly.
+Keyed on **tree SHA** (not ETag or `Last-Modified`), so a force-push or any subtree change invalidates correctly.
+
+The hosted MCP does not cache between requests — every `get_skill` reads through to GitHub. A short-TTL server-side cache keyed on tree SHA is a future optimization; not required for current volume.
 
 ---
 
@@ -186,11 +204,11 @@ This is keyed on **tree SHA**, not ETag or `Last-Modified`, so a force-push or a
 
 | Source | Wins | Notes |
 |---|---|---|
-| `SKILLS_REGISTRY=owner/repo[@branch]` env | First | Per-process override. `@branch` is optional; defaults to `main`. |
-| `~/.config/skills-mcp/registry.toml` | Second | Written by `init`. Hand-editable. |
-| (none) | Boot error | The MCP server exits 2 with an actionable message. |
+| `SKILLS_REGISTRY=owner/repo[@branch]` env | First | Per-process override. `@branch` optional, defaults to `main`. |
+| `~/.config/skills-mcp/registry.toml` | Second | Written by the wizard. Hand-editable. |
+| (none) | CLI error | CLI exits with an actionable message; the hosted MCP resolves the repo from its repo-link table. |
 
-The TOML is intentionally minimal:
+The TOML is minimal:
 
 ```toml
 [registry]
@@ -198,7 +216,7 @@ repo = "alice/skill-registry"
 default_branch = "main"
 ```
 
-Python parsing uses `tomllib` on 3.11+ and a tiny hand-rolled fallback on 3.10. The Go CLI does the same thing (no TOML dep).
+The Go CLI parses TOML with a hand-rolled minimal subset (no external dep). The hosted MCP doesn't read this file — it resolves the repo from the OAuth + GitHub App link in its key-value store.
 
 ---
 
@@ -210,21 +228,18 @@ Python parsing uses `tomllib` on 3.11+ and a tiny hand-rolled fallback on 3.10. 
 ---
 name: skill-registry
 description: |
-  Broker to your GitHub-hosted personal skill library at {repo} via the
-  `skill-registry` CLI. ...
+  Broker to your GitHub-hosted personal skill library at {repo}. ...
 ```
 
-…and a CLI-only body documenting:
+…and a body documenting both paths:
 
-1. **Install hint** — the `curl -fsSL …/install.sh | sh` one-liner agents can rerun if the binary disappears off PATH.
-2. **`list` / `get`** — discover + fetch.
-3. **`publish` / `add` / `sync`** — write paths.
-4. **`remove`** — atomic deletion across registry + cache + dot-folders.
-5. **`--json` table** — payload shape for every subcommand, so the agent can drive the CLI programmatically without scraping source.
+1. **MCP-first (preferred when available).** Use `list_skills` / `get_skill` when the agent's client is wired to the hosted server.
+2. **CLI fallback / write side.** The `skill-registry` binary covers everything the MCP doesn't and is always available for `publish` / `sync` / `remove` (the read-only MCP set may grow over time, but the CLI stays the primary write surface).
+3. **`--json` table.** Payload shape for every CLI subcommand, so agents can drive the CLI programmatically without scraping source.
 
-It's written into `<dot-dir>/skills/skill-registry/SKILL.md` for every agent target the user selects during bootstrap.
+Written into `<dot-dir>/skills/skill-registry/SKILL.md` for every agent target picked during bootstrap.
 
-This template is deliberately Go-only: the only consumer that needs it is the bootstrap flow (which is Go), so there's no Python copy to keep in sync.
+Go-only template: the only consumer is the bootstrap flow (also Go), so there's no Python copy to keep in sync.
 
 ---
 
@@ -236,7 +251,7 @@ This template is deliberately Go-only: the only consumer that needs it is the bo
 | `cli/internal/scan/scan.go` | Walks `<HOME>/<dot>/skills/**/SKILL.md` and `<cwd>/<dot>/skills/**/SKILL.md`. |
 | `cli/cmd/skill-registry/bootstrap.go:dotDirsFromAgents` | Builds the scanner's input from the catalogue. |
 
-The Python side does not carry this catalogue; it lives only in the Go CLI.
+The hosted MCP does not carry this catalogue; it lives only in the Go CLI.
 
 ---
 
@@ -249,37 +264,37 @@ The Python side does not carry this catalogue; it lives only in the Go CLI.
 | Wizard fails before the first prompt with `gh not found` | `gh` not on `PATH` or fallback list. Install from cli.github.com. |
 | Wizard fails before the first prompt with `gh not authenticated` | Run `gh auth login`. |
 | Wizard fails with `git not found on PATH` | Install git (macOS: `brew install git`; Linux: `apt install git` / `dnf install git`; Windows: https://git-scm.com/downloads). |
-| Wizard push fails with `secondary rate limit` | Should not happen on the `PushTreeViaGit` path. If you see it, your binary may predate F1.1 — re-run `install.sh` to pick up the latest release. |
-| `publish_skill` / `remove` keeps returning 409 conflicts | Another writer is racing. Retry budget is 3; if you see this repeatedly something is fanning out updates. |
-| `remove` exits 1 with "slug not found in registry" | Expected when the slug isn't on GitHub. No destructive action runs. Check `skill-registry list --json \| jq '.[].slug'` for the canonical name. |
-| MCP server boot fails with `No registry configured` | `~/.config/skills-mcp/registry.toml` missing and no `SKILLS_REGISTRY` env. Run `skill-registry` to launch the wizard, or set the env directly. |
-| MCP server boot fails with `gh not found` in a GUI client | The fallback list missed the install location. Symlink `gh` into `~/.local/bin` or set the install dir to one of the fallback paths. |
+| Wizard push fails with `secondary rate limit` | Shouldn't happen on the `PushTreeViaGit` path. If it does, your binary may predate F1.1 — re-run `install.sh` for the latest release. |
+| MCP client says "no repo linked yet" | Install the **Skills Registry GitHub App** on your registry repo via the link in the error, then retry. The webhook auto-links within seconds. |
+| MCP client OAuth loop never completes | Check the browser pop-up finished the GitHub OAuth dance. If the redirect was blocked, restart the client and retry. |
+| `publish_skill` / `remove` keeps returning 409 conflicts | Another writer is racing. Retry budget is 3; repeated 409s mean something is fanning out updates. |
+| `remove` exits 1 with "slug not found in registry" | Expected when the slug isn't on GitHub. Nothing destructive runs. Check `skill-registry list --json \| jq '.[].slug'` for the canonical name. |
 | Cache never invalidates | Check `~/.cache/skills-mcp/skills/<slug>.meta.json` — its `tree_sha` must equal the GitHub-reported folder SHA. |
 
 ---
 
 ## 9. Future-proofing notes
 
-- **Multiple registries**: today config is single-registry. A `connect <owner/repo>` CLI command + a `[registries]` array in the TOML would let an agent see several registries side-by-side; not implemented yet.
-- **Browsing public registries** without making your own is a natural follow-up — the read tools (`list_skills`, `get_skill`) don't require write access.
-- **`update`** would round out the destructive surface. `remove` shipped in F4.1; an explicit `update` would surface "what changed" diffs that today's "publish from a folder" path doesn't.
-- **Windows installer.** `install.sh` is POSIX-only. A `install.ps1` (and `gh.exe` lookup in `FindGH`) would close the gap for Windows users.
-- **PR-based contribution flow** to upstream registries: would slot in as `skill-registry contribute <owner/repo> <slug>` and lean on `gh api` for the fork+PR dance.
-- **Deprecating the Python `init` script.** Now that `install.sh` + the Go wizard own the bootstrap flow end-to-end, the legacy `skills-registry init` console script is dead weight for new users. Dropping it would let us also drop the `[project.scripts] skills-registry` entry; the wheel would then host only `skill-registry-mcp`.
+- **Multiple registries**: config is single-registry today. A `connect <owner/repo>` command + a `[registries]` array in the TOML would let an agent see several side-by-side.
+- **Browsing public registries** without owning one — the read tools (`list_skills`, `get_skill`) don't require write access.
+- **`update`** would round out the destructive surface. `remove` shipped in F4.1; an explicit `update` would surface "what changed" diffs that "publish from a folder" doesn't.
+- **Windows installer.** `install.sh` is POSIX-only. A `install.ps1` (and `gh.exe` lookup in `FindGH`) would close the gap.
+- **PR-based contribution flow** to upstream registries: `skill-registry contribute <owner/repo> <slug>` could lean on `gh api` for the fork+PR dance.
+- **Server-side caching.** A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 
 ---
 
 ## 10. Reading guide
 
-If you want to understand the system, read in this order:
+Read in this order to understand the system:
 
-1. `src/skills_mcp/registry_api.py` — the contract with GitHub (Publish + Get + List).
-2. `src/skills_mcp/registry_server.py` — how the contract is exposed as MCP tools.
-3. `cli/internal/registry/registry.go` — the Go mirror; same contract + `Delete` + `PushTreeViaGit`.
-4. `cli/cmd/skill-registry/main.go` — bare-command routing (`bareRouteDecision`) into the wizard / hub / help.
-5. `cli/cmd/skill-registry/wizard.go` — the alt-screen onboarding flow that wires it all together at first run.
-6. `cli/cmd/skill-registry/hub.go` — the dashboard loop returning users land in.
-7. `cli/internal/bootstrap/mcp_install.go` — the Go-side `uv` → `pipx` → `pip` installer for `skill-registry-mcp`.
-8. `cli/internal/jsonout/jsonout.go` — the persistent `--json` flag plumbing every subcommand branches on.
+1. `cli/internal/registry/registry.go` — the contract with GitHub (Publish + Get + List + Delete + PushTreeViaGit).
+2. `cli/cmd/skill-registry/main.go` — bare-command routing (`bareRouteDecision`) into wizard / hub / help.
+3. `cli/cmd/skill-registry/wizard.go` — the alt-screen onboarding flow at first run.
+4. `cli/cmd/skill-registry/hub.go` — the dashboard loop returning users land in.
+5. `cli/internal/bootstrap/install.go` — `HostedMCPURL` + `MCPJSONSnippet()` printed at the end of bootstrap.
+6. `cli/internal/jsonout/jsonout.go` — the persistent `--json` plumbing every subcommand branches on.
+7. `infa-not-for-users/src/skills_mcp/registry_server.py` — the FastMCP server (read after the Go contract so the mirror is obvious).
+8. `infa-not-for-users/src/skills_mcp/registry_api.py` — Python contract with GitHub; same endpoints as the Go client.
 
 Each file is intentionally small and self-contained.

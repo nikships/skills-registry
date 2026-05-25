@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -327,103 +326,79 @@ func TestWizardCleanupDoneAdvances(t *testing.T) {
 	if !wiz.transitioning {
 		t.Fatal("enter did not advance after cleanup done")
 	}
-	if wiz.transitionTarget != WizardStepMCPInstall {
-		t.Errorf("target = %v, want WizardStepMCPInstall", wiz.transitionTarget)
+	if wiz.transitionTarget != WizardStepMCPConnect {
+		t.Errorf("target = %v, want WizardStepMCPConnect", wiz.transitionTarget)
 	}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 7: MCP install
+// F2.3 — Step 7: Connect MCP client
+//
+// The CLI never installs or boots an MCP server — this step just
+// captures the snippet from deps.MCPSnippet and renders it for the user
+// to paste into Claude / Cursor / VS Code.
 // ────────────────────────────────────────────────────────────────────────────
 
-// TestWizardMCPInstallRunsAndShowsSnippet wires EnsureMCP + MCPSnippet
-// deps and verifies the goroutine emits a wizardMCPDoneMsg whose snippet
-// matches what the dep returned.
-func TestWizardMCPInstallRunsAndShowsSnippet(t *testing.T) {
+// TestWizardMCPConnectCapturesSnippet wires MCPSnippet on the deps and
+// verifies that landing on the MCP step records the returned body.
+func TestWizardMCPConnectCapturesSnippet(t *testing.T) {
 	var calls int32
+	snippet := `{"mcpServers":{"skill-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
 	deps := WizardDeps{
-		EnsureMCP: func(_ context.Context) error {
+		MCPSnippet: func() string {
 			atomic.AddInt32(&calls, 1)
-			return nil
-		},
-		MCPSnippet: func() (string, string) {
-			return `{"mcpServers":{"skill-registry":{"command":"/Users/me/.local/bin/skill-registry-mcp"}}}`,
-				"/Users/me/.local/bin/skill-registry-mcp"
+			return snippet
 		},
 	}
 	m := atStep(WizardStepCleanup).WithDeps(deps)
 	m.cleanupDone = true
 	m.cleanupChosen = true
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	nm, _ = nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepMCPInstall})
+	nm, _ = nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepMCPConnect})
 	wiz := nm.(WizardModel)
 	if !wiz.mcpStarted {
-		t.Fatal("mcpStarted = false after entering WizardStepMCPInstall")
-	}
-	// Drain the install goroutine.
-	deadline := safeRun(func() tea.Msg {
-		return runMCPInstall(context.Background(), deps)
-	})
-	done, ok := deadline.(wizardMCPDoneMsg)
-	if !ok {
-		t.Fatalf("runMCPInstall returned %T", deadline)
+		t.Fatal("mcpStarted = false after entering WizardStepMCPConnect")
 	}
 	if atomic.LoadInt32(&calls) != 1 {
-		t.Errorf("EnsureMCP called %d times, want 1", calls)
+		t.Errorf("MCPSnippet called %d times, want 1", calls)
 	}
-	if !done.installed {
-		t.Error("installed = false; want true for an absolute binary path")
+	// Deliver the wizardMCPDoneMsg the start command emitted so the
+	// snippet lands on the model.
+	nm2, _ := wiz.Update(wizardMCPDoneMsg{snippet: snippet})
+	wiz = nm2.(WizardModel)
+	if wiz.mcpSnippet != snippet {
+		t.Errorf("mcpSnippet = %q, want %q", wiz.mcpSnippet, snippet)
 	}
-	if !strings.Contains(done.snippet, "skill-registry-mcp") {
-		t.Errorf("snippet missing entry-point name: %q", done.snippet)
+	if !wiz.mcpDone {
+		t.Error("mcpDone = false after wizardMCPDoneMsg")
 	}
 }
 
-// TestWizardMCPSummaryShowsSnippetPanel checks that after wizardMCPDoneMsg
-// the rendered panel includes the snippet body and the success badge.
-func TestWizardMCPSummaryShowsSnippetPanel(t *testing.T) {
-	m := atStep(WizardStepMCPInstall)
+// TestWizardMCPSnippetPanelRenders checks the body shows the hosted
+// snippet and the Codex caveat.
+func TestWizardMCPSnippetPanelRenders(t *testing.T) {
+	m := atStep(WizardStepMCPConnect)
 	m.width, m.height = 120, 40
 	nm, _ := m.Update(wizardMCPDoneMsg{
-		installed: true,
-		snippet:   "{\n  \"mcpServers\": {}\n}",
-		binary:    "/usr/local/bin/skill-registry-mcp",
+		snippet: "{\n  \"mcpServers\": {\"skill-registry\": {\"url\": \"https://mcp.skills-registry.dev/mcp\"}}\n}",
 	})
 	wiz := nm.(WizardModel)
 	if !wiz.mcpDone {
 		t.Fatal("mcpDone = false after wizardMCPDoneMsg")
 	}
 	v := wiz.View()
-	wants := []string{"Wire it up", "mcpServers", "ready for desktop clients"}
+	wants := []string{"Paste this", "mcpServers", "mcp.skills-registry.dev", "Codex"}
 	for _, w := range wants {
 		if !strings.Contains(v, w) {
-			t.Errorf("MCP summary missing %q:\n%s", w, v)
+			t.Errorf("MCP panel missing %q:\n%s", w, v)
 		}
-	}
-}
-
-// TestWizardMCPSummaryHandlesMissingBinary surfaces the "install it
-// manually" copy when the install attempts couldn't find the entry
-// point on disk.
-func TestWizardMCPSummaryHandlesMissingBinary(t *testing.T) {
-	m := atStep(WizardStepMCPInstall)
-	m.width, m.height = 120, 40
-	nm, _ := m.Update(wizardMCPDoneMsg{
-		installed: false,
-		snippet:   "{\"mcpServers\": {}}",
-		binary:    "skill-registry-mcp",
-	})
-	wiz := nm.(WizardModel)
-	v := wiz.View()
-	if !strings.Contains(v, "not detected") {
-		t.Errorf("MCP summary missing manual-install hint:\n%s", v)
 	}
 }
 
 // TestWizardMCPEnterAdvancesAfterDone confirms enter on a finished MCP
 // step transitions to Done.
 func TestWizardMCPEnterAdvancesAfterDone(t *testing.T) {
-	m := atStep(WizardStepMCPInstall)
+	m := atStep(WizardStepMCPConnect)
 	m.mcpDone = true
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	wiz := nm.(WizardModel)
@@ -524,31 +499,30 @@ func TestWizardCleanupViewSurfacesCounts(t *testing.T) {
 	}
 }
 
-// TestRunMCPInstallHandlesNilDeps ensures the install goroutine doesn't
-// crash when the deps haven't been wired (test-mode invariant).
-func TestRunMCPInstallHandlesNilDeps(t *testing.T) {
-	out := runMCPInstall(context.Background(), WizardDeps{})
-	if out.installed {
-		t.Errorf("installed = true with nil deps; want false")
+// TestMCPConnectHandlesNilDeps ensures startMCPConnect doesn't crash
+// when MCPSnippet is unwired (test-mode invariant) and that the
+// downstream wizardMCPDoneMsg still settles the step.
+func TestMCPConnectHandlesNilDeps(t *testing.T) {
+	m := atStep(WizardStepMCPConnect).WithDeps(WizardDeps{})
+	cmd := m.startMCPConnect()
+	if !m.mcpStarted {
+		t.Error("mcpStarted = false after startMCPConnect")
 	}
-	if out.err != nil {
-		t.Errorf("err = %v with nil deps; want nil", out.err)
+	if cmd == nil {
+		t.Fatal("startMCPConnect returned nil cmd")
 	}
-}
-
-// TestRunMCPInstallPropagatesError surfaces install errors back to the
-// model so the UI can display them.
-func TestRunMCPInstallPropagatesError(t *testing.T) {
-	deps := WizardDeps{
-		EnsureMCP:  func(_ context.Context) error { return errors.New("uv exploded") },
-		MCPSnippet: func() (string, string) { return "{}", "skill-registry-mcp" },
+	msg := safeRun(cmd)
+	done, ok := msg.(wizardMCPDoneMsg)
+	if !ok {
+		t.Fatalf("cmd returned %T, want wizardMCPDoneMsg", msg)
 	}
-	out := runMCPInstall(context.Background(), deps)
-	if out.err == nil || !strings.Contains(out.err.Error(), "uv exploded") {
-		t.Errorf("err = %v, want uv-exploded", out.err)
+	if done.snippet != "" {
+		t.Errorf("snippet = %q with nil deps; want empty", done.snippet)
 	}
-	if out.installed {
-		t.Error("installed = true for bare-name binary; want false")
+	nm, _ := m.Update(done)
+	wiz := nm.(WizardModel)
+	if !wiz.mcpDone {
+		t.Error("mcpDone = false after empty wizardMCPDoneMsg")
 	}
 }
 

@@ -1,15 +1,15 @@
 name: Release
 
-# Auto-cuts a patch release on every push to main that touches source code.
+# Auto-cuts a patch release on every push to main that touches the Go CLI.
 # Use the workflow_dispatch input to force a minor or major bump.
+#
+# The hosted MCP server (infa-not-for-users/) is NOT released here — it
+# auto-deploys to Railway on every push to main and carries no version tag.
 on:
   push:
     branches: [main]
     paths:
-      - "src/**"
       - "cli/**"
-      - "tests/**"
-      - "pyproject.toml"
   workflow_dispatch:
     inputs:
       bump:
@@ -33,13 +33,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-      - run: uv sync --group dev
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run pytest -q
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
@@ -113,24 +106,6 @@ jobs:
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
-  build-wheel:
-    name: Build Python wheel
-    needs: tag
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.tag.outputs.tag }}
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-      - run: uv build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: python-dist
-          path: dist/
 
   build-cli:
     name: Build skill-registry ${{ matrix.os }}/${{ matrix.arch }}
@@ -252,7 +227,7 @@ jobs:
 
   release:
     name: Create GitHub release
-    needs: [tag, build-wheel, build-cli]
+    needs: [tag, build-cli]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -271,28 +246,11 @@ jobs:
           notes=$(printf '%s\n' \
             "Automated release for \`$tag\`." \
             "" \
-            "* Python wheel: published to https://pypi.org/project/skills-registry/${tag#v}/" \
             "* Go CLI binaries for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64 are attached." \
             "" \
-            "\`skills-registry init\` downloads the right CLI binary from the *latest* release; this is it.")
+            "\`install.sh\` downloads the right CLI binary from the *latest* release; this is it.")
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
           else
             gh release create "$tag" --title "$tag" --notes "$notes" artifacts/*
           fi
-
-  pypi:
-    name: Publish wheel to PyPI
-    needs: [tag, build-wheel, release]
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/skills-registry
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-dist
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

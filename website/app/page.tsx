@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 
 export default function Home() {
   const [configTab, setConfigTab] = useState("cfg-claude");
-  const [installTab, setInstallTab] = useState("inst-uvx");
+  const [installTab, setInstallTab] = useState("inst-curl");
 
   useEffect(() => {
     const handleAnchorClick = (e: MouseEvent) => {
@@ -50,7 +50,7 @@ export default function Home() {
     <section className="hero" data-od-id="hero">
       <div className="container hero-grid">
         <div>
-          <p className="eyebrow"><span className="dot"></span> v0.5.0 · Apache-2.0 · Free &amp; open source</p>
+          <p className="eyebrow"><span className="dot"></span> v0.7.0 · Apache-2.0 · Free &amp; open source</p>
           <h1 className="h1">One GitHub repo.<br />Every AI agent.</h1>
           <p className="lead">
             Stop copy-pasting <span className="inline-code">SKILL.md</span> files into <span className="inline-code">~/.claude</span>, <span className="inline-code">~/.cursor</span>, <span className="inline-code">~/.codex</span>. Skills live in one repo you own. Agents fetch them on demand over MCP — no startup-token tax, no drift.
@@ -60,11 +60,11 @@ export default function Home() {
             <a className="btn btn-ghost" href="https://github.com/anand-92/skills-registry">View on GitHub</a>
           </div>
           <p className="meta-text" style={{marginTop: "20px"}}>
-            <span className="num">uvx skills-registry init</span> &nbsp;·&nbsp; needs <span className="inline-code">gh</span> + <span className="inline-code">uv</span>
+            <span className="num">curl … install.sh | sh</span> &nbsp;·&nbsp; needs <span className="inline-code">gh</span> + <span className="inline-code">git</span>
           </p>
         </div>
 
-        <div className="terminal" role="img" aria-label="Terminal showing skills-registry init">
+        <div className="terminal" role="img" aria-label="Terminal showing skill-registry install">
           <div className="terminal-bar">
             <span className="dot term-dot-r"></span>
             <span className="dot term-dot-y"></span>
@@ -72,36 +72,30 @@ export default function Home() {
             <span className="tt">~ / skills-registry — zsh</span>
           </div>
           <div className="terminal-body">
-            <span className="term-line"><span className="term-prompt">$</span> <span className="term-cmd">uvx skills-registry init</span></span>
+            <span className="term-line"><span className="term-prompt">$</span> <span className="term-cmd">curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh</span></span>
 
-            <span className="term-line term-comment"># Verifying prerequisites…</span>
-            <span className="term-line"><span className="term-ok">✓</span> gh authenticated as <span className="term-accent">anand-92</span></span>
-            <span className="term-line"><span className="term-ok">✓</span> Downloaded skills-registry (darwin/arm64) — 4.2 MB</span>
-            <span className="term-line"><span className="term-ok">✓</span> Handoff → <span className="term-accent">skill-registry bootstrap</span></span>
+            <span className="term-line term-comment"># Detecting platform…</span>
+            <span className="term-line"><span className="term-ok">✓</span> darwin/arm64 detected</span>
+            <span className="term-line"><span className="term-ok">✓</span> Downloaded skill-registry_darwin_arm64.tar.gz — 4.2 MB</span>
+            <span className="term-line"><span className="term-ok">✓</span> Installed binary → <span className="term-accent">~/.local/bin/skill-registry</span></span>
 
-            <span className="term-line term-comment"># Scanning ~/.* for existing skills…</span>
+            <span className="term-line group"><span className="term-prompt">$</span> <span className="term-cmd">skill-registry</span></span>
+            <span className="term-line term-comment"># Onboarding wizard — scanning ~/.* for existing skills…</span>
             <span className="term-line"><span className="term-indent"></span>found 11 skills in <span className="term-accent">~/.claude/skills</span></span>
             <span className="term-line"><span className="term-indent"></span>found  6 skills in <span className="term-accent">~/.cursor/skills</span></span>
-            <span className="term-line"><span className="term-indent"></span>found  3 skills in <span className="term-accent">~/.factory/skills</span></span>
+            <span className="term-line"><span className="term-ok">✓</span> Created <span className="term-accent">anand-92/my-skills</span> · pushed 17 skills</span>
 
-            <span className="term-line term-comment"># Creating registry repo…</span>
-            <span className="term-line"><span className="term-indent"></span>repo: <span className="term-accent">anand-92/my-skills</span> (private)</span>
-            <span className="term-line"><span className="term-ok">✓</span> Created repo · pushed 20 skills</span>
-            <span className="term-line"><span className="term-ok">✓</span> Wired 7 agents · wrote SKILL.md pointers</span>
-
-            <span className="term-line group"><span className="term-ok">Done.</span> Paste this into your MCP client:</span>
-            <span className="term-line term-comment"># Claude Code / Claude Desktop / Cursor / VS Code — mcp.json</span>
+            <span className="term-line group"><span className="term-ok">Done.</span> Wire up the hosted MCP:</span>
+            <span className="term-line term-comment"># Paste into Claude Code / Cursor / VS Code mcp.json</span>
             <span className="term-line"><span className="term-warn">&#123;</span></span>
             <span className="term-line"><span className="term-warn">  "mcpServers": &#123;</span></span>
             <span className="term-line"><span className="term-warn">    "skill-registry": &#123;</span></span>
-            <span className="term-line"><span className="term-warn">      "command": "skill-registry-mcp"</span></span>
+            <span className="term-line"><span className="term-warn">      "url": "https://mcp.skills-registry.dev/mcp"</span></span>
             <span className="term-line"><span className="term-warn">    &#125;</span></span>
             <span className="term-line"><span className="term-warn">  &#125;</span></span>
             <span className="term-line"><span className="term-warn">&#125;</span></span>
             <span className="term-line blank"></span>
-            <span className="term-line term-comment"># Codex — ~/.codex/config.toml</span>
-            <span className="term-line"><span className="term-warn">[mcp_servers.skill-registry]</span></span>
-            <span className="term-line"><span className="term-warn">command = "skill-registry-mcp"</span></span>
+            <span className="term-line term-comment"># Codex requires stdio MCP — not yet supported by the hosted server.</span>
             <span className="term-line group"><span className="term-prompt">$</span> <span className="term-caret"></span></span>
           </div>
         </div>
@@ -117,8 +111,8 @@ export default function Home() {
             <p className="stat-label">AI tool dot-folders auto-detected at bootstrap</p>
           </div>
           <div className="stat">
-            <div className="stat-num">3</div>
-            <p className="stat-label">MCP tools exposed — <span className="num">list_skills</span>, <span className="num">get_skill</span>, <span className="num">publish_skill</span></p>
+            <div className="stat-num">2</div>
+            <p className="stat-label">MCP tools exposed — <span className="num">list_skills</span>, <span className="num">get_skill</span></p>
           </div>
           <div className="stat">
             <div className="stat-num">0</div>
@@ -180,7 +174,7 @@ export default function Home() {
           <p className="eyebrow"><span className="dot"></span> How it works</p>
           <h2 className="h2">Single source of truth. Six deliberate constraints.</h2>
           <p className="lead">
-            Every design decision falls out of one observation: desktop MCP clients spawn the server with a stripped environment — no shell PATH, no SSH agent, no <span className="inline-code">git config user.email</span>. So we don't depend on any of them.
+            Every design decision falls out of one constraint: the MCP server runs in a stripped container — no shell PATH, no SSH agent, no <span className="inline-code">git config user.email</span>. So it doesn't depend on any of them.
           </p>
         </div>
 
@@ -217,7 +211,7 @@ export default function Home() {
             <span className="feature-num">05</span>
             <div className="feature-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 22s8-4 8-12V4l-8-2-8 2v6c0 8 8 12 8 12Z"/><path d="m9 12 2 2 4-4"/></svg></div>
             <h4 className="h4">Path-traversal hardened</h4>
-            <p><span className="inline-code">publish_skill</span> rejects <span className="inline-code">..</span> segments and backslash traversals. Per-file size cap (2 MiB). Identical validation in Python &amp; Go.</p>
+            <p>Every write — <span className="inline-code">publish</span>, <span className="inline-code">add</span>, <span className="inline-code">sync</span> — rejects <span className="inline-code">..</span> segments and backslash traversals. 2 MiB cap per file. Same validation in Python and Go.</p>
           </div>
 
           <div className="feature-cell card">
@@ -294,27 +288,18 @@ export default function Home() {
       <div className="container">
         <div className="section-head">
           <p className="eyebrow"><span className="dot"></span> Architecture</p>
-          <h2 className="h2">Three deliverables. One source repo.</h2>
-          <p className="lead">Python bootstrap + Python MCP server + Go TUI manager. The Python wheel ships both Python entry points; the Go binary is downloaded from GitHub Releases on first run.</p>
+          <h2 className="h2">Two deliverables. One source repo.</h2>
+          <p className="lead">A hosted MCP server your agents connect to, and a Go CLI you install once. No Python to manage locally — the server runs as a service.</p>
         </div>
 
         <div className="arch-grid">
           <div className="card arch-card">
             <div className="arch-head">
-              <span className="arch-name">skills-registry</span>
+              <span className="arch-name">skill-registry-mcp (hosted)</span>
               <span className="arch-lang">Python 3.10+</span>
             </div>
-            <p className="arch-role">Thin bootstrap. Verifies <span className="inline-code">gh</span>, downloads the Go CLI, <span className="inline-code">exec</span>s it. One command: <span className="inline-code">skills-registry init</span>.</p>
-            <p className="arch-dist">PyPI wheel · entry point</p>
-          </div>
-
-          <div className="card arch-card">
-            <div className="arch-head">
-              <span className="arch-name">skill-registry-mcp</span>
-              <span className="arch-lang">Python 3.10+</span>
-            </div>
-            <p className="arch-role">FastMCP server exposing <span className="inline-code">list_skills</span>, <span className="inline-code">get_skill</span>, <span className="inline-code">publish_skill</span> over MCP stdio. Same wheel, second entry point.</p>
-            <p className="arch-dist">PyPI wheel · MCP stdio · FastMCP 3.x</p>
+            <p className="arch-role">Hosted FastMCP at <span className="inline-code">mcp.skills-registry.dev</span>. OAuth via GitHub. Two read-only MCP tools: <span className="inline-code">list_skills</span>, <span className="inline-code">get_skill</span>. Skills served from each user's linked repo via a GitHub App installation token.</p>
+            <p className="arch-dist">Hosted at mcp.skills-registry.dev · Streamable HTTP</p>
           </div>
 
           <div className="card arch-card">
@@ -322,7 +307,7 @@ export default function Home() {
               <span className="arch-name">skill-registry</span>
               <span className="arch-lang">Go 1.24+</span>
             </div>
-            <p className="arch-role">Charmbracelet TUI manager. Commands: <span className="inline-code">bootstrap</span>, <span className="inline-code">list</span>, <span className="inline-code">get</span>, <span className="inline-code">sync</span>, <span className="inline-code">add</span>, <span className="inline-code">publish</span>.</p>
+            <p className="arch-role">Charmbracelet TUI manager — onboarding wizard + dashboard hub for day-to-day skill management. Commands: <span className="inline-code">list</span>, <span className="inline-code">get</span>, <span className="inline-code">sync</span>, <span className="inline-code">add</span>, <span className="inline-code">publish</span>, <span className="inline-code">remove</span>.</p>
             <p className="arch-dist">GitHub Releases · darwin/linux/windows × amd64/arm64</p>
           </div>
         </div>
@@ -334,7 +319,7 @@ export default function Home() {
       <div className="container">
         <div className="section-head">
           <p className="eyebrow"><span className="dot"></span> MCP surface</p>
-          <h2 className="h2">Three tools. Any MCP-aware agent can call them.</h2>
+          <h2 className="h2">Two read-only tools. Any MCP client can call them.</h2>
         </div>
 
         <div className="mcp-grid">
@@ -342,30 +327,24 @@ export default function Home() {
             <div className="tool-list">
               <div className="tool-row">
                 <span className="tool-name">list_skills</span>
-                <p className="tool-desc">Enumerates every skill in the registry. Returns a markdown table with slug, name, description, and the URI to fetch.</p>
+                <p className="tool-desc">Enumerates every skill in your linked registry. Returns a markdown table with slug, name, description, and the URI to fetch.</p>
                 <span className="tool-kind">read</span>
               </div>
               <div className="tool-row">
                 <span className="tool-name">get_skill(slug)</span>
-                <p className="tool-desc">Downloads one skill into the local cache. Returns the absolute path. Cache invalidated on tree-SHA change.</p>
+                <p className="tool-desc">Returns the raw <span className="inline-code">SKILL.md</span> for one slug, served straight from your registry repo via the GitHub App installation token.</p>
                 <span className="tool-kind">read</span>
-              </div>
-              <div className="tool-row">
-                <span className="tool-name">publish_skill(name, …)</span>
-                <p className="tool-desc">Publishes a skill via the GitHub Git Data API. Accepts <span className="inline-code">files</span> mapping or <span className="inline-code">local_folder</span>. Returns commit SHA. 3 retries on conflict.</p>
-                <span className="tool-kind write">write</span>
               </div>
             </div>
 
             <p className="meta-text" style={{marginTop: "28px"}}>
-              Users don't call these directly. They just say <em style={{color: "var(--fg)"}}>"what skills do I have?"</em> or <em style={{color: "var(--fg)"}}>"use the code-review skill on this PR"</em> — the agent picks the right tool.
+              Agents call <span className="num">list_skills</span> and <span className="num">get_skill</span> on demand — you just say <em style={{color: "var(--fg)"}}>"what skills do I have?"</em> or <em style={{color: "var(--fg)"}}>"use the code-review skill on this PR"</em> and the agent picks the right tool.
             </p>
           </div>
 
           <div>
             <div className="code-tabs" role="tablist">
               <button className="code-tab" role="tab" aria-selected={configTab === "cfg-claude" ? "true" : "false"} onClick={() => setConfigTab("cfg-claude")}>mcp.json</button>
-              <button className="code-tab" role="tab" aria-selected={configTab === "cfg-codex" ? "true" : "false"} onClick={() => setConfigTab("cfg-codex")}>codex toml</button>
               <button className="code-tab" role="tab" aria-selected={configTab === "cfg-call" ? "true" : "false"} onClick={() => setConfigTab("cfg-call")}>agent call</button>
             </div>
 
@@ -375,17 +354,10 @@ export default function Home() {
 <span className="p">&#123;</span>
   <span className="k">"mcpServers"</span><span className="p">:</span> <span className="p">&#123;</span>
     <span className="k">"skill-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
-      <span className="k">"command"</span><span className="p">:</span> <span className="s">"skill-registry-mcp"</span>
+      <span className="k">"url"</span><span className="p">:</span> <span className="s">"https://mcp.skills-registry.dev/mcp"</span>
     <span className="p">&#125;</span>
   <span className="p">&#125;</span>
 <span className="p">&#125;</span></pre>
-            </div>
-
-            <div className="code-panel" id="cfg-codex" hidden={configTab !== "cfg-codex"}>
-              <pre className="code-block">
-<span className="c"># ~/.codex/config.toml</span>
-<span className="p">[</span><span className="k">mcp_servers.skill-registry</span><span className="p">]</span>
-<span className="k">command</span> = <span className="s">"skill-registry-mcp"</span></pre>
             </div>
 
             <div className="code-panel" id="cfg-call" hidden={configTab !== "cfg-call"}>
@@ -394,12 +366,12 @@ export default function Home() {
 <span className="k">user</span><span className="p">:</span> <span className="s">"use my code-review skill on this PR"</span>
 
 <span className="k">agent</span><span className="p">:</span> get_skill<span className="p">(</span><span className="s">"code-review"</span><span className="p">)</span>
-<span className="p">→</span> <span className="v">/Users/you/.cache/skills-mcp/skills/code-review/</span>
-<span className="p">→</span> reads SKILL.md
+<span className="p">→</span> hosted MCP returns raw SKILL.md
+<span className="p">→</span> agent reads the markdown
 <span className="p">→</span> follows the skill's instructions</pre>
             </div>
 
-            <p className="meta-text" style={{marginTop: "14px"}}><span className="num">skills-registry init</span> prints the platform-correct snippet for you.</p>
+            <p className="meta-text" style={{marginTop: "14px"}}><span className="num">skill-registry</span> prints this snippet for you on first run.</p>
           </div>
         </div>
       </div>
@@ -417,77 +389,65 @@ export default function Home() {
           <ol className="step-list">
             <li>
               <div>
-                <h4>Verify <code>gh</code> is authed</h4>
-                <p>Exits with <span className="inline-code">code 3</span> if missing, <span className="inline-code">code 4</span> if not logged in. Run <span className="inline-code">gh auth login</span> first.</p>
+                <h4>Install the CLI</h4>
+                <p>One-liner: <span className="inline-code">curl … install.sh | sh</span> drops the Go binary into <span className="inline-code">~/.local/bin/skill-registry</span>.</p>
               </div>
             </li>
             <li>
               <div>
-                <h4>Download the Go CLI</h4>
-                <p>Pulls the matching tarball from GitHub Releases into <span className="inline-code">~/.local/bin</span> (or <span className="inline-code">$SKILLS_BIN_DIR</span>).</p>
+                <h4>Run <code>skill-registry</code></h4>
+                <p>Bare invocation launches the onboarding wizard the first time, then routes to the dashboard hub on every subsequent run.</p>
               </div>
             </li>
             <li>
               <div>
-                <h4>Hand off → <code>skill-registry bootstrap</code></h4>
-                <p>Scans <span className="inline-code">~/.*</span> for known dot-folders. Pre-selects universal ones (factory, codex). You confirm the multi-select.</p>
+                <h4>Wizard creates your registry repo</h4>
+                <p>Scans local dot-folders, calls <span className="inline-code">gh repo create</span>, and pushes every skill it found in one <span className="inline-code">git push</span>.</p>
               </div>
             </li>
             <li>
               <div>
-                <h4>Create the registry repo</h4>
-                <p>Calls <span className="inline-code">gh repo create</span>. Pushes every found skill via the Git Data API. Writes <span className="inline-code">SKILL.md</span> pointer files into each agent.</p>
+                <h4>Paste the MCP JSON snippet</h4>
+                <p>The wizard prints a ready-to-paste <span className="inline-code">mcp.json</span> block pointing at <span className="inline-code">https://mcp.skills-registry.dev/mcp</span>. Drop it into your client config.</p>
               </div>
             </li>
             <li>
               <div>
-                <h4>Print the MCP snippet</h4>
-                <p>Platform-correct JSON / TOML you paste into your MCP client. Restart the client. Done. Re-running <span className="inline-code">init</span> is safe — idempotent.</p>
+                <h4>Install the GitHub App + restart</h4>
+                <p>Authorize the <span className="inline-code">skills-registry-mcp</span> GitHub App on your registry repo, restart your MCP client, and the hosted server starts serving skills.</p>
               </div>
             </li>
           </ol>
 
           <div>
             <div className="code-tabs" role="tablist">
-              <button className="code-tab" role="tab" aria-selected={installTab === "inst-uvx" ? "true" : "false"} onClick={() => setInstallTab("inst-uvx")}>uvx (recommended)</button>
-              <button className="code-tab" role="tab" aria-selected={installTab === "inst-uv" ? "true" : "false"} onClick={() => setInstallTab("inst-uv")}>uv tool</button>
-              <button className="code-tab" role="tab" aria-selected={installTab === "inst-pip" ? "true" : "false"} onClick={() => setInstallTab("inst-pip")}>pip</button>
+              <button className="code-tab" role="tab" aria-selected={installTab === "inst-curl" ? "true" : "false"} onClick={() => setInstallTab("inst-curl")}>Install (curl|sh)</button>
+              <button className="code-tab" role="tab" aria-selected={installTab === "inst-mcp" ? "true" : "false"} onClick={() => setInstallTab("inst-mcp")}>MCP JSON</button>
             </div>
 
-            <div className="code-panel" id="inst-uvx" hidden={installTab !== "inst-uvx"}>
+            <div className="code-panel" id="inst-curl" hidden={installTab !== "inst-curl"}>
               <pre className="code-block">
-<span className="c"># No system Python needed — uvx handles it</span>
-<span className="k">$</span> uvx skills-registry init
+<span className="c"># Drops the Go binary into ~/.local/bin/skill-registry</span>
+<span className="k">$</span> curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
 
-<span className="c"># Then in your MCP client:</span>
-<span className="k">$</span> cat ~/.config/claude/mcp.json</pre>
+<span className="c"># Then run the wizard:</span>
+<span className="k">$</span> skill-registry</pre>
             </div>
 
-            <div className="code-panel" id="inst-uv" hidden={installTab !== "inst-uv"}>
+            <div className="code-panel" id="inst-mcp" hidden={installTab !== "inst-mcp"}>
               <pre className="code-block">
-<span className="c"># Install persistently — MCP clients won't depend on uvx cache</span>
-<span className="k">$</span> uv tool install skills-registry
-
-<span className="c"># Installs both entry points:</span>
-<span className="c">#   skills-registry            (bootstrap CLI)</span>
-<span className="c">#   skill-registry-mcp         (MCP stdio server)</span>
-
-<span className="k">$</span> skills-registry init</pre>
-            </div>
-
-            <div className="code-panel" id="inst-pip" hidden={installTab !== "inst-pip"}>
-              <pre className="code-block">
-<span className="c"># Classic pip — needs Python 3.10+ already on PATH</span>
-<span className="k">$</span> pip install skills-registry
-<span className="k">$</span> skills-registry init
-
-<span className="c"># Prerequisites checked at runtime:</span>
-<span className="c">#   - gh        (https://cli.github.com/)</span>
-<span className="c">#   - gh auth login already run</span></pre>
+<span className="c">// Claude Code / Claude Desktop / Cursor / VS Code — mcp.json</span>
+<span className="p">&#123;</span>
+  <span className="k">"mcpServers"</span><span className="p">:</span> <span className="p">&#123;</span>
+    <span className="k">"skill-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
+      <span className="k">"url"</span><span className="p">:</span> <span className="s">"https://mcp.skills-registry.dev/mcp"</span>
+    <span className="p">&#125;</span>
+  <span className="p">&#125;</span>
+<span className="p">&#125;</span></pre>
             </div>
 
             <p className="meta-text" style={{marginTop: "14px"}}>
-              Prereqs: <span className="inline-code">gh</span> + <span className="inline-code">uv</span>. macOS, Linux, Windows (best-effort).
+              Prereqs: <span className="inline-code">gh</span> authenticated (<span className="inline-code">gh auth login</span>). macOS, Linux.
             </p>
           </div>
         </div>
@@ -533,8 +493,12 @@ export default function Home() {
               <td className="desc">Publish a single local skill folder. Path-traversal validated. 2 MiB per-file cap.</td>
             </tr>
             <tr>
+              <td className="cmd">skill-registry remove &lt;slug&gt;</td>
+              <td className="desc">Atomic delete — drops the slug from the registry (single Git Data API commit with null-SHA tree entries), the local cache, and every agent dot-folder.</td>
+            </tr>
+            <tr>
               <td className="cmd">skill-registry --version</td>
-              <td className="desc">Print version. Current: <span className="num">0.5.0</span>.</td>
+              <td className="desc">Print version. Current: <span className="num">0.7.x</span>.</td>
             </tr>
           </tbody>
         </table>
@@ -554,7 +518,7 @@ export default function Home() {
             <p className="lead">Apache-2.0. No accounts. No telemetry. No paid tier — ever. Built by <a href="https://github.com/anand-92" style={{color: "#ff9ec2", textDecoration: "underline", textDecorationThickness: "1px", textUnderlineOffset: "3px"}}>anand-92</a> as an open-source dev tool. Star the repo or file an issue if it breaks.</p>
           </div>
           <div className="cta-actions">
-            <a className="btn btn-light btn-arrow" href="#install"><span className="num">uvx skills-registry init</span></a>
+            <a className="btn btn-light btn-arrow" href="#install"><span className="num">skill-registry</span></a>
             <a className="btn btn-outline-light" href="https://github.com/anand-92/skills-registry">★ Star on GitHub</a>
             <span className="meta-light">MCP surface stable · internals may shift between minor versions</span>
           </div>
@@ -578,7 +542,6 @@ export default function Home() {
             <li><a href="https://github.com/anand-92/skills-registry">GitHub</a></li>
             <li><a href="https://github.com/anand-92/skills-registry/releases">Releases</a></li>
             <li><a href="https://github.com/anand-92/skills-registry/issues">Issues</a></li>
-            <li><a href="https://pypi.org/project/skills-registry/">PyPI</a></li>
           </ul>
         </div>
         <div className="foot-col">
@@ -603,7 +566,7 @@ export default function Home() {
 
       <div className="foot-bottom">
         <span className="meta-text">© 2026 anand-92 · Apache-2.0</span>
-        <span className="meta-text">v0.5.0 · Beta · MCP surface stable</span>
+        <span className="meta-text">v0.7.0 · Beta · MCP surface stable</span>
       </div>
     </div>
   </footer>

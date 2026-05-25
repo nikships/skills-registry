@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
+	"github.com/anand-92/skills-registry/cli/internal/bootstrap"
 	"github.com/anand-92/skills-registry/cli/internal/cache"
 	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
@@ -30,12 +30,11 @@ func buildHubDeps(ctx context.Context, cfg config.Config) tui.HubDeps {
 }
 
 func buildSettingsDeps(cfg config.Config) tui.SettingsFlowDeps {
-	mcpBin, _ := locateMCPBinary()
 	return tui.SettingsFlowDeps{
 		Repo:      cfg.Repo,
 		Branch:    cfg.DefaultBranch,
 		CacheRoot: cache.CacheRoot(),
-		MCPBinary: mcpBin,
+		HostedMCP: bootstrap.HostedMCPURL,
 		Save:      settingsSaver(),
 	}
 }
@@ -158,11 +157,7 @@ func discoverLocalSkills() ([]scan.Skill, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve current working directory: %w", err)
 	}
-	dotDirs := make([]string, 0, len(agents.All()))
-	for _, a := range agents.All() {
-		dotDirs = append(dotDirs, a.DotDir)
-	}
-	return scan.Discover(scan.DiscoverSources(home, cwd, nil, dotDirs))
+	return scan.Discover(scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents()))
 }
 
 func filesForSkill(sk scan.Skill) (map[string][]byte, error) {

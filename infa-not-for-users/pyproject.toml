@@ -50,7 +50,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/skills_mcp"]
+packages = ["skills_mcp"]
 
 [tool.hatch.version]
 source = "vcs"

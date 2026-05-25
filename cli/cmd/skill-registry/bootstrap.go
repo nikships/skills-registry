@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -222,16 +221,16 @@ func installAgentDocs(home, cwd, repo string, opts bootstrapOpts) error {
 	return nil
 }
 
-// printWireUpSnippet prints the MCP JSON and Codex TOML snippets.
+// printWireUpSnippet prints the hosted-MCP JSON snippet and a note about
+// Codex. The CLI never installs or boots an MCP server; the user just
+// pastes this into their client config.
 func printWireUpSnippet(repo string) {
-	mcpBin, _ := locateMCPBinary()
 	fmt.Println("\n" + tui.TitleStyle.Render("Wire it up:"))
 	fmt.Println()
 	fmt.Println(tui.SubtitleStyle.Render("Claude Code / Claude Desktop / Cursor / VS Code (mcp.json):"))
-	fmt.Println(bootstrap.MCPJSONSnippet(mcpBin))
+	fmt.Println(bootstrap.MCPJSONSnippet())
 	fmt.Println()
-	fmt.Println(tui.SubtitleStyle.Render("Codex (~/.codex/config.toml):"))
-	fmt.Println(bootstrap.CodexTOMLSnippet(mcpBin))
+	fmt.Println(tui.HintStyle.Render("· Codex requires stdio MCP — the hosted server doesn't support that yet."))
 	fmt.Println()
 	fmt.Printf("%s Your registry is live: %s\n",
 		tui.OkStyle.Render("✓"), repoURL(repo))
@@ -386,37 +385,6 @@ func dotDirsFromAgents() []string {
 		out = append(out, t.DotDir)
 	}
 	return out
-}
-
-func locateMCPBinary() (string, error) {
-	// `skills-registry init` (Python) installs the entry point via
-	// `uv tool install` / `pipx install` / `pip install --user`. All three
-	// land a binary or symlink under one of the directories below. Desktop
-	// MCP clients launch from a stripped environment, so we deliberately
-	// embed an *absolute* path in the printed snippet — never a bare name
-	// that depends on the user's PATH.
-	home, _ := os.UserHomeDir()
-	candidateDirs := []string{
-		filepath.Join(home, ".local", "bin"),
-		// Direct path inside the uv-tool data dir, in case the ~/.local/bin
-		// symlink ever gets out of sync.
-		filepath.Join(home, ".local", "share", "uv", "tools", "skills-registry", "bin"),
-		"/opt/homebrew/bin",
-		"/usr/local/bin",
-	}
-	exeNames := []string{"skill-registry-mcp"}
-	if runtime.GOOS == "windows" {
-		exeNames = []string{"skill-registry-mcp.exe", "skill-registry-mcp"}
-	}
-	for _, dir := range candidateDirs {
-		for _, name := range exeNames {
-			p := filepath.Join(dir, name)
-			if info, err := os.Stat(p); err == nil && !info.IsDir() {
-				return p, nil
-			}
-		}
-	}
-	return "skill-registry-mcp", fmt.Errorf("skill-registry-mcp not found on disk; using PATH lookup")
 }
 
 // promptRecreateRepo asks the user whether to re-create a registry repo that
@@ -608,7 +576,7 @@ func pushLocalSkills(ctx context.Context, client *registry.Client, local []scan.
 	fmt.Printf("\n%s uploading %d skill(s) (%d files) to %s via git push\n",
 		tui.HintStyle.Render("·"), len(missing), len(files), client.Repo)
 
-	client.OnProgress = renderProgress(os.Stderr, "prepared")
+	client.OnProgress = renderProgress(os.Stderr)
 	client.OnStatus = func(msg string) { fmt.Fprintf(os.Stderr, "  %s\n", msg) }
 	defer func() {
 		client.OnProgress = nil
@@ -622,18 +590,14 @@ func pushLocalSkills(ctx context.Context, client *registry.Client, local []scan.
 }
 
 // renderProgress returns an OnProgress callback that overwrites a single
-// "<verb> X/N files" line on the given writer (typically stderr). `verb` lets
-// callers choose between "uploaded" (REST blob path) and "prepared" (git path,
-// where the final push happens after the callback finishes — that step is
-// surfaced separately via OnStatus so the message only fires when an actual
-// push is about to happen).
-func renderProgress(w io.Writer, verb string) func(done, total int) {
-	if verb == "" {
-		verb = "uploaded"
-	}
+// "prepared X/N files" line on the given writer (typically stderr). The
+// final `git push` happens after the callback finishes; that step is
+// surfaced separately via OnStatus so the message only fires when an
+// actual push is about to happen.
+func renderProgress(w io.Writer) func(done, total int) {
 	var lastWidth int
 	return func(done, total int) {
-		line := fmt.Sprintf("  %s %d/%d files", verb, done, total)
+		line := fmt.Sprintf("  prepared %d/%d files", done, total)
 		// Pad to clear any leftover characters from a shorter previous line.
 		if pad := lastWidth - len(line); pad > 0 {
 			line += strings.Repeat(" ", pad)
@@ -647,17 +611,13 @@ func renderProgress(w io.Writer, verb string) func(done, total int) {
 }
 
 func walkSkillIntoFiles(s scan.Skill, dst map[string][]byte) error {
-	return filepathWalk(s.Folder, func(rel string, content []byte) {
+	return walkDirSkipHidden(s.Folder, func(rel string, content []byte) {
 		dst[s.Slug+"/"+rel] = content
 	})
 }
 
-// filepathWalk reads every file under root (skipping hidden + __pycache__) and
-// invokes cb with the relative path and content.
-func filepathWalk(root string, cb func(rel string, content []byte)) error {
-	return walkDirSkipHidden(root, cb)
-}
-
+// walkDirSkipHidden reads every file under root (skipping hidden +
+// __pycache__) and invokes cb with the relative path and content.
 func walkDirSkipHidden(root string, cb func(rel string, content []byte)) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {

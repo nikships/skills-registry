@@ -13,9 +13,9 @@ import (
 // SettingsModel — F3.3 hub "Settings" tile
 //
 // Surfaces the resolved registry config (repo, default branch, cache root,
-// MCP binary path) and lets the user edit the two mutable fields inline.
+// hosted MCP URL) and lets the user edit the two mutable fields inline.
 // Repo and branch are the only writable values in registry.toml; cache
-// root and MCP binary path are derived at runtime and shown for diagnostics.
+// root and hosted MCP URL are derived at runtime and shown for diagnostics.
 // ────────────────────────────────────────────────────────────────────────────
 
 // SettingsSaver persists the edited repo + branch and returns the path
@@ -35,10 +35,10 @@ const (
 
 // SettingsModel is the alt-screen sub-TUI launched from the hub's
 // Settings tile. It owns two textinput.Model fields (repo + branch) and
-// surfaces the read-only cache + MCP paths for diagnostics.
+// surfaces the read-only cache + hosted-MCP rows for diagnostics.
 type SettingsModel struct {
 	cacheRoot string
-	mcpBinary string
+	hostedMCP string
 
 	// Original values captured at load time; updated on successful save.
 	origRepo   string
@@ -68,7 +68,7 @@ type SettingsModel struct {
 // NewSettings builds a settings model populated from the resolved
 // config. A nil saver renders the view as read-only — useful for tests
 // and for the (future) `--json` settings dump.
-func NewSettings(repo, branch, cacheRoot, mcpBinary string, saver SettingsSaver) SettingsModel {
+func NewSettings(repo, branch, cacheRoot, hostedMCP string, saver SettingsSaver) SettingsModel {
 	repoInput := textinput.New()
 	repoInput.Placeholder = "owner/repo"
 	repoInput.SetValue(repo)
@@ -87,7 +87,7 @@ func NewSettings(repo, branch, cacheRoot, mcpBinary string, saver SettingsSaver)
 
 	return SettingsModel{
 		cacheRoot:   cacheRoot,
-		mcpBinary:   mcpBinary,
+		hostedMCP:   hostedMCP,
 		origRepo:    repo,
 		origBranch:  branch,
 		repoInput:   repoInput,
@@ -325,10 +325,10 @@ func (m SettingsModel) renderHeader() string {
 func (m SettingsModel) renderBody() string {
 	width := m.bodyWidth()
 	rows := []string{
-		m.renderField("Repository", m.repoFieldValue(), settingsFieldRepo, true, width),
-		m.renderField("Default branch", m.branchFieldValue(), settingsFieldBranch, true, width),
+		m.renderField("Repository", m.repoFieldValue(), settingsFieldRepo, width),
+		m.renderField("Default branch", m.branchFieldValue(), settingsFieldBranch, width),
 		m.renderReadOnly("Cache location", m.cacheRoot, width),
-		m.renderReadOnly("MCP binary path", m.mcpBinary, width),
+		m.renderReadOnly("Hosted MCP URL", m.hostedMCP, width),
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return PanelFocused.Width(width).Render(content)
@@ -352,7 +352,7 @@ func (m SettingsModel) bodyWidth() int {
 // highlighted bullet + bracketed value or live textinput. Long values
 // are width-clamped so the row never wraps and pushes the footer
 // off-screen.
-func (m SettingsModel) renderField(label, value string, field settingsField, editable bool, width int) string {
+func (m SettingsModel) renderField(label, value string, field settingsField, width int) string {
 	focused := m.focused == field
 	bullet := normalBullet()
 	labelStyle := lipgloss.NewStyle().Foreground(ColMuted)
@@ -364,9 +364,9 @@ func (m SettingsModel) renderField(label, value string, field settingsField, edi
 	}
 
 	labelText := labelStyle.Render(label)
-	valueWidth := fieldValueWidth(width, label)
+	valueWidth := fieldValueWidth(width)
 	var rendered string
-	if focused && m.editing && editable {
+	if focused && m.editing {
 		rendered = m.activeInputView()
 	} else {
 		rendered = valueStyle.Render(truncate(value, valueWidth))
@@ -389,7 +389,7 @@ func (m SettingsModel) renderReadOnly(label, value string, width int) string {
 	if value == "" {
 		value = "(not set)"
 	}
-	valueWidth := fieldValueWidth(width, label)
+	valueWidth := fieldValueWidth(width)
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		bullet, " ",
 		lipgloss.NewStyle().Width(labelWidth()).Render(labelStyle.Render(label)),
@@ -480,7 +480,7 @@ func (m SettingsModel) renderFooter() string {
 }
 
 // labelWidth pins a column for the label so the values line up. Wide
-// enough for the longest of our four labels ("MCP binary path") plus a
+// enough for the longest of our four labels ("Hosted MCP URL") plus a
 // small breathing margin.
 func labelWidth() int { return 18 }
 
@@ -489,7 +489,7 @@ func labelWidth() int { return 18 }
 // column. The math accounts for the rounded panel's border + padding
 // (4 cells per side) and the inter-column gaps (bullet + space ≈ 4
 // cells, double-space between label and value = 2 cells).
-func fieldValueWidth(panelWidth int, _ string) int {
+func fieldValueWidth(panelWidth int) int {
 	const panelChrome = 6   // border + horizontal padding
 	const rowChrome = 2 + 2 // bullet + space, label/value gap
 	w := panelWidth - panelChrome - rowChrome - labelWidth()
