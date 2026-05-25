@@ -136,14 +136,16 @@ letting a human pick from a list.
 ` + "`--json`" + ` always implies ` + "`--yes`" + ` on destructive commands
 (` + "`sync`" + `, ` + "`remove`" + `): JSON callers never get a Bubble Tea
 prompt. Combine with ` + "`jq`" + ` to chain calls — e.g.
-` + "`skills-registry list --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json`" + `.
+` + "`skills-registry search <query> --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json`" + `
+(or swap ` + "`search <query>`" + ` for ` + "`list`" + ` to pull every slug).
 
 ## Troubleshooting
 
 - ` + "`skills-registry --help`" + ` — full command list and flags
 - ` + "`gh auth status`" + ` — confirm GitHub credentials are present
-- If ` + "`skills-registry list`" + ` errors, check the config at
-  ` + "`~/.config/skills-mcp/registry.toml`" + ` points at the right ` + "`owner/repo`" + `
+- If ` + "`skills-registry list`" + ` or ` + "`skills-registry search`" + ` errors,
+  check the config at ` + "`~/.config/skills-mcp/registry.toml`" + ` points at
+  the right ` + "`owner/repo`" + `
 - If MCP tools (` + "`search_skills`" + ` / ` + "`get_skill`" + `) say "no repo
   linked yet", install the Skills Registry GitHub App on your registry repo
   via the link the server prints, then retry — the webhook auto-links
