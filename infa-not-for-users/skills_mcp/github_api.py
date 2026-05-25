@@ -33,6 +33,11 @@ log = logging.getLogger("skills_mcp.github_api")
 _GITHUB_API = "https://api.github.com"
 _API_VERSION = "2022-11-28"
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+# Reused by ``_score_skill`` to split queries and field text into tokens.
+# Hoisted out of the function body so we don't re-parse the pattern on
+# every (query, summary) pair — ``search_skills`` calls the scorer once
+# per folder in the registry.
+_TOKEN_RE = re.compile(r"[^a-z0-9]+")
 
 # Cap on concurrent SKILL.md fetches per ``list_skill_folders`` /
 # ``repo_has_skills`` invocation. Set to 8 because (a) it's the httpx
@@ -76,7 +81,7 @@ def _score_skill(query: str, summary: SkillSummary) -> int:
 	desc = summary.description.lower()
 
 	# Split query into tokens (non-empty lowercase words)
-	q_tokens = [t for t in re.split(r"[^a-z0-9]+", q) if t]
+	q_tokens = [t for t in _TOKEN_RE.split(q) if t]
 
 	score = 0
 	for field, w in [(slug, 1), (name, 2), (desc, 1)]:
@@ -87,7 +92,7 @@ def _score_skill(query: str, summary: SkillSummary) -> int:
 		elif q in field:
 			score += 250 * w
 
-		f_tokens = set(t for t in re.split(r"[^a-z0-9]+", field) if t)
+		f_tokens = {t for t in _TOKEN_RE.split(field) if t}
 		overlap_count = sum(1 for t in q_tokens if t in f_tokens)
 		score += 100 * w * overlap_count
 

@@ -114,7 +114,7 @@ export default function Home() {
           </div>
           <div className="stat">
             <div className="stat-num">2</div>
-            <p className="stat-label">MCP tools exposed — <span className="num">list_skills</span>, <span className="num">get_skill</span></p>
+            <p className="stat-label">MCP tools exposed — <span className="num">search_skills</span>, <span className="num">get_skill</span></p>
           </div>
           <div className="stat">
             <div className="stat-num">∞</div>
@@ -306,7 +306,7 @@ export default function Home() {
               <span className="arch-name">skills-registry-mcp (hosted)</span>
               <span className="arch-lang">Python 3.10+</span>
             </div>
-            <p className="arch-role">Hosted FastMCP at <span className="inline-code">mcp.skills-registry.dev</span>. OAuth via GitHub. Two read-only MCP tools: <span className="inline-code">list_skills</span>, <span className="inline-code">get_skill</span>. Skills served from each user's linked repo via a GitHub App installation token.</p>
+            <p className="arch-role">Hosted FastMCP at <span className="inline-code">mcp.skills-registry.dev</span>. OAuth via GitHub. Two read-only MCP tools: <span className="inline-code">search_skills</span>, <span className="inline-code">get_skill</span>. Skills served from each user's linked repo via a GitHub App installation token.</p>
             <p className="arch-dist">Hosted at mcp.skills-registry.dev · Streamable HTTP</p>
           </div>
 
@@ -315,7 +315,7 @@ export default function Home() {
               <span className="arch-name">skills-registry</span>
               <span className="arch-lang">Go 1.24+</span>
             </div>
-            <p className="arch-role">Charmbracelet TUI manager — onboarding wizard + dashboard hub for day-to-day skill management. Commands: <span className="inline-code">list</span>, <span className="inline-code">get</span>, <span className="inline-code">sync</span>, <span className="inline-code">add</span>, <span className="inline-code">publish</span>, <span className="inline-code">remove</span>.</p>
+            <p className="arch-role">Charmbracelet TUI manager — onboarding wizard + dashboard hub for day-to-day skill management. Commands: <span className="inline-code">list</span>, <span className="inline-code">search</span>, <span className="inline-code">get</span>, <span className="inline-code">sync</span>, <span className="inline-code">add</span>, <span className="inline-code">publish</span>, <span className="inline-code">remove</span>.</p>
             <p className="arch-dist">GitHub Releases · darwin/linux/windows × amd64/arm64</p>
           </div>
         </div>
@@ -334,8 +334,8 @@ export default function Home() {
           <div>
             <div className="tool-list">
               <div className="tool-row">
-                <span className="tool-name">list_skills</span>
-                <p className="tool-desc">Enumerates every skill in your linked registry. Returns a markdown table with slug, name, description, and the URI to fetch.</p>
+                <span className="tool-name">search_skills(query)</span>
+                <p className="tool-desc">Fuzzy-searches your linked registry. Returns a markdown table with slug, name, and description — top 10 matches for a query, or all skills alphabetically when no query is given.</p>
                 <span className="tool-kind">read</span>
               </div>
               <div className="tool-row">
@@ -346,7 +346,7 @@ export default function Home() {
             </div>
 
             <p className="meta-text" style={{marginTop: "28px"}}>
-              Agents call <span className="num">list_skills</span> and <span className="num">get_skill</span> on demand — you just say <em style={{color: "var(--fg)"}}>"what skills do I have?"</em> or <em style={{color: "var(--fg)"}}>"use the code-review skill on this PR"</em> and the agent picks the right tool.
+              Agents call <span className="num">search_skills</span> and <span className="num">get_skill</span> on demand — you just say <em style={{color: "var(--fg)"}}>"what skills do I have?"</em> or <em style={{color: "var(--fg)"}}>"use the code-review skill on this PR"</em> and the agent picks the right tool.
             </p>
           </div>
 
