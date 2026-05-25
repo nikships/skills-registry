@@ -622,36 +622,134 @@ func (m *WizardModel) startMCPConnect() tea.Cmd {
 	return func() tea.Msg { return wizardMCPDoneMsg{snippet: snippet} }
 }
 
-// handleMCPDone stores the snippet so the renderer can show it.
+// mcpQuickInstallRow is one entry in the quick-install panel shown below
+// the snippet on step 7. Commands may evolve as each tool's MCP CLI
+// matures — update this slice and the command strings stay in one place.
+type mcpQuickInstallRow struct {
+	label   string
+	command string
+}
+
+// mcpQuickInstallRows lists the one-liner commands each major MCP client
+// needs to register the hosted server. Verified against each tool's
+// official docs as of May 2025 — re-check when tools publish new releases.
+var mcpQuickInstallRows = []mcpQuickInstallRow{
+	{
+		label:   "Claude Code",
+		command: "claude mcp add --transport http skills-registry https://mcp.skills-registry.dev/mcp",
+	},
+	{
+		label:   "Codex CLI",
+		command: "codex mcp add skills-registry --url https://mcp.skills-registry.dev/mcp",
+	},
+	{
+		label:   "Factory Droid",
+		command: "droid mcp add skills-registry https://mcp.skills-registry.dev/mcp --type http",
+	},
+}
+
+// handleMCPDone stores the snippet so the renderer can show it and fires
+// an async clipboard write if deps.CopyToClipboard is wired.
 func (m WizardModel) handleMCPDone(msg wizardMCPDoneMsg) (tea.Model, tea.Cmd) {
 	m.mcpDone = true
 	m.mcpSnippet = msg.snippet
-	return m, nil
-}
-
-// handleMCPKey advances once the snippet has been captured (which is
-// essentially the next tick after entering the step).
-func (m WizardModel) handleMCPKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.String() != "enter" {
+	m.mcpQuickCopied = -1
+	// Reset clipboard state so a previous visit's success badge doesn't
+	// flicker during re-entry.
+	m.mcpClipboardDone = false
+	m.mcpClipboardOK = false
+	if msg.snippet == "" || m.deps.CopyToClipboard == nil {
+		m.mcpClipboardDone = true
 		return m, nil
 	}
+	snippet := msg.snippet
+	fn := m.deps.CopyToClipboard
+	return m, func() tea.Msg {
+		if err := fn(snippet); err != nil {
+			return wizardMCPClipboardMsg{ok: false, errMsg: err.Error(), idx: -1}
+		}
+		return wizardMCPClipboardMsg{ok: true, idx: -1}
+	}
+}
+
+// handleMCPClipboard records whether the async clipboard write succeeded.
+// idx==-1 means the main snippet; idx>=0 means a quick-install row.
+func (m WizardModel) handleMCPClipboard(msg wizardMCPClipboardMsg) (tea.Model, tea.Cmd) {
 	if !m.mcpDone {
 		return m, nil
 	}
-	return m.advanceStep()
+	if msg.idx == -1 {
+		m.mcpClipboardDone = true
+		m.mcpClipboardOK = msg.ok
+	} else if msg.ok {
+		m.mcpQuickCopied = msg.idx
+	}
+	return m, nil
 }
 
-// renderMCPBody shows the headline + snippet panel + continue chip.
+// handleMCPKey routes key events on step 7: arrow keys navigate the
+// quick-install panel, 'c' copies the highlighted row's command, and
+// enter advances to Done once the snippet has been captured.
+func (m WizardModel) handleMCPKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if len(mcpQuickInstallRows) > 0 {
+			m.mcpQuickCursor = (m.mcpQuickCursor - 1 + len(mcpQuickInstallRows)) % len(mcpQuickInstallRows)
+		}
+		return m, nil
+	case "down", "j":
+		if len(mcpQuickInstallRows) > 0 {
+			m.mcpQuickCursor = (m.mcpQuickCursor + 1) % len(mcpQuickInstallRows)
+		}
+		return m, nil
+	case "c":
+		return m.handleMCPQuickInstallCopy()
+	case "enter":
+		if !m.mcpDone {
+			return m, nil
+		}
+		return m.advanceStep()
+	}
+	return m, nil
+}
+
+// handleMCPQuickInstallCopy copies the highlighted quick-install row's
+// command to the clipboard. mcpQuickCopied is only set upon a successful
+// write so the "✓ copied" badge is not shown after a clipboard error.
+func (m WizardModel) handleMCPQuickInstallCopy() (WizardModel, tea.Cmd) {
+	if m.deps.CopyToClipboard == nil || len(mcpQuickInstallRows) == 0 {
+		return m, nil
+	}
+	idx := m.mcpQuickCursor
+	cmd := mcpQuickInstallRows[idx].command
+	fn := m.deps.CopyToClipboard
+	return m, func() tea.Msg {
+		if err := fn(cmd); err != nil {
+			return nil
+		}
+		return wizardMCPClipboardMsg{ok: true, idx: idx}
+	}
+}
+
+// renderMCPBody shows the headline + snippet panel + quick-install panel
+// + continue chip.
 func (m WizardModel) renderMCPBody() string {
 	title := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).
 		Render(m.step.Title())
-	headline := lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-		Render("✦ Paste this into your MCP client config.")
+	var headlineText string
+	switch {
+	case !m.mcpClipboardDone:
+		headlineText = "✦ Copying to clipboard…"
+	case m.mcpClipboardOK:
+		headlineText = "✓ Copied to clipboard!"
+	default:
+		headlineText = "✦ Paste this into your MCP client config."
+	}
+	headline := lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(headlineText)
 	intro := lipgloss.NewStyle().Foreground(ColInk).
 		Render("The hosted server handles OAuth on first connect — no install needed.")
 	snippet := m.renderMCPSnippetPanel()
-	codex := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-		Render("· Codex requires stdio MCP — the hosted server doesn't support that yet.")
+	quickInstall := m.renderMCPQuickInstallPanel()
 	cta := DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
 			Render("  continue")
@@ -659,8 +757,59 @@ func (m WizardModel) renderMCPBody() string {
 	if snippet != "" {
 		parts = append(parts, "", snippet)
 	}
-	parts = append(parts, "", codex, "", cta)
+	if quickInstall != "" {
+		parts = append(parts, "", quickInstall)
+	}
+	parts = append(parts, "", cta)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderMCPQuickInstallPanel renders the three quick-install rows as a
+// compact scrollable list. The focused row gets a highlight chip; the
+// last-copied row shows a ✓ badge.
+func (m WizardModel) renderMCPQuickInstallPanel() string {
+	if len(mcpQuickInstallRows) == 0 {
+		return ""
+	}
+	panelWidth := 80
+	if m.width > 16 {
+		panelWidth = m.width - 8
+	}
+
+	titleBar := lipgloss.NewStyle().Foreground(ColMuted).
+		Render("── Quick install " + strings.Repeat("─", max(0, panelWidth-17)))
+	var rows []string
+	for i, row := range mcpQuickInstallRows {
+		labelWidth := 14
+		label := fmt.Sprintf("%-*s", labelWidth, row.label)
+		var line string
+		if i == m.mcpQuickCursor {
+			prefix := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).Render("▶ ")
+			labelStyled := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).Render(label)
+			cmdStyled := lipgloss.NewStyle().Foreground(ColInk).Bold(true).Render(row.command)
+			line = prefix + labelStyled + " " + cmdStyled
+		} else {
+			prefix := "  "
+			labelStyled := lipgloss.NewStyle().Foreground(ColMuted).Render(label)
+			cmdStyled := lipgloss.NewStyle().Foreground(ColInk).Render(row.command)
+			line = prefix + labelStyled + " " + cmdStyled
+		}
+		if m.mcpDone && i == m.mcpQuickCopied {
+			line += "  " + lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ copied")
+		}
+		rows = append(rows, line)
+	}
+	hint := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
+		Render("  ↑/↓ to move · c to copy highlighted command")
+	bottomBar := lipgloss.NewStyle().Foreground(ColMuted).
+		Render(strings.Repeat("─", panelWidth))
+	return lipgloss.JoinVertical(lipgloss.Left,
+		titleBar,
+		lipgloss.JoinVertical(lipgloss.Left, rows...),
+		"",
+		hint,
+		bottomBar,
+	)
 }
 
 // renderMCPSnippetPanel renders the JSON snippet inside a rounded-border

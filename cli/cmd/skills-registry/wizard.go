@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/anand-92/skills-registry/cli/internal/agents"
@@ -111,6 +112,9 @@ func buildWizardDeps(gh string) tui.WizardDeps {
 		},
 		DeleteCleanup: wizardDeleteCleanup,
 		MCPSnippet:    bootstrap.MCPJSONSnippet,
+		CopyToClipboard: func(text string) error {
+			return clipboard.WriteAll(text)
+		},
 	}
 }
 

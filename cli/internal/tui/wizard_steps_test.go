@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -407,6 +408,210 @@ func TestWizardMCPEnterAdvancesAfterDone(t *testing.T) {
 	}
 	if wiz.transitionTarget != WizardStepDone {
 		t.Errorf("target = %v, want WizardStepDone", wiz.transitionTarget)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// F2.3 — Step 7 clipboard + quick-install panel
+// ────────────────────────────────────────────────────────────────────────────
+
+// TestWizardMCPClipboardSuccessRendersConfirmation stubs CopyToClipboard
+// to succeed and confirms View() contains "Copied to clipboard".
+func TestWizardMCPClipboardSuccessRendersConfirmation(t *testing.T) {
+	var calls int32
+	deps := WizardDeps{
+		MCPSnippet: func() string {
+			return `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
+		},
+		CopyToClipboard: func(string) error {
+			atomic.AddInt32(&calls, 1)
+			return nil
+		},
+	}
+	m := atStep(WizardStepMCPConnect).WithDeps(deps)
+	m.width, m.height = 120, 40
+	snippet := `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
+	nm, _ := m.Update(wizardMCPDoneMsg{snippet: snippet})
+	wiz := nm.(WizardModel)
+	// The clipboard cmd hasn't fired yet — deliver its result (idx=-1 = main snippet).
+	nm2, _ := wiz.Update(wizardMCPClipboardMsg{ok: true, idx: -1})
+	wiz = nm2.(WizardModel)
+	if !wiz.mcpClipboardOK {
+		t.Error("mcpClipboardOK = false after successful copy")
+	}
+	v := wiz.View()
+	if !strings.Contains(v, "Copied to clipboard") {
+		t.Errorf("expected 'Copied to clipboard' in view, got:\n%s", v)
+	}
+}
+
+// TestWizardMCPClipboardFailShowsFallbackHeadline stubs CopyToClipboard
+// to return an error and confirms the fallback "Paste this" headline is shown.
+func TestWizardMCPClipboardFailShowsFallbackHeadline(t *testing.T) {
+	deps := WizardDeps{
+		MCPSnippet: func() string {
+			return `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
+		},
+		CopyToClipboard: func(string) error {
+			return fmt.Errorf("no display")
+		},
+	}
+	m := atStep(WizardStepMCPConnect).WithDeps(deps)
+	m.width, m.height = 120, 40
+	snippet := `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
+	nm, _ := m.Update(wizardMCPDoneMsg{snippet: snippet})
+	wiz := nm.(WizardModel)
+	nm2, _ := wiz.Update(wizardMCPClipboardMsg{ok: false, errMsg: "no display", idx: -1})
+	wiz = nm2.(WizardModel)
+	if wiz.mcpClipboardOK {
+		t.Error("mcpClipboardOK = true after failed copy")
+	}
+	v := wiz.View()
+	if !strings.Contains(v, "Paste this") {
+		t.Errorf("expected 'Paste this' fallback in view, got:\n%s", v)
+	}
+}
+
+// TestWizardMCPClipboardNilDepFallback verifies that nil CopyToClipboard
+// causes handleMCPDone to set mcpClipboardDone=true, mcpClipboardOK=false
+// without emitting any extra cmd.
+func TestWizardMCPClipboardNilDepFallback(t *testing.T) {
+	m := atStep(WizardStepMCPConnect) // no deps wired
+	nm, cmd := m.Update(wizardMCPDoneMsg{snippet: "some-snippet"})
+	wiz := nm.(WizardModel)
+	if !wiz.mcpClipboardDone {
+		t.Error("mcpClipboardDone = false with nil dep")
+	}
+	if wiz.mcpClipboardOK {
+		t.Error("mcpClipboardOK = true with nil dep")
+	}
+	// cmd must be nil (no clipboard goroutine spawned).
+	if cmd != nil {
+		t.Error("unexpected cmd returned when CopyToClipboard is nil")
+	}
+}
+
+// TestWizardMCPClipboardNotCalledForEmptySnippet confirms CopyToClipboard
+// is never called when the snippet is empty.
+func TestWizardMCPClipboardNotCalledForEmptySnippet(t *testing.T) {
+	var calls int32
+	deps := WizardDeps{
+		MCPSnippet: func() string { return "" },
+		CopyToClipboard: func(string) error {
+			atomic.AddInt32(&calls, 1)
+			return nil
+		},
+	}
+	m := atStep(WizardStepMCPConnect).WithDeps(deps)
+	_, _ = m.Update(wizardMCPDoneMsg{snippet: ""})
+	if atomic.LoadInt32(&calls) != 0 {
+		t.Errorf("CopyToClipboard called %d times for empty snippet, want 0", calls)
+	}
+}
+
+// TestWizardMCPQuickInstallPanelRenders checks that after wizardMCPDoneMsg
+// the View contains all three client labels and their commands.
+func TestWizardMCPQuickInstallPanelRenders(t *testing.T) {
+	m := atStep(WizardStepMCPConnect)
+	m.width, m.height = 120, 40
+	nm, _ := m.Update(wizardMCPDoneMsg{
+		snippet: `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`,
+	})
+	wiz := nm.(WizardModel)
+	v := wiz.View()
+	wants := []string{
+		"Claude Code",
+		"Codex CLI",
+		"Factory Droid",
+		"claude mcp add",
+		"codex mcp add",
+		"droid mcp add",
+	}
+	for _, w := range wants {
+		if !strings.Contains(v, w) {
+			t.Errorf("quick-install panel missing %q:\n%s", w, v)
+		}
+	}
+}
+
+// TestWizardMCPQuickInstallCursorNavigation checks ↓ advances and wraps,
+// ↑ retreats and wraps.
+func TestWizardMCPQuickInstallCursorNavigation(t *testing.T) {
+	m := atStep(WizardStepMCPConnect)
+	m.mcpDone = true
+	rows := len(mcpQuickInstallRows)
+
+	// ↓ advances cursor.
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	wiz := nm.(WizardModel)
+	if wiz.mcpQuickCursor != 1 {
+		t.Errorf("after ↓ cursor = %d, want 1", wiz.mcpQuickCursor)
+	}
+
+	// ↓ from last row wraps to 0.
+	wiz.mcpQuickCursor = rows - 1
+	nm2, _ := wiz.Update(tea.KeyMsg{Type: tea.KeyDown})
+	wiz = nm2.(WizardModel)
+	if wiz.mcpQuickCursor != 0 {
+		t.Errorf("after ↓ at last row cursor = %d, want 0", wiz.mcpQuickCursor)
+	}
+
+	// ↑ from row 0 wraps to last.
+	wiz.mcpQuickCursor = 0
+	nm3, _ := wiz.Update(tea.KeyMsg{Type: tea.KeyUp})
+	wiz = nm3.(WizardModel)
+	if wiz.mcpQuickCursor != rows-1 {
+		t.Errorf("after ↑ at row 0 cursor = %d, want %d", wiz.mcpQuickCursor, rows-1)
+	}
+}
+
+// TestWizardMCPQuickInstallCopiesRow pressing 'c' on row 1 (Codex CLI)
+// calls CopyToClipboard with the Codex command and sets mcpQuickCopied=1
+// only after the async wizardMCPClipboardMsg is delivered back.
+func TestWizardMCPQuickInstallCopiesRow(t *testing.T) {
+	var copied string
+	deps := WizardDeps{
+		CopyToClipboard: func(text string) error {
+			copied = text
+			return nil
+		},
+	}
+	m := atStep(WizardStepMCPConnect).WithDeps(deps)
+	m.mcpDone = true
+	m.mcpQuickCursor = 1 // Codex CLI
+	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	wiz := nm.(WizardModel)
+	// mcpQuickCopied must NOT be set yet — the clipboard write is async.
+	if wiz.mcpQuickCopied == 1 {
+		t.Error("mcpQuickCopied set before async write completed")
+	}
+	// Execute the returned cmd to trigger the actual clipboard write and
+	// deliver the resulting message.
+	if cmd != nil {
+		resultMsg := cmd()
+		if resultMsg != nil {
+			nm2, _ := wiz.Update(resultMsg)
+			wiz = nm2.(WizardModel)
+		}
+	}
+	if copied != mcpQuickInstallRows[1].command {
+		t.Errorf("copied %q, want %q", copied, mcpQuickInstallRows[1].command)
+	}
+	if wiz.mcpQuickCopied != 1 {
+		t.Errorf("mcpQuickCopied = %d after async write, want 1", wiz.mcpQuickCopied)
+	}
+}
+
+// TestWizardMCPQuickInstallCopyNilDep pressing 'c' with nil CopyToClipboard
+// must not panic and mcpQuickCopied must stay -1.
+func TestWizardMCPQuickInstallCopyNilDep(t *testing.T) {
+	m := atStep(WizardStepMCPConnect) // no deps
+	m.mcpDone = true
+	m.mcpQuickCopied = -1
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	wiz := nm.(WizardModel)
+	if wiz.mcpQuickCopied != -1 {
+		t.Errorf("mcpQuickCopied changed to %d with nil dep, want -1", wiz.mcpQuickCopied)
 	}
 }
 

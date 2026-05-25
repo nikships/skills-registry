@@ -119,6 +119,10 @@ type WizardDeps struct {
 	// MCPSnippet returns the JSON snippet to paste into mcp.json. The CLI
 	// never installs an MCP server; this step is purely informational.
 	MCPSnippet func() string
+	// CopyToClipboard writes text to the system clipboard. Nil means no
+	// clipboard is available (headless / CI); any error is treated as a
+	// silent fallback — the headline reverts to the original Paste this text.
+	CopyToClipboard func(text string) error
 }
 
 // WizardAgent is one row in the embedded agent multi-select on step 5.
@@ -192,6 +196,15 @@ type wizardCleanupDoneMsg struct {
 // doesn't install an MCP server, so just the JSON body is needed.
 type wizardMCPDoneMsg struct {
 	snippet string
+}
+
+// wizardMCPClipboardMsg is the result of the async clipboard write
+// initiated by handleMCPDone. ok is true when the write succeeded.
+// idx is -1 for the main snippet auto-copy, or >=0 for a quick-install row.
+type wizardMCPClipboardMsg struct {
+	ok     bool
+	errMsg string
+	idx    int // -1 for main snippet, >=0 for quick-install row index
 }
 
 const (
@@ -309,9 +322,15 @@ type WizardModel struct {
 	// installs or boots an MCP server. mcpStarted flips on step entry;
 	// mcpDone flips immediately after rendering the snippet so the enter
 	// key advances to Done.
-	mcpStarted bool
-	mcpDone    bool
-	mcpSnippet string
+	mcpStarted       bool
+	mcpDone          bool
+	mcpSnippet       string
+	mcpClipboardDone bool
+	mcpClipboardOK   bool
+	// mcpQuickCursor is the 0-based index of the highlighted quick-install
+	// row. mcpQuickCopied is the index of the last row copied (-1 = none).
+	mcpQuickCursor int
+	mcpQuickCopied int
 }
 
 // NewWizard constructs the wizard frame with empty WizardDeps. Callers that
@@ -475,6 +494,9 @@ func (m WizardModel) dispatchAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return mm, cmd, true
 	case wizardMCPDoneMsg:
 		mm, cmd := m.handleMCPDone(msg)
+		return mm, cmd, true
+	case wizardMCPClipboardMsg:
+		mm, cmd := m.handleMCPClipboard(msg)
 		return mm, cmd, true
 	}
 	return m, nil, false
