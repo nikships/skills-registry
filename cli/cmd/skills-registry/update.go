@@ -48,8 +48,8 @@ func newUpdateCmd() *cobra.Command {
 	opts := updateOpts{repo: defaultUpdateRepo, version: "latest"}
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Update the skill-registry CLI to the latest release",
-		Long: `Downloads the matching skill-registry release asset and replaces the current binary.
+		Short: "Update the skills-registry CLI to the latest release",
+		Long: `Downloads the matching skills-registry release asset and replaces the current binary.
 
 By default this installs the latest GitHub Release from anand-92/skills-registry.
 Use --version to pin a tag (for example v0.5.1), or --bin to update a specific binary path.
@@ -131,7 +131,7 @@ func performUpdate(ctx context.Context, opts updateOpts) (updateResult, error) {
 		return updateResult{}, err
 	}
 	res.Updated = true
-	res.Message = fmt.Sprintf("updated skill-registry to %s → %s", targetVersion, binPath)
+	res.Message = fmt.Sprintf("updated skills-registry to %s → %s", targetVersion, binPath)
 	return res, nil
 }
 
@@ -146,7 +146,7 @@ func updateAssetName(goos, goarch string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported architecture for update: %s", goarch)
 	}
-	return fmt.Sprintf("skill-registry_%s_%s.tar.gz", goos, goarch), nil
+	return fmt.Sprintf("skills-registry_%s_%s.tar.gz", goos, goarch), nil
 }
 
 func updateTargetPath(binPath string) (string, error) {
@@ -209,7 +209,7 @@ func versionMatches(current, target string) bool {
 
 func installUpdate(ctx context.Context, gh string, opts updateOpts, asset, binPath string) error {
 	dir := filepath.Dir(binPath)
-	tmpDir, err := os.MkdirTemp(dir, ".skill-registry-update-")
+	tmpDir, err := os.MkdirTemp(dir, ".skills-registry-update-")
 	if err != nil {
 		return fmt.Errorf("create update temp dir: %w", err)
 	}
@@ -224,7 +224,7 @@ func installUpdate(ctx context.Context, gh string, opts updateOpts, asset, binPa
 		return err
 	}
 
-	extracted := filepath.Join(tmpDir, "skill-registry")
+	extracted := filepath.Join(tmpDir, "skills-registry")
 	if err := extractUpdateBinary(tarball, extracted); err != nil {
 		return err
 	}
@@ -270,7 +270,7 @@ func extractUpdateBinary(tarball, dest string) error {
 		if err != nil {
 			return fmt.Errorf("read update archive: %w", err)
 		}
-		if filepath.Base(hdr.Name) != "skill-registry" || hdr.Typeflag != tar.TypeReg {
+		if filepath.Base(hdr.Name) != "skills-registry" || hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
@@ -287,7 +287,7 @@ func extractUpdateBinary(tarball, dest string) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("binary skill-registry not found in update archive")
+	return fmt.Errorf("binary skills-registry not found in update archive")
 }
 
 func copyFile(src, dst string, perm os.FileMode) error {

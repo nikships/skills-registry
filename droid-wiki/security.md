@@ -9,7 +9,7 @@ Active contributors: Nik Anand
 `skills-registry` ships two things that touch the network or write to disk:
 
 - The **MCP server** (`src/skills_mcp/registry_server.py`) runs as a long-lived subprocess inside a desktop MCP client (Claude Desktop, Cursor, VS Code/Copilot). It reads from and writes to the user's personal GitHub registry repo on behalf of the model.
-- The **Go CLI** (`cli/cmd/skill-registry/`) runs interactively in the user's terminal. The first-run wizard bulk-imports local skills; day-to-day commands publish/list/sync against the same registry repo.
+- The **Go CLI** (`cli/cmd/skills-registry/`) runs interactively in the user's terminal. The first-run wizard bulk-imports local skills; day-to-day commands publish/list/sync against the same registry repo.
 
 The realistic threats are:
 

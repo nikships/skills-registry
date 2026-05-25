@@ -58,7 +58,7 @@ func runWizard(ctx context.Context) error {
 // cleanly; completed runs print a short success caption. The hub launcher
 // (F3.x) reads `Completed()` to decide whether to open the dashboard;
 // until then we just close the alt-screen and let the user re-invoke
-// `skill-registry` if they want the hub.
+// `skills-registry` if they want the hub.
 func finishWizard(final tui.WizardModel) error {
 	if final.Cancelled() {
 		fmt.Println("Onboarding cancelled.")
@@ -73,7 +73,7 @@ func finishWizard(final tui.WizardModel) error {
 		tui.OkStyle.Render("✓"), tui.TitleStyle.Render(final.Repo()))
 	fmt.Printf("  · %d skill(s) pushed · %d agent folder(s) installed\n",
 		final.Pushed(), final.AgentsInstalled())
-	fmt.Println("\nRun `skill-registry` any time to open the hub.")
+	fmt.Println("\nRun `skills-registry` any time to open the hub.")
 	return nil
 }
 
@@ -137,7 +137,7 @@ func wizardCreateRepo(ctx context.Context, gh, name, visibility string) (string,
 		// missing skills.
 		return full, nil
 	}
-	description := "Personal skill registry — managed via skill-registry."
+	description := "Personal skill registry — managed via skills-registry."
 	created, err := probe.CreateRepo(ctx, name, visibility, description)
 	if err != nil {
 		// `gh repo create` says "already exists" when the owner has

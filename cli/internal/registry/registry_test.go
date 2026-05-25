@@ -776,7 +776,7 @@ func TestDeleteRemovesSubtree(t *testing.T) {
 }
 
 // TestDeleteReturnsNotFoundOnMissingSlug verifies the contract that
-// callers (notably `skill-registry remove`) use to drive the exit-1
+// callers (notably `skills-registry remove`) use to drive the exit-1
 // "slug not found" path: when the recursive tree listing returns no
 // blobs under <slug>/, Delete must return ErrSlugNotFound and skip the
 // commit/ref-update calls entirely.

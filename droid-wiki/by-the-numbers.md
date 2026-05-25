@@ -31,7 +31,7 @@ Module / package count:
 |---|---:|
 | Go packages under `cli/internal/` | 10 (`agents`, `bootstrap`, `cache`, `config`, `jsonout`, `registry`, `scan`, `tui`, plus subcommand dir and root cmd) |
 | Python modules in `src/skills_mcp/` | 8 (`__init__`, `__main__`, `init`, `registry_server`, `registry_api`, `gh`, `config`, `cache`, `frontmatter`) |
-| Go subcommands under `cli/cmd/skill-registry/` | 7 (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`) plus root + wizard + hub |
+| Go subcommands under `cli/cmd/skills-registry/` | 7 (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`) plus root + wizard + hub |
 | FastMCP tools registered | 3 (`list_skills`, `get_skill`, `publish_skill`) |
 
 ## Activity
@@ -56,8 +56,8 @@ Recent churn is effectively the whole repo. Every file in the table below was ei
 | `cli/internal/registry/registry_test.go` | 930 | `gh`-shim driven scenarios |
 | `cli/internal/tui/wizard_test.go` | 924 | Per-step wizard transitions |
 | `cli/internal/tui/wizard_steps.go` | 785 | Step handlers extracted from `wizard.go` |
-| `cli/cmd/skill-registry/bootstrap.go` | 718 | Headless bootstrap subcommand |
-| `cli/cmd/skill-registry/json_test.go` | 618 | `--json` matrix across every subcommand |
+| `cli/cmd/skills-registry/bootstrap.go` | 718 | Headless bootstrap subcommand |
+| `cli/cmd/skills-registry/json_test.go` | 618 | `--json` matrix across every subcommand |
 
 ## Bot-attributed commits
 

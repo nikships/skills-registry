@@ -1,6 +1,6 @@
 // Package cache exposes the on-disk location where the Python MCP
 // server caches downloaded skills. The Go CLI never reads or writes
-// this directory directly — only `skill-registry-mcp` (Python) does —
+// this directory directly — only `skills-registry-mcp` (Python) does —
 // but the Settings view inside the hub surfaces the path so users can
 // inspect or clean it manually.
 //

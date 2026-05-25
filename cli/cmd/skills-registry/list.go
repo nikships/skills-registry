@@ -206,7 +206,7 @@ func isTerminal() bool {
 // isStdinTerminal reports whether os.Stdin is attached to a character
 // device. Used together with jsonout.Enabled() to decide whether to
 // auto-promote --yes on commands that support it: agents piping
-// commands into the CLI (`echo ... | skill-registry sync --json`) need
+// commands into the CLI (`echo ... | skills-registry sync --json`) need
 // the destructive-action confirmation to skip itself silently rather
 // than hang on a Bubble Tea prompt that can't render.
 //

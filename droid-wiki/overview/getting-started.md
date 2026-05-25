@@ -16,14 +16,14 @@ No Python, `uv`, or `pipx` required ahead of time. The Go wizard installs the Py
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
-skill-registry
+skills-registry
 ```
 
-`install.sh` detects your OS/arch (`darwin/linux × amd64/arm64`), downloads the matching tarball from the latest GitHub release, and drops the binary at `~/.local/bin/skill-registry`. See [apps/installer](../apps/installer.md) for the environment variables that override behavior (`SKILLS_BIN_DIR`, `SKILLS_REGISTRY_VERSION`, etc.).
+`install.sh` detects your OS/arch (`darwin/linux × amd64/arm64`), downloads the matching tarball from the latest GitHub release, and drops the binary at `~/.local/bin/skills-registry`. See [apps/installer](../apps/installer.md) for the environment variables that override behavior (`SKILLS_BIN_DIR`, `SKILLS_REGISTRY_VERSION`, etc.).
 
-Running `skill-registry` with no subcommand routes you based on your state:
+Running `skills-registry` with no subcommand routes you based on your state:
 
-- **First time** → onboarding wizard (alt-screen TUI). Scans your dot-folders, creates the GitHub repo, pushes every skill in a single `git push`, lets you multi-select agents to wire up, offers to delete local copies, installs `skill-registry-mcp`, prints the MCP JSON snippet.
+- **First time** → onboarding wizard (alt-screen TUI). Scans your dot-folders, creates the GitHub repo, pushes every skill in a single `git push`, lets you multi-select agents to wire up, offers to delete local copies, installs `skills-registry-mcp`, prints the MCP JSON snippet.
 - **Returning** → dashboard hub. Cards for Manage / Sync / Add / Publish / Settings.
 - **Piped / `--json`** → prints usage text instead of starting a TUI.
 
@@ -35,16 +35,16 @@ The wizard prints platform-correct JSON at the end of onboarding. Paste it into:
   ```json
   {
     "mcpServers": {
-      "skill-registry": {
-        "command": "/Users/you/.local/bin/skill-registry-mcp"
+      "skills-registry": {
+        "command": "/Users/you/.local/bin/skills-registry-mcp"
       }
     }
   }
   ```
 - **Codex** — `~/.codex/config.toml`:
   ```toml
-  [mcp_servers.skill-registry]
-  command = "/Users/you/.local/bin/skill-registry-mcp"
+  [mcp_servers.skills-registry]
+  command = "/Users/you/.local/bin/skills-registry-mcp"
   ```
 
 Use the absolute path (the wizard fills it in). Desktop MCP clients spawn the server with a stripped environment, so `PATH` lookups don't work reliably.
@@ -53,14 +53,14 @@ Use the absolute path (the wizard fills it in). Desktop MCP clients spawn the se
 
 | Goal | Command |
 | --- | --- |
-| Open the dashboard | `skill-registry` |
-| Browse your registry | `skill-registry list` |
-| Pull one skill into the current folder | `skill-registry get <slug>` |
-| Push local dot-folder skills missing from the registry | `skill-registry sync` |
-| Pull from another repo and publish to yours | `skill-registry add <owner/repo>` |
-| Publish a single local skill folder | `skill-registry publish <path>` |
-| Delete a skill end-to-end (registry + cache + dot-folders) | `skill-registry remove <slug>` |
-| Re-run the wizard (idempotent) | `skill-registry bootstrap` |
+| Open the dashboard | `skills-registry` |
+| Browse your registry | `skills-registry list` |
+| Pull one skill into the current folder | `skills-registry get <slug>` |
+| Push local dot-folder skills missing from the registry | `skills-registry sync` |
+| Pull from another repo and publish to yours | `skills-registry add <owner/repo>` |
+| Publish a single local skill folder | `skills-registry publish <path>` |
+| Delete a skill end-to-end (registry + cache + dot-folders) | `skills-registry remove <slug>` |
+| Re-run the wizard (idempotent) | `skills-registry bootstrap` |
 
 Every subcommand accepts `--json` for scripted use. See [systems/json-output](../systems/json-output.md).
 
@@ -70,7 +70,7 @@ Every subcommand accepts `--json` for scripted use. See [systems/json-output](..
 | --- | --- | --- |
 | `SKILLS_REGISTRY` | (from config) | Override the registry for one command: `owner/repo` or `owner/repo@branch`. |
 | `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` for verbose logs. |
-| `SKILLS_SKIP_INSTALL` | unset | Skip the auto-install of `skill-registry-mcp`. |
+| `SKILLS_SKIP_INSTALL` | unset | Skip the auto-install of `skills-registry-mcp`. |
 | `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a specific release tag. |
 | `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the binary. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
@@ -123,7 +123,7 @@ CI gates on `ruff check`, `ruff format --check`, `pytest`, `gofmt -l`, `go vet`,
 ### Smoke-test the Go binary locally
 
 ```bash
-(cd cli && go build -o /tmp/skill-registry ./cmd/skill-registry && /tmp/skill-registry --help)
+(cd cli && go build -o /tmp/skills-registry ./cmd/skills-registry && /tmp/skills-registry --help)
 ```
 
 ### Run the MCP server locally
@@ -132,7 +132,7 @@ CI gates on `ruff check`, `ruff format --check`, `pytest`, `gofmt -l`, `go vet`,
 SKILLS_REGISTRY=owner/repo uv run python -m skills_mcp.registry_server
 ```
 
-Or after the wizard has installed it, just `skill-registry-mcp` will work.
+Or after the wizard has installed it, just `skills-registry-mcp` will work.
 
 ### Pre-commit hooks
 

@@ -15,7 +15,7 @@ type Target struct {
 }
 
 // SkillsDir returns the absolute SKILL.md folder for this target.
-// The skill-registry SKILL.md goes at SkillsDir(home, cwd) + "/skill-registry".
+// The skills-registry SKILL.md goes at SkillsDir(home, cwd) + "/skills-registry".
 func (t Target) SkillsDir(home, cwd string) string {
 	if t.UnderHome {
 		return home + "/" + t.DotDir + "/skills"

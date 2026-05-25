@@ -1,12 +1,12 @@
 #!/bin/sh
-# install.sh — install the skill-registry Go CLI.
+# install.sh — install the skills-registry Go CLI.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
 #
 # Detects the host OS and architecture, downloads the matching tarball
 # from the GitHub Releases of anand-92/skills-registry, drops the
-# skill-registry binary into ~/.local/bin/, and marks it executable.
+# skills-registry binary into ~/.local/bin/, and marks it executable.
 #
 # Supported platforms:
 #   darwin/amd64, darwin/arm64, linux/amd64, linux/arm64
@@ -34,7 +34,7 @@ set -eu
 REPO=${SKILLS_REGISTRY_REPO:-anand-92/skills-registry}
 VERSION=${SKILLS_REGISTRY_VERSION:-latest}
 BIN_DIR=${SKILLS_BIN_DIR:-$HOME/.local/bin}
-BINARY=skill-registry
+BINARY=skills-registry
 
 log()  { printf '%s\n' "$*" >&2; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -69,7 +69,7 @@ detect_arch() {
 build_url() {
     os=$1
     arch=$2
-    asset="skill-registry_${os}_${arch}.tar.gz"
+    asset="skills-registry_${os}_${arch}.tar.gz"
     if [ "$VERSION" = "latest" ]; then
         printf 'https://github.com/%s/releases/latest/download/%s' "$REPO" "$asset"
     else
@@ -96,7 +96,7 @@ main() {
     url=${SKILLS_REGISTRY_URL:-$(build_url "$os" "$arch")}
     dest=$BIN_DIR/$BINARY
 
-    log "skill-registry installer"
+    log "skills-registry installer"
     log "  platform : $os/$arch"
     log "  url      : $url"
     log "  install  : $dest"
@@ -107,10 +107,10 @@ main() {
     fi
 
     mkdir -p "$BIN_DIR"
-    tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t skill-registry-install)
+    tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t skills-registry-install)
     trap 'rm -rf "$tmpdir"' EXIT INT TERM
 
-    tarball=$tmpdir/skill-registry.tar.gz
+    tarball=$tmpdir/skills-registry.tar.gz
     if [ -n "${SKILLS_REGISTRY_TARBALL:-}" ]; then
         cp "$SKILLS_REGISTRY_TARBALL" "$tarball"
     else
@@ -136,7 +136,7 @@ main() {
         *) warn "$BIN_DIR is not on your PATH. Add 'export PATH=\"$BIN_DIR:\$PATH\"' to your shell rc." ;;
     esac
 
-    printf 'Run `skill-registry` to get started.\n'
+    printf 'Run `skills-registry` to get started.\n'
 }
 
 main "$@"

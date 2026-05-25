@@ -4,7 +4,7 @@ Active contributors: Nik Anand
 
 ## What it does
 
-`install.sh` is a 142-line POSIX shell script. It detects the host OS and architecture, downloads the matching `skill-registry` tarball from the latest GitHub Release, extracts the binary, and drops it into `~/.local/bin/skill-registry`. The user invokes it through `curl … | sh` and never sees Python during onboarding — the Python MCP server is installed later by the Go wizard.
+`install.sh` is a 142-line POSIX shell script. It detects the host OS and architecture, downloads the matching `skills-registry` tarball from the latest GitHub Release, extracts the binary, and drops it into `~/.local/bin/skills-registry`. The user invokes it through `curl … | sh` and never sees Python during onboarding — the Python MCP server is installed later by the Go wizard.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
@@ -34,14 +34,14 @@ Anything else prints a clear "unsupported" message to stderr and exits `2`. The 
 
 `build_url()` produces the canonical Release asset URL:
 
-- `latest` → `https://github.com/<repo>/releases/latest/download/skill-registry_<os>_<arch>.tar.gz`
-- pinned `vX.Y.Z` → `https://github.com/<repo>/releases/download/<version>/skill-registry_<os>_<arch>.tar.gz`
+- `latest` → `https://github.com/<repo>/releases/latest/download/skills-registry_<os>_<arch>.tar.gz`
+- pinned `vX.Y.Z` → `https://github.com/<repo>/releases/download/<version>/skills-registry_<os>_<arch>.tar.gz`
 
 `download_to()` tries `curl -fsSL --retry 3` first, then `wget -q -O` if `curl` isn't on `PATH`. If neither is available, the script exits `1` with a clear "need curl or wget" message.
 
 ## Extraction and placement
 
-The script creates a tempdir with `mktemp -d` (fallback to `mktemp -d -t skill-registry-install` on older BSDs), traps `EXIT INT TERM` so the dir is removed even on Ctrl-C, then extracts only the `skill-registry` entry from the tarball:
+The script creates a tempdir with `mktemp -d` (fallback to `mktemp -d -t skills-registry-install` on older BSDs), traps `EXIT INT TERM` so the dir is removed even on Ctrl-C, then extracts only the `skills-registry` entry from the tarball:
 
 ```sh
 tar -xzf "$tarball" -C "$tmpdir" "$BINARY"
@@ -84,4 +84,4 @@ The dry-run knob is used in the release smoke tests: piping through `SKILLS_REGI
 
 - [overview/architecture](../overview/architecture.md) — how the installer fits into the three-deliverable picture.
 - [overview/getting-started](../overview/getting-started.md) — what to do after `install.sh` finishes.
-- [apps/cli/wizard-and-hub](cli/wizard-and-hub.md) — the wizard that runs on first invocation of `skill-registry`.
+- [apps/cli/wizard-and-hub](cli/wizard-and-hub.md) — the wizard that runs on first invocation of `skills-registry`.

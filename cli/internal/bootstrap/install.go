@@ -9,7 +9,7 @@ import (
 )
 
 // HostedMCPURL is the public Streamable-HTTP endpoint of the hosted
-// FastMCP server. Wizards and `skill-registry bootstrap` print this URL
+// FastMCP server. Wizards and `skills-registry bootstrap` print this URL
 // inside the JSON snippet users paste into their MCP client config.
 //
 // The CLI never installs, boots, or otherwise touches an MCP server —
@@ -17,13 +17,13 @@ import (
 const HostedMCPURL = "https://mcp.skills-registry.dev/mcp"
 
 // InstallSkillMd writes the generated SKILL.md into each selected agent
-// dot-folder's `skills/skill-registry/SKILL.md` path. Returns the list of
+// dot-folder's `skills/skills-registry/SKILL.md` path. Returns the list of
 // written file paths.
 func InstallSkillMd(home, cwd, registryRepo string, targets []agents.Target) ([]string, error) {
 	body := SkillMd(registryRepo)
 	var written []string
 	for _, t := range targets {
-		dir := filepath.Join(t.SkillsDir(home, cwd), "skill-registry")
+		dir := filepath.Join(t.SkillsDir(home, cwd), "skills-registry")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return written, fmt.Errorf("create %s: %w", dir, err)
 		}
@@ -47,7 +47,7 @@ func InstallSkillMd(home, cwd, registryRepo string, targets []agents.Target) ([]
 func MCPJSONSnippet() string {
 	return fmt.Sprintf(`{
   "mcpServers": {
-    "skill-registry": {
+    "skills-registry": {
       "url": %q
     }
   }

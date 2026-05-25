@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.scripts]
-skill-registry-mcp = "skills_mcp.remote_server:main"
+skills-registry-mcp = "skills_mcp.remote_server:main"
 
 [project.urls]
 Homepage = "https://github.com/anand-92/skills-registry"

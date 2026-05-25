@@ -1,4 +1,4 @@
-"""``skill-registry-mcp`` — remote FastMCP server.
+"""``skills-registry-mcp`` — remote FastMCP server.
 
 Hosted entry point for the Skills Registry. Replaces the old stdio MCP
 server entirely: end users no longer install anything from PyPI; they just
@@ -197,7 +197,7 @@ def build_server(settings: ServerSettings) -> tuple[FastMCP, LinkStore, GitHubAp
 	)
 
 	server = FastMCP(
-		"skill-registry",
+		"skills-registry",
 		instructions=(
 			"Hosted GitHub-backed skill registry. Authenticate via GitHub OAuth, "
 			"install the Skills Registry GitHub App on your skills repo, then "
@@ -249,7 +249,7 @@ def _register_tools(
 		if not summaries:
 			return (
 				f"No skills found in `{link.repo}`. Add a skill with `SKILL.md` "
-				"using the `skill-registry` CLI and they'll appear here."
+				"using the `skills-registry` CLI and they'll appear here."
 			)
 		return _format_skills_table(link.repo, summaries)
 
@@ -390,7 +390,7 @@ def main() -> int:
 	try:
 		settings, app = build_app()
 	except OSError as exc:
-		print(f"skill-registry-mcp: {exc}", file=sys.stderr)
+		print(f"skills-registry-mcp: {exc}", file=sys.stderr)
 		return 2
 	import uvicorn  # local import — only needed when running as a script
 

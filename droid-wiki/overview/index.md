@@ -17,16 +17,16 @@ AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf each scan a local 
 
 | Deliverable | Language | Distribution | Job |
 | --- | --- | --- | --- |
-| `install.sh` | POSIX `sh` | `curl … \| sh` from raw GitHub content | Detect OS/arch, download the matching Go tarball from the latest release, drop the binary into `~/.local/bin/skill-registry`. |
-| `skill-registry` | Go 1.24+ | GitHub Releases tarballs for darwin/linux/windows × amd64/arm64 | Charmbracelet TUI + headless commands. Bare invocation routes to the wizard, the hub, or a help dump. |
-| `skill-registry-mcp` | Python 3.10+ | PyPI wheel (`skills-registry`) | FastMCP server with three tools: `list_skills`, `get_skill`, `publish_skill`. |
+| `install.sh` | POSIX `sh` | `curl … \| sh` from raw GitHub content | Detect OS/arch, download the matching Go tarball from the latest release, drop the binary into `~/.local/bin/skills-registry`. |
+| `skills-registry` | Go 1.24+ | GitHub Releases tarballs for darwin/linux/windows × amd64/arm64 | Charmbracelet TUI + headless commands. Bare invocation routes to the wizard, the hub, or a help dump. |
+| `skills-registry-mcp` | Python 3.10+ | PyPI wheel (`skills-registry`) | FastMCP server with three tools: `list_skills`, `get_skill`, `publish_skill`. |
 
 The Go binary auto-installs the Python entry point during onboarding via `uv tool install` → `pipx install` → `pip install --user`, so a user typing `curl … | sh` never has to touch Python directly.
 
 ## What you can do with it
 
-- **`skill-registry`** (bare invocation) — Opens the [first-run onboarding wizard](../apps/cli/wizard-and-hub.md) (no config yet) or the [dashboard hub](../apps/cli/wizard-and-hub.md) (config exists).
-- **`skill-registry list / get / sync / add / publish / remove`** — [Headless subcommands](../apps/cli/subcommands.md) for day-to-day management.
+- **`skills-registry`** (bare invocation) — Opens the [first-run onboarding wizard](../apps/cli/wizard-and-hub.md) (no config yet) or the [dashboard hub](../apps/cli/wizard-and-hub.md) (config exists).
+- **`skills-registry list / get / sync / add / publish / remove`** — [Headless subcommands](../apps/cli/subcommands.md) for day-to-day management.
 - **MCP client** (Claude Desktop, Cursor, VS Code, Codex) — Asks `list_skills` and `get_skill` through stdio. The agent fetches skills on demand instead of preloading them.
 
 Every CLI subcommand accepts a persistent `--json` flag for [scripted use](../systems/json-output.md). Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set so a piped invocation never hangs on a TUI prompt.

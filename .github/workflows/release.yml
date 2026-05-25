@@ -109,7 +109,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   build-cli:
-    name: Build skill-registry ${{ matrix.os }}/${{ matrix.arch }}
+    name: Build skills-registry ${{ matrix.os }}/${{ matrix.arch }}
     needs: tag
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -154,10 +154,10 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ needs.tag.outputs.version }}"
-          out="skill-registry"
-          if [ "$GOOS" = "windows" ]; then out="skill-registry.exe"; fi
+          out="skills-registry"
+          if [ "$GOOS" = "windows" ]; then out="skills-registry.exe"; fi
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "dist/${out}" ./cmd/skill-registry
+          go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "dist/${out}" ./cmd/skills-registry
       - name: Sign and notarize (darwin)
         if: matrix.os == 'darwin'
         working-directory: cli/dist
@@ -168,7 +168,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
           set -euo pipefail
-          out="skill-registry"
+          out="skills-registry"
           # Hardened-runtime + secure timestamp + Developer ID signature.
           # Required for notarization; replaces the previous ad-hoc sign
           # which couldn't bypass the com.apple.provenance kill path on
@@ -209,9 +209,9 @@ jobs:
           GOARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          out="skill-registry"
-          if [ "$GOOS" = "windows" ]; then out="skill-registry.exe"; fi
-          archive="skill-registry_${GOOS}_${GOARCH}"
+          out="skills-registry"
+          if [ "$GOOS" = "windows" ]; then out="skills-registry.exe"; fi
+          archive="skills-registry_${GOOS}_${GOARCH}"
           cd dist
           if [ "$GOOS" = "windows" ]; then
             zip "${archive}.zip" "$out"
@@ -222,8 +222,8 @@ jobs:
         with:
           name: cli-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            cli/dist/skill-registry_*.tar.gz
-            cli/dist/skill-registry_*.zip
+            cli/dist/skills-registry_*.tar.gz
+            cli/dist/skills-registry_*.zip
           if-no-files-found: ignore
 
   release:

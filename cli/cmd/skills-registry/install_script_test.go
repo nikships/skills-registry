@@ -11,7 +11,7 @@ package main
 //   - Verify it exits with a clear error (code 2) on unsupported
 //     platforms instead of silently downloading something wrong.
 //   - Verify the end-to-end install path drops the binary at
-//     $SKILLS_BIN_DIR/skill-registry with executable permission.
+//     $SKILLS_BIN_DIR/skills-registry with executable permission.
 
 import (
 	"archive/tar"
@@ -36,7 +36,7 @@ func scriptPath(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	// cli/cmd/skill-registry/install_script_test.go → repo root
+	// cli/cmd/skills-registry/install_script_test.go → repo root
 	p := filepath.Join(filepath.Dir(here), "..", "..", "..", "install.sh")
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -93,25 +93,25 @@ func TestInstallScriptURLConstruction(t *testing.T) {
 			name:   "darwin/arm64",
 			os:     "Darwin",
 			arch:   "arm64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skill-registry_darwin_arm64.tar.gz",
+			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_darwin_arm64.tar.gz",
 		},
 		{
 			name:   "darwin/amd64",
 			os:     "Darwin",
 			arch:   "x86_64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skill-registry_darwin_amd64.tar.gz",
+			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_darwin_amd64.tar.gz",
 		},
 		{
 			name:   "linux/amd64",
 			os:     "Linux",
 			arch:   "amd64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skill-registry_linux_amd64.tar.gz",
+			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz",
 		},
 		{
 			name:   "linux/arm64",
 			os:     "Linux",
 			arch:   "aarch64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skill-registry_linux_arm64.tar.gz",
+			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_linux_arm64.tar.gz",
 		},
 	}
 	for _, tc := range cases {
@@ -144,7 +144,7 @@ func TestInstallScriptPinnedVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d (stderr: %s)", code, errStr)
 	}
-	want := "https://github.com/anand-92/skills-registry/releases/download/v9.9.9/skill-registry_linux_amd64.tar.gz"
+	want := "https://github.com/anand-92/skills-registry/releases/download/v9.9.9/skills-registry_linux_amd64.tar.gz"
 	if got := strings.TrimSpace(out); got != want {
 		t.Fatalf("URL mismatch:\n  got:  %s\n  want: %s", got, want)
 	}
@@ -184,7 +184,7 @@ func TestInstallScriptUnsupportedArch(t *testing.T) {
 
 // TestInstallScriptEndToEnd covers INSTALL-006: when an actual
 // installation runs (with a stubbed local tarball + sandboxed
-// SKILLS_BIN_DIR), the binary ends up at $BIN_DIR/skill-registry
+// SKILLS_BIN_DIR), the binary ends up at $BIN_DIR/skills-registry
 // with executable permission and the success line is printed.
 func TestInstallScriptEndToEnd(t *testing.T) {
 	tmp := t.TempDir()
@@ -204,7 +204,7 @@ func TestInstallScriptEndToEnd(t *testing.T) {
 		t.Fatalf("expected exit 0, got %d\nstdout:%s\nstderr:%s", code, out, errStr)
 	}
 
-	installed := filepath.Join(binDir, "skill-registry")
+	installed := filepath.Join(binDir, "skills-registry")
 	info, err := os.Stat(installed)
 	if err != nil {
 		t.Fatalf("binary not installed: %v", err)
@@ -214,13 +214,13 @@ func TestInstallScriptEndToEnd(t *testing.T) {
 		t.Fatalf("installed binary is not executable: mode=%v", info.Mode())
 	}
 
-	if !strings.Contains(out, "Run `skill-registry` to get started.") {
+	if !strings.Contains(out, "Run `skills-registry` to get started.") {
 		t.Fatalf("stdout missing success line:\n%s", out)
 	}
 }
 
 // writeFixtureTarball builds a minimal gzipped tar containing a single
-// `skill-registry` shell script. Stays in pure Go (no shelling out to
+// `skills-registry` shell script. Stays in pure Go (no shelling out to
 // `tar`) so the test works identically on every developer machine.
 func writeFixtureTarball(path string) error {
 	f, err := os.Create(path)
@@ -236,7 +236,7 @@ func writeFixtureTarball(path string) error {
 
 	body := []byte("#!/bin/sh\necho hello\n")
 	hdr := &tar.Header{
-		Name: "skill-registry",
+		Name: "skills-registry",
 		Mode: 0o755,
 		Size: int64(len(body)),
 	}

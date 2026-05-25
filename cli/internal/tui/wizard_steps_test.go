@@ -32,7 +32,7 @@ func agentDepsFixture(t *testing.T) (WizardDeps, *int32, *[]any) {
 		InstallAgents: func(_ context.Context, _ string, picked []any) ([]string, error) {
 			atomic.AddInt32(&calls, 1)
 			lastPicked = picked
-			return []string{"/tmp/.claude/skills/skill-registry/SKILL.md"}, nil
+			return []string{"/tmp/.claude/skills/skills-registry/SKILL.md"}, nil
 		},
 	}
 	return deps, &calls, &lastPicked
@@ -196,8 +196,8 @@ func TestWizardAgentViewSurfacesInstallSummary(t *testing.T) {
 	m := atStep(WizardStepAgentSelect)
 	m.agentInstalling = false
 	m.agentInstallDone = true
-	m.agentPaths = []string{"/tmp/.claude/skills/skill-registry/SKILL.md",
-		"/tmp/.factory/skills/skill-registry/SKILL.md"}
+	m.agentPaths = []string{"/tmp/.claude/skills/skills-registry/SKILL.md",
+		"/tmp/.factory/skills/skills-registry/SKILL.md"}
 	m.width, m.height = 120, 40
 	v := m.View()
 	if !strings.Contains(v, "installed into 2 folder") {
@@ -343,7 +343,7 @@ func TestWizardCleanupDoneAdvances(t *testing.T) {
 // verifies that landing on the MCP step records the returned body.
 func TestWizardMCPConnectCapturesSnippet(t *testing.T) {
 	var calls int32
-	snippet := `{"mcpServers":{"skill-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
+	snippet := `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
 	deps := WizardDeps{
 		MCPSnippet: func() string {
 			atomic.AddInt32(&calls, 1)
@@ -380,7 +380,7 @@ func TestWizardMCPSnippetPanelRenders(t *testing.T) {
 	m := atStep(WizardStepMCPConnect)
 	m.width, m.height = 120, 40
 	nm, _ := m.Update(wizardMCPDoneMsg{
-		snippet: "{\n  \"mcpServers\": {\"skill-registry\": {\"url\": \"https://mcp.skills-registry.dev/mcp\"}}\n}",
+		snippet: "{\n  \"mcpServers\": {\"skills-registry\": {\"url\": \"https://mcp.skills-registry.dev/mcp\"}}\n}",
 	})
 	wiz := nm.(WizardModel)
 	if !wiz.mcpDone {

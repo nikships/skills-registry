@@ -4,7 +4,7 @@ Active contributors: Nik Anand
 
 ## What this page covers
 
-`skill-registry` (the Go binary) ships seven named subcommands plus a bare-invocation router that lands on the wizard / hub / help dump. Each subcommand is a single file under `cli/cmd/skill-registry/` registered on the root cobra command. They all honor a persistent `--json` flag bound on the root via `jsonout.BindFlag` (see [../systems/json-output.md](../systems/json-output.md)).
+`skills-registry` (the Go binary) ships seven named subcommands plus a bare-invocation router that lands on the wizard / hub / help dump. Each subcommand is a single file under `cli/cmd/skills-registry/` registered on the root cobra command. They all honor a persistent `--json` flag bound on the root via `jsonout.BindFlag` (see [../systems/json-output.md](../systems/json-output.md)).
 
 This page is the flag-level reference. Cross to [../apps/cli/subcommands.md](../apps/cli/subcommands.md) for the implementation deep dive shared by the standalone subcommands and the hub dispatcher.
 
@@ -14,7 +14,7 @@ Every subcommand checks `jsonout.Enabled()` at the top of its `RunE` and forks i
 
 ## `shouldAutoYes` — destructive auto-confirm
 
-Destructive subcommands (`sync`, `add`, `remove`) prompt for confirmation by default. An agent piping commands into the CLI can't render a Bubble Tea prompt without hanging, so `shouldAutoYes()` in `cli/cmd/skill-registry/list.go` resolves the ambiguity:
+Destructive subcommands (`sync`, `add`, `remove`) prompt for confirmation by default. An agent piping commands into the CLI can't render a Bubble Tea prompt without hanging, so `shouldAutoYes()` in `cli/cmd/skills-registry/list.go` resolves the ambiguity:
 
 ```go
 func shouldAutoYes() bool {
@@ -27,7 +27,7 @@ When `--json` is set AND stdin is not a TTY, every destructive subcommand promot
 ## `bootstrap`
 
 ```
-skill-registry bootstrap [--repo OWNER/NAME] [--visibility public|private]
+skills-registry bootstrap [--repo OWNER/NAME] [--visibility public|private]
                          [--no-agents] [--yes]
 ```
 
@@ -43,7 +43,7 @@ Headless onboarding: ensure gh auth + git on PATH → scan dot-folders → creat
 ## `list`
 
 ```
-skill-registry list [--query SUBSTRING] [--plain] [--json]
+skills-registry list [--query SUBSTRING] [--plain] [--json]
 ```
 
 | Flag | Type | Purpose |
@@ -65,7 +65,7 @@ Empty registry → `[]`. Errors → `{"error": "..."}` + exit 1.
 ## `get <slug>`
 
 ```
-skill-registry get <slug> [--dest PATH] [--json]
+skills-registry get <slug> [--dest PATH] [--json]
 ```
 
 | Flag | Type | Purpose |
@@ -81,7 +81,7 @@ Destination resolution in `resolveDest`: empty `--dest` → `<cwd>/.agents/skill
 ## `sync`
 
 ```
-skill-registry sync [--yes] [--all] [--json]
+skills-registry sync [--yes] [--all] [--json]
 ```
 
 | Flag | Type | Purpose |
@@ -100,7 +100,7 @@ Both arrays are always present (possibly empty).
 ## `add <source>`
 
 ```
-skill-registry add <source> [--yes] [--all] [--json]
+skills-registry add <source> [--yes] [--all] [--json]
 ```
 
 | Flag | Type | Purpose |
@@ -117,7 +117,7 @@ skill-registry add <source> [--yes] [--all] [--json]
 ## `publish <path>`
 
 ```
-skill-registry publish <path> [--name OVERRIDE] [--json]
+skills-registry publish <path> [--name OVERRIDE] [--json]
 ```
 
 | Flag | Type | Purpose |
@@ -135,7 +135,7 @@ Validates `<path>` is a directory containing `SKILL.md`. Walks the tree; skips h
 ## `remove <slug>`
 
 ```
-skill-registry remove <slug> [--yes] [--json]
+skills-registry remove <slug> [--yes] [--json]
 ```
 
 | Flag | Type | Purpose |

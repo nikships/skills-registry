@@ -1,4 +1,4 @@
-// skill-registry — TUI manager for a GitHub-backed skill registry.
+// skills-registry — TUI manager for a GitHub-backed skill registry.
 package main
 
 import (
@@ -25,7 +25,7 @@ func main() {
 	}
 }
 
-// newRootCmd assembles the cobra command tree. A bare `skill-registry`
+// newRootCmd assembles the cobra command tree. A bare `skills-registry`
 // invocation (no subcommand) is dispatched via RunE → runRoot, which
 // routes between the onboarding wizard, the dashboard hub, and a plain
 // help dump based on (a) whether a registry is already configured and
@@ -37,24 +37,24 @@ func main() {
 // shows usage regardless of first-run state.
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "skill-registry",
+		Use:   "skills-registry",
 		Short: "Manage a GitHub-backed personal skill registry",
-		Long: `skill-registry is a TUI for your personal skill registry repository.
+		Long: `skills-registry is a TUI for your personal skill registry repository.
 
-Running "skill-registry" with no subcommand drops you into the right place:
+Running "skills-registry" with no subcommand drops you into the right place:
   - First-time users (no config yet)      → onboarding wizard
   - Returning users (config exists)       → dashboard hub
   - Non-interactive shells (stdout piped) → this usage text
 
 Day-to-day, use:
-  skill-registry list                     fuzzy-filterable list of every skill
-  skill-registry get <slug>               download a skill to ./.agents/skills/<slug>/
-  skill-registry sync                     push local skills missing from the registry
-  skill-registry add <source>             clone a source, multi-select what to publish
-  skill-registry publish <path>           publish a single local skill folder
-  skill-registry remove <slug>            delete a skill from the registry + local copies
-  skill-registry update                   self-update the installed CLI
-  skill-registry bootstrap                explicit (re-)run of the bootstrap flow`,
+  skills-registry list                     fuzzy-filterable list of every skill
+  skills-registry get <slug>               download a skill to ./.agents/skills/<slug>/
+  skills-registry sync                     push local skills missing from the registry
+  skills-registry add <source>             clone a source, multi-select what to publish
+  skills-registry publish <path>           publish a single local skill folder
+  skills-registry remove <slug>            delete a skill from the registry + local copies
+  skills-registry update                   self-update the installed CLI
+  skills-registry bootstrap                explicit (re-)run of the bootstrap flow`,
 		Version: version,
 		Args:    cobra.NoArgs,
 		RunE:    runRoot,
@@ -97,7 +97,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// bareRoute enumerates the four resolutions a bare `skill-registry`
+// bareRoute enumerates the four resolutions a bare `skills-registry`
 // invocation can land on.
 type bareRoute int
 
@@ -149,7 +149,7 @@ func runAutoUpdate(ctx context.Context, stderr io.Writer) {
 	if !autoUpdateEnabled() {
 		return
 	}
-	fmt.Fprintln(stderr, "checking for skill-registry updates...")
+	fmt.Fprintln(stderr, "checking for skills-registry updates...")
 	res, err := updateRunner(ctx, updateOpts{})
 	if err != nil {
 		fmt.Fprintf(stderr, "warning: auto-update failed: %v\n", err)

@@ -17,7 +17,7 @@ A few of these pages have direct counterparts in Python and Go — the registry 
 | [Caching](caching.md) | The Python MCP server's on-disk cache (`~/.cache/skills-mcp/skills/<slug>/`) with tree-SHA invalidation. The Go side mirrors the path for the Settings TUI display only. | `src/skills_mcp/cache.py`, `cli/internal/cache/cache.go` |
 | [Agent catalogue](agent-catalogue.md) | The 56-entry single source of truth for every known AI tool dot-folder, with display names and install-path resolution. | `cli/internal/agents/agents.go` |
 | [JSON output](json-output.md) | The persistent `--json` flag and the `Print` / `PrintError` helpers every CLI subcommand uses to emit machine-readable output. Includes the auto-`--yes` behavior for destructive commands. | `cli/internal/jsonout/jsonout.go` |
-| [MCP entry-point install](mcp-entry-point-install.md) | The `uv tool install` → `pipx install` → `pip install --user` cascade the wizard runs to put `skill-registry-mcp` on disk for desktop MCP clients. | `cli/internal/bootstrap/mcp_install.go`, `src/skills_mcp/init.py` |
+| [MCP entry-point install](mcp-entry-point-install.md) | The `uv tool install` → `pipx install` → `pip install --user` cascade the wizard runs to put `skills-registry-mcp` on disk for desktop MCP clients. | `cli/internal/bootstrap/mcp_install.go`, `src/skills_mcp/init.py` |
 
 ## Where they fit
 

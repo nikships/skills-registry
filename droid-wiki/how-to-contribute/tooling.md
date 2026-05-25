@@ -110,16 +110,16 @@ The wheel uses `hatchling` as the PEP 517 backend. Version is **dynamic** — `h
 
 ### Go build — `goreleaser`-style asset naming
 
-Each `(GOOS, GOARCH)` combo gets one archive named `skill-registry_<os>_<arch>.tar.gz` (or `.zip` on Windows): `darwin_amd64`, `darwin_arm64`, `linux_amd64`, `linux_arm64`, `windows_amd64`. The build is plain `go build -trimpath -ldflags "-s -w -X main.version=${version}"`. There's no `goreleaser` dep; the naming mirrors what `install.sh` substitutes against.
+Each `(GOOS, GOARCH)` combo gets one archive named `skills-registry_<os>_<arch>.tar.gz` (or `.zip` on Windows): `darwin_amd64`, `darwin_arm64`, `linux_amd64`, `linux_arm64`, `windows_amd64`. The build is plain `go build -trimpath -ldflags "-s -w -X main.version=${version}"`. There's no `goreleaser` dep; the naming mirrors what `install.sh` substitutes against.
 
 ### Codesign + notarize (darwin)
 
 Darwin binaries can't run after download without notarization (`com.apple.provenance` quarantine). The pipeline:
 
 1. `apple-actions/import-codesign-certs@v3` imports the Developer ID Application P12 into the keychain.
-2. `codesign --force --options runtime --timestamp --sign "<identity>" skill-registry` — hardened runtime + secure timestamp + Developer ID signature.
-3. `codesign --verify --strict --verbose=2 skill-registry`.
-4. `ditto -c -k --keepParent skill-registry skill-registry.notarize.zip` (notarytool wants a zip).
+2. `codesign --force --options runtime --timestamp --sign "<identity>" skills-registry` — hardened runtime + secure timestamp + Developer ID signature.
+3. `codesign --verify --strict --verbose=2 skills-registry`.
+4. `ditto -c -k --keepParent skills-registry skills-registry.notarize.zip` (notarytool wants a zip).
 5. `xcrun notarytool submit … --wait --output-format json` blocks until Apple accepts or rejects. The job parses `status` from the JSON and fails on non-`Accepted`.
 
 A bare Mach-O can't be stapled, but once the CDHash is in Apple's ticket service macOS performs a one-time online check on first launch.
@@ -130,7 +130,7 @@ A bare Mach-O can't be stapled, but once the CDHash is in Apple's ticket service
 
 ### `install.sh`
 
-POSIX `sh`. Detects OS via `uname -s` (lowercased), arch via `uname -m` (`x86_64` → `amd64`, `aarch64`/`arm64` → `arm64`), downloads the asset, extracts with `tar` (or `unzip` for Windows), drops the binary at `${SKILLS_BIN_DIR:-$HOME/.local/bin}/skill-registry`, chmod 755. Pin a release with `SKILLS_REGISTRY_VERSION=v0.5.1`.
+POSIX `sh`. Detects OS via `uname -s` (lowercased), arch via `uname -m` (`x86_64` → `amd64`, `aarch64`/`arm64` → `arm64`), downloads the asset, extracts with `tar` (or `unzip` for Windows), drops the binary at `${SKILLS_BIN_DIR:-$HOME/.local/bin}/skills-registry`, chmod 755. Pin a release with `SKILLS_REGISTRY_VERSION=v0.5.1`.
 
 ## Cross-references
 

@@ -1,5 +1,6 @@
 'use client';
 
+/* eslint-disable react/no-unescaped-entities, react/jsx-no-comment-textnodes, @next/next/no-img-element */
 import React, { useState, useEffect } from "react";
 
 export default function Home() {
@@ -51,9 +52,9 @@ export default function Home() {
       <div className="container hero-grid">
         <div>
           <p className="eyebrow"><span className="dot"></span> v0.7.0 · Apache-2.0 · Free &amp; open source</p>
-          <h1 className="h1">One GitHub repo.<br />Every AI agent.</h1>
+          <h1 className="h1">One GitHub repo.<br />Every AI agent.<br />Every device.</h1>
           <p className="lead">
-            Stop copy-pasting <span className="inline-code">SKILL.md</span> files into <span className="inline-code">~/.claude</span>, <span className="inline-code">~/.cursor</span>, <span className="inline-code">~/.codex</span>. Skills live in one repo you own. Agents fetch them on demand over MCP — no startup-token tax, no drift.
+            Your skills live in one repo you own. Access them from any device — laptop, desktop, cloud VM — via the CLI or MCP. No more copying <span className="inline-code">SKILL.md</span> files across machines. No more syncing <span className="inline-code">~/.claude</span>, <span className="inline-code">~/.cursor</span>, <span className="inline-code">~/.codex</span> folders by hand. One registry. Everywhere you work.
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary btn-arrow" href="#install">Install in one command</a>
@@ -64,7 +65,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="terminal" role="img" aria-label="Terminal showing skill-registry install">
+        <div className="terminal" role="img" aria-label="Terminal showing skills-registry install">
           <div className="terminal-bar">
             <span className="dot term-dot-r"></span>
             <span className="dot term-dot-y"></span>
@@ -76,10 +77,10 @@ export default function Home() {
 
             <span className="term-line term-comment"># Detecting platform…</span>
             <span className="term-line"><span className="term-ok">✓</span> darwin/arm64 detected</span>
-            <span className="term-line"><span className="term-ok">✓</span> Downloaded skill-registry_darwin_arm64.tar.gz — 4.2 MB</span>
-            <span className="term-line"><span className="term-ok">✓</span> Installed binary → <span className="term-accent">~/.local/bin/skill-registry</span></span>
+            <span className="term-line"><span className="term-ok">✓</span> Downloaded skills-registry_darwin_arm64.tar.gz — 4.2 MB</span>
+            <span className="term-line"><span className="term-ok">✓</span> Installed binary → <span className="term-accent">~/.local/bin/skills-registry</span></span>
 
-            <span className="term-line group"><span className="term-prompt">$</span> <span className="term-cmd">skill-registry</span></span>
+            <span className="term-line group"><span className="term-prompt">$</span> <span className="term-cmd">skills-registry</span></span>
             <span className="term-line term-comment"># Onboarding wizard — scanning ~/.* for existing skills…</span>
             <span className="term-line"><span className="term-indent"></span>found 11 skills in <span className="term-accent">~/.claude/skills</span></span>
             <span className="term-line"><span className="term-indent"></span>found  6 skills in <span className="term-accent">~/.cursor/skills</span></span>
@@ -89,7 +90,7 @@ export default function Home() {
             <span className="term-line term-comment"># Paste into Claude Code / Cursor / VS Code mcp.json</span>
             <span className="term-line"><span className="term-warn">&#123;</span></span>
             <span className="term-line"><span className="term-warn">  "mcpServers": &#123;</span></span>
-            <span className="term-line"><span className="term-warn">    "skill-registry": &#123;</span></span>
+            <span className="term-line"><span className="term-warn">    "skills-registry": &#123;</span></span>
             <span className="term-line"><span className="term-warn">      "url": "https://mcp.skills-registry.dev/mcp"</span></span>
             <span className="term-line"><span className="term-warn">    &#125;</span></span>
             <span className="term-line"><span className="term-warn">  &#125;</span></span>
@@ -115,12 +116,12 @@ export default function Home() {
             <p className="stat-label">MCP tools exposed — <span className="num">list_skills</span>, <span className="num">get_skill</span></p>
           </div>
           <div className="stat">
-            <div className="stat-num">0</div>
-            <p className="stat-label">SSH keys, git configs, or shell PATHs required</p>
+            <div className="stat-num">∞</div>
+            <p className="stat-label">Devices — one registry accessible everywhere</p>
           </div>
           <div className="stat">
             <div className="stat-num">1</div>
-            <p className="stat-label">Command to install &amp; wire up every agent</p>
+            <p className="stat-label">Command to install &amp; wire up every agent on any machine</p>
           </div>
         </div>
       </div>
@@ -131,9 +132,9 @@ export default function Home() {
       <div className="container">
         <div className="section-head">
           <p className="eyebrow"><span className="dot"></span> The problem</p>
-          <h2 className="h2">Every AI tool wants its own skills folder. Edit once, sync N times.</h2>
+          <h2 className="h2">Skills trapped on one machine. Copied by hand. Out of sync everywhere.</h2>
           <p className="lead">
-            Today every AI coding tool keeps a local skills folder. Same skill, copy-pasted into N dot-folders. Worse — every skill in every folder gets auto-loaded into the agent's startup context, whether the current task needs it or not. You pay tokens for skills you'll never use this conversation.
+            Your best code-review skill lives on your work laptop. Your React component library skill is on your desktop. Your cloud VM has neither. Every AI tool hoards its own local skills folder, and you are the human sync cable — copy-pasting SKILL.md files, rsyncing dot-folders, DMing yourself snippets. Worse, every skill gets auto-loaded into startup context whether you need it or not. You pay tokens for skills you'll never use this conversation.
           </p>
         </div>
 
@@ -153,14 +154,14 @@ export default function Home() {
 
           <div className="card problem-card" style={{borderColor: "color-mix(in oklab, var(--accent) 32%, var(--border))"}}>
             <span className="problem-tag" style={{color: "var(--accent)"}}>After · skills-registry</span>
-            <h3 className="h4" style={{fontWeight: "600"}}>One repo. Fetched on demand.</h3>
+            <h3 className="h4" style={{fontWeight: "600"}}>One repo. Every device. Fetched on demand.</h3>
             <ul className="problem-list" style={{marginTop: "14px"}}>
               <li className="good">anand-92/my-skills/code-review/SKILL.md</li>
-              <li className="good">Every agent points to the same repo</li>
-              <li className="good">Edit once · branch · PR · fork · restore</li>
+              <li className="good">Same skills on laptop, desktop, and cloud VM</li>
+              <li className="good">Every agent on every device points to the same repo</li>
+              <li className="good">Edit once — every machine sees the update instantly</li>
               <li className="good">Pointer file in each agent's dot-folder (~200 bytes)</li>
               <li className="good">Real skill fetched only when needed</li>
-              <li className="good">Cache invalidated on tree SHA change</li>
             </ul>
           </div>
         </div>
@@ -182,15 +183,15 @@ export default function Home() {
           <div className="feature-cell card">
             <span className="feature-num">01</span>
             <div className="feature-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2v20M5 9l7-7 7 7M5 15l7 7 7-7"/></svg></div>
-            <h4 className="h4">Fetched on demand</h4>
-            <p>Tiny pointer file in each agent's dot-folder. The actual skill is downloaded the moment <span className="inline-code">get_skill(slug)</span> is called — and not before.</p>
+            <h4 className="h4">One registry, every device</h4>
+            <p>Install the CLI on any machine and point it at the same GitHub repo. Your skills follow you — laptop, desktop, remote server, or fresh VM. No manual syncing, no drift between devices.</p>
           </div>
 
           <div className="feature-cell card">
             <span className="feature-num">02</span>
             <div className="feature-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
-            <h4 className="h4">50+ tools recognized</h4>
-            <p>Claude Code, Claude Desktop, Cursor, Codex, Windsurf, Goose, Factory, VS Code/Copilot — all detected at bootstrap, universal ones pre-selected.</p>
+            <h4 className="h4">Fetched on demand</h4>
+            <p>Tiny pointer file in each agent's dot-folder. The actual skill is downloaded the moment <span className="inline-code">get_skill(slug)</span> is called — and not before. No startup-token tax, no bloat.</p>
           </div>
 
           <div className="feature-cell card">
@@ -249,6 +250,12 @@ export default function Home() {
               <td className="cell yes col-us-cell">yes</td>
             </tr>
             <tr>
+              <td className="feature-label">Access from any device (no manual sync)</td>
+              <td className="cell no">no</td>
+              <td className="cell partial">manual</td>
+              <td className="cell yes col-us-cell">yes</td>
+            </tr>
+            <tr>
               <td className="feature-label">Fetched on demand (no startup tokens)</td>
               <td className="cell no">no</td>
               <td className="cell no">no</td>
@@ -295,7 +302,7 @@ export default function Home() {
         <div className="arch-grid">
           <div className="card arch-card">
             <div className="arch-head">
-              <span className="arch-name">skill-registry-mcp (hosted)</span>
+              <span className="arch-name">skills-registry-mcp (hosted)</span>
               <span className="arch-lang">Python 3.10+</span>
             </div>
             <p className="arch-role">Hosted FastMCP at <span className="inline-code">mcp.skills-registry.dev</span>. OAuth via GitHub. Two read-only MCP tools: <span className="inline-code">list_skills</span>, <span className="inline-code">get_skill</span>. Skills served from each user's linked repo via a GitHub App installation token.</p>
@@ -304,7 +311,7 @@ export default function Home() {
 
           <div className="card arch-card">
             <div className="arch-head">
-              <span className="arch-name">skill-registry</span>
+              <span className="arch-name">skills-registry</span>
               <span className="arch-lang">Go 1.24+</span>
             </div>
             <p className="arch-role">Charmbracelet TUI manager — onboarding wizard + dashboard hub for day-to-day skill management. Commands: <span className="inline-code">list</span>, <span className="inline-code">get</span>, <span className="inline-code">sync</span>, <span className="inline-code">add</span>, <span className="inline-code">publish</span>, <span className="inline-code">remove</span>.</p>
@@ -353,7 +360,7 @@ export default function Home() {
 <span className="c">// Claude Code / Claude Desktop / Cursor / VS Code — mcp.json</span>
 <span className="p">&#123;</span>
   <span className="k">"mcpServers"</span><span className="p">:</span> <span className="p">&#123;</span>
-    <span className="k">"skill-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
+    <span className="k">"skills-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
       <span className="k">"url"</span><span className="p">:</span> <span className="s">"https://mcp.skills-registry.dev/mcp"</span>
     <span className="p">&#125;</span>
   <span className="p">&#125;</span>
@@ -371,7 +378,7 @@ export default function Home() {
 <span className="p">→</span> follows the skill's instructions</pre>
             </div>
 
-            <p className="meta-text" style={{marginTop: "14px"}}><span className="num">skill-registry</span> prints this snippet for you on first run.</p>
+            <p className="meta-text" style={{marginTop: "14px"}}><span className="num">skills-registry</span> prints this snippet for you on first run.</p>
           </div>
         </div>
       </div>
@@ -390,12 +397,12 @@ export default function Home() {
             <li>
               <div>
                 <h4>Install the CLI</h4>
-                <p>One-liner: <span className="inline-code">curl … install.sh | sh</span> drops the Go binary into <span className="inline-code">~/.local/bin/skill-registry</span>.</p>
+                <p>One-liner: <span className="inline-code">curl … install.sh | sh</span> drops the Go binary into <span className="inline-code">~/.local/bin/skills-registry</span>.</p>
               </div>
             </li>
             <li>
               <div>
-                <h4>Run <code>skill-registry</code></h4>
+                <h4>Run <code>skills-registry</code></h4>
                 <p>Bare invocation launches the onboarding wizard the first time, then routes to the dashboard hub on every subsequent run.</p>
               </div>
             </li>
@@ -427,11 +434,11 @@ export default function Home() {
 
             <div className="code-panel" id="inst-curl" hidden={installTab !== "inst-curl"}>
               <pre className="code-block">
-<span className="c"># Drops the Go binary into ~/.local/bin/skill-registry</span>
+<span className="c"># Drops the Go binary into ~/.local/bin/skills-registry</span>
 <span className="k">$</span> curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
 
 <span className="c"># Then run the wizard:</span>
-<span className="k">$</span> skill-registry</pre>
+<span className="k">$</span> skills-registry</pre>
             </div>
 
             <div className="code-panel" id="inst-mcp" hidden={installTab !== "inst-mcp"}>
@@ -439,7 +446,7 @@ export default function Home() {
 <span className="c">// Claude Code / Claude Desktop / Cursor / VS Code — mcp.json</span>
 <span className="p">&#123;</span>
   <span className="k">"mcpServers"</span><span className="p">:</span> <span className="p">&#123;</span>
-    <span className="k">"skill-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
+    <span className="k">"skills-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
       <span className="k">"url"</span><span className="p">:</span> <span className="s">"https://mcp.skills-registry.dev/mcp"</span>
     <span className="p">&#125;</span>
   <span className="p">&#125;</span>
@@ -459,7 +466,7 @@ export default function Home() {
       <div className="container">
         <div className="section-head">
           <p className="eyebrow"><span className="dot"></span> CLI reference</p>
-          <h2 className="h2">The <span className="num" style={{color: "var(--accent)"}}>skill-registry</span> binary</h2>
+          <h2 className="h2">The <span className="num" style={{color: "var(--accent)"}}>skills-registry</span> binary</h2>
           <p className="lead">Charmbracelet TUI for day-to-day management. Same Git-Data-API publish flow as the MCP server, mirrored in Go.</p>
         </div>
 
@@ -469,35 +476,35 @@ export default function Home() {
           </thead>
           <tbody>
             <tr>
-              <td className="cmd">skill-registry bootstrap</td>
+              <td className="cmd">skills-registry bootstrap</td>
               <td className="desc">First-run setup. Idempotent — safe to re-run.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry list</td>
+              <td className="cmd">skills-registry list</td>
               <td className="desc">Fuzzy-filterable TUI of every skill in your registry. Press <span className="inline-code">/</span> to search, Enter to preview.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry get &lt;slug&gt;</td>
-              <td className="desc">Download one skill into <span className="inline-code">./skill-registry/&lt;slug&gt;/</span>.</td>
+              <td className="cmd">skills-registry get &lt;slug&gt;</td>
+              <td className="desc">Download one skill into <span className="inline-code">./skills-registry/&lt;slug&gt;/</span>.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry sync</td>
+              <td className="cmd">skills-registry sync</td>
               <td className="desc">Push local skills sitting in <span className="inline-code">.claude/skills</span>, <span className="inline-code">.cursor/skills</span>, etc. that aren't yet in the registry.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry add &lt;owner/repo&gt;</td>
+              <td className="cmd">skills-registry add &lt;owner/repo&gt;</td>
               <td className="desc">Clone a teammate's registry. Multi-select which of their skills to pull into your own.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry publish &lt;path&gt;</td>
+              <td className="cmd">skills-registry publish &lt;path&gt;</td>
               <td className="desc">Publish a single local skill folder. Path-traversal validated. 2 MiB per-file cap.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry remove &lt;slug&gt;</td>
+              <td className="cmd">skills-registry remove &lt;slug&gt;</td>
               <td className="desc">Atomic delete — drops the slug from the registry (single Git Data API commit with null-SHA tree entries), the local cache, and every agent dot-folder.</td>
             </tr>
             <tr>
-              <td className="cmd">skill-registry --version</td>
+              <td className="cmd">skills-registry --version</td>
               <td className="desc">Print version. Current: <span className="num">0.7.x</span>.</td>
             </tr>
           </tbody>
@@ -518,7 +525,7 @@ export default function Home() {
             <p className="lead">Apache-2.0. No accounts. No telemetry. No paid tier — ever. Built by <a href="https://github.com/anand-92" style={{color: "#ff9ec2", textDecoration: "underline", textDecorationThickness: "1px", textUnderlineOffset: "3px"}}>anand-92</a> as an open-source dev tool. Star the repo or file an issue if it breaks.</p>
           </div>
           <div className="cta-actions">
-            <a className="btn btn-light btn-arrow" href="#install"><span className="num">skill-registry</span></a>
+            <a className="btn btn-light btn-arrow" href="#install"><span className="num">skills-registry</span></a>
             <a className="btn btn-outline-light" href="https://github.com/anand-92/skills-registry">★ Star on GitHub</a>
             <span className="meta-light">MCP surface stable · internals may shift between minor versions</span>
           </div>
@@ -534,7 +541,7 @@ export default function Home() {
           <a href="#" className="brand-mark foot" aria-label="skills-registry">
             <img src="assets/logo.png" alt="skills-registry" />
           </a>
-          <p className="foot-tag">One GitHub repo, every AI agent. Skills fetched on demand — not auto-loaded into every startup context.</p>
+          <p className="foot-tag">One GitHub repo. Every AI agent. Every device. Your skills, everywhere you work — fetched on demand.</p>
         </div>
         <div className="foot-col">
           <h5>Project</h5>

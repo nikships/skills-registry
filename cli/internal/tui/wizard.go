@@ -20,7 +20,7 @@ import (
 
 // WizardStep enumerates the eight onboarding stages the wizard walks the user
 // through. The order matches the legacy bootstrap CLI flow, so a user who
-// runs `skill-registry` for the first time sees the same sequence — just
+// runs `skills-registry` for the first time sees the same sequence — just
 // inside an alt-screen Bubble Tea frame instead of a series of synchronous
 // prompts.
 type WizardStep int
@@ -35,7 +35,7 @@ const (
 	// WizardStepPush uploads every local skill in a batched git push.
 	WizardStepPush
 	// WizardStepAgentSelect multi-selects the agent dot-folders to seed
-	// with the skill-registry SKILL.md.
+	// with the skills-registry SKILL.md.
 	WizardStepAgentSelect
 	// WizardStepCleanup offers to delete the now-redundant local copies.
 	WizardStepCleanup
@@ -323,7 +323,7 @@ func NewWizard(ctx context.Context) WizardModel {
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
 	ti := textinput.New()
-	ti.Placeholder = "skill-registry"
+	ti.Placeholder = "skills-registry"
 	ti.Prompt = "› "
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(ColInk)
@@ -392,7 +392,7 @@ func (m WizardModel) Visibility() string { return m.visibility }
 func (m WizardModel) Pushed() int { return m.pushed }
 
 // AgentsInstalled returns the number of agent dot-folders that received
-// the skill-registry SKILL.md. Zero before step 5 completes.
+// the skills-registry SKILL.md. Zero before step 5 completes.
 func (m WizardModel) AgentsInstalled() int { return len(m.agentPaths) }
 
 // CleanupDeleted returns the number of local entries removed by step 6.
@@ -1420,10 +1420,10 @@ func (m WizardModel) footerKeys() []struct{ k, d string } {
 func (m WizardModel) renderCancelOverlay() string {
 	title := ErrorStyle.Render("Cancel onboarding?")
 	bodyText := "Nothing has been written to GitHub yet.\n" +
-		"You can restart any time with `skill-registry`."
+		"You can restart any time with `skills-registry`."
 	if m.pushDone {
 		bodyText = "Your registry has already been created on GitHub.\n" +
-			"You can restart any time with `skill-registry`."
+			"You can restart any time with `skills-registry`."
 	}
 	body := lipgloss.NewStyle().Foreground(ColInk).Render(bodyText)
 	keepBtn := renderOverlayButton("No, keep going", m.cancelCursor == 0, false)

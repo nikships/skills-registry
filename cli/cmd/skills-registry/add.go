@@ -252,7 +252,7 @@ func resolveSourceWithNotice(ctx context.Context, source string, announce bool) 
 	if ghShorthandRe.MatchString(source) {
 		url = "https://github.com/" + source + ".git"
 	}
-	tmp, err := os.MkdirTemp("", "skill-registry-add-")
+	tmp, err := os.MkdirTemp("", "skills-registry-add-")
 	if err != nil {
 		return "", noopCleanup, err
 	}

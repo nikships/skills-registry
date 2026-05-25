@@ -97,17 +97,17 @@ references — is the plural form: **`skills-registry`**. Use that spelling
 in any prose that talks about the project as a whole (docs, comments,
 website copy, log messages, error text addressed to humans).
 
-The following are spelled singular (`skill-registry`) for historical
+The following are spelled singular (`skills-registry`) for historical
 reasons; renaming them would break every existing install:
 
 | Token | Where it lives |
 |---|---|
-| `skill-registry` (Go binary) | `cli/cmd/skill-registry/`, `~/.local/bin/skill-registry`, release tarballs |
-| `skill-registry-mcp` | Python console script in `pyproject.toml`, desktop MCP client configs |
-| `"skill-registry"` MCP server name | Registered in `registry_server.py:build_server` |
-| `[mcp_servers.skill-registry]` / `"skill-registry": {…}` | The config key users paste into Codex / Claude / Cursor / VS Code |
-| `<dot-dir>/skills/skill-registry/SKILL.md` | Install path written by Go bootstrap |
-| `skill-registry_<os>_<arch>` | Release artifact naming |
+| `skills-registry` (Go binary) | `cli/cmd/skills-registry/`, `~/.local/bin/skills-registry`, release tarballs |
+| `skills-registry-mcp` | Python console script in `pyproject.toml`, desktop MCP client configs |
+| `"skills-registry"` MCP server name | Registered in `registry_server.py:build_server` |
+| `[mcp_servers.skills-registry]` / `"skills-registry": {…}` | The config key users paste into Codex / Claude / Cursor / VS Code |
+| `<dot-dir>/skills/skills-registry/SKILL.md` | Install path written by Go bootstrap |
+| `skills-registry_<os>_<arch>` | Release artifact naming |
 
 Keep these tokens singular whenever you quote them verbatim. New code
 or docs must not introduce *new* singular spellings for project-brand

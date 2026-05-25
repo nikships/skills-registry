@@ -21,7 +21,7 @@ func TestSkillMdInterpolatesRepo(t *testing.T) {
 // way to learn the destructive-cleanup workflow F4.1 added.
 func TestSkillMdDocumentsRemove(t *testing.T) {
 	body := SkillMd("alice/registry")
-	if !strings.Contains(body, "skill-registry remove") {
+	if !strings.Contains(body, "skills-registry remove") {
 		t.Fatalf("SKILL.md is missing the `remove` subcommand section")
 	}
 	if !strings.Contains(body, "atomic commit") {
@@ -39,11 +39,11 @@ func TestSkillMdDocumentsJSONFlag(t *testing.T) {
 		t.Fatalf("SKILL.md is missing the --json flag section")
 	}
 	for _, cmd := range []string{
-		"skill-registry list --json",
-		"skill-registry get <slug> --json",
-		"skill-registry publish <path> --json",
-		"skill-registry sync --json",
-		"skill-registry remove <slug> --json",
+		"skills-registry list --json",
+		"skills-registry get <slug> --json",
+		"skills-registry publish <path> --json",
+		"skills-registry sync --json",
+		"skills-registry remove <slug> --json",
 	} {
 		if !strings.Contains(body, cmd) {
 			t.Fatalf("SKILL.md is missing the %q row from the --json table", cmd)

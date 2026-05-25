@@ -79,7 +79,7 @@ uv run pytest -v --cov=skills_mcp --cov-report=term-missing
 Smoke-test the CLI build:
 
 ```bash
-(cd cli && go build -o /tmp/skill-registry ./cmd/skill-registry && /tmp/skill-registry --help)
+(cd cli && go build -o /tmp/skills-registry ./cmd/skills-registry && /tmp/skills-registry --help)
 ```
 
 Run the MCP server inline against a real registry without installing the wheel:
@@ -143,7 +143,7 @@ The pipeline:
 1. **Test gate** — Same checks as `ci.yml`. Failures abort the release.
 2. **Tag** — Compute the next semver from the latest `vX.Y.Z` tag, push a lightweight tag on the triggering commit. CI never commits a version bump back to `main`; the Python wheel version is dynamic via `hatch-vcs`.
 3. **Build Python** — `uv build` produces wheel + sdist.
-4. **Build Go CLI** — `go build` for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64. Darwin binaries are codesigned (`apple-actions/import-codesign-certs@v3` + Developer ID Application identity) and notarized (`xcrun notarytool submit --wait`). The result is `.tar.gz` for POSIX platforms and `.zip` for Windows, named `skill-registry_<os>_<arch>.{tar.gz,zip}`.
+4. **Build Go CLI** — `go build` for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64. Darwin binaries are codesigned (`apple-actions/import-codesign-certs@v3` + Developer ID Application identity) and notarized (`xcrun notarytool submit --wait`). The result is `.tar.gz` for POSIX platforms and `.zip` for Windows, named `skills-registry_<os>_<arch>.{tar.gz,zip}`.
 5. **Release** — `gh release create vX.Y.Z` with all 7 assets attached: wheel, sdist, 4 darwin/linux tarballs, 1 Windows zip.
 6. **PyPI publish** — Uploads the wheel to PyPI through the `pypi` environment using `PYPI_API_TOKEN`.
 

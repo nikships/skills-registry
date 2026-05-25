@@ -12,8 +12,8 @@
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
 [![Stars](https://img.shields.io/github/stars/anand-92/skills-registry?style=social)](https://github.com/anand-92/skills-registry/stargazers)
 
-<!-- TODO(maintainer): drop in a TUI screenshot or short GIF here. Suggestion: `skill-registry list` mid-fuzzy-filter, saved as docs/img/hero.png. -->
-<img src="docs/img/hero.png" alt="skill-registry TUI" width="720">
+<!-- TODO(maintainer): drop in a TUI screenshot or short GIF here. Suggestion: `skills-registry list` mid-fuzzy-filter, saved as docs/img/hero.png. -->
+<img src="docs/img/hero.png" alt="skills-registry TUI" width="720">
 
 </div>
 
@@ -61,10 +61,10 @@ One file, plus any reference docs or examples. Most modern AI coding tools alrea
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
-skill-registry
+skills-registry
 ```
 
-The installer drops the `skill-registry` Go binary into `~/.local/bin/`. Bare `skill-registry` routes automatically:
+The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
 - **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → pick agents to wire up → optionally delete the now-redundant local copies → print the hosted-MCP JSON snippet.
 - **Returning users** → **dashboard hub** with cards for Browse / Sync / Add / Publish / Remove / Settings.
@@ -85,28 +85,28 @@ The agent calls `list_skills` and `get_skill` automatically — you never touch 
 
 ## Daily use
 
-Run `skill-registry` for the dashboard, or use subcommands directly:
+Run `skills-registry` for the dashboard, or use subcommands directly:
 
 | What you want | Command |
 |---|---|
-| Open the dashboard | `skill-registry` |
-| Browse what's in your registry | `skill-registry list` |
-| Pull one skill into the current folder | `skill-registry get <slug>` |
-| Push skills sitting in `.claude/skills` etc. into the registry | `skill-registry sync` |
-| Pull a skill from someone else's repo into yours | `skill-registry add <owner/repo>` |
-| Publish a new skill from a local folder | `skill-registry publish <path>` |
-| Delete a skill from the registry + cache + agent dot-folders | `skill-registry remove <slug>` |
-| Re-run the wizard / bootstrap (idempotent) | `skill-registry bootstrap` |
+| Open the dashboard | `skills-registry` |
+| Browse what's in your registry | `skills-registry list` |
+| Pull one skill into the current folder | `skills-registry get <slug>` |
+| Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync` |
+| Pull a skill from someone else's repo into yours | `skills-registry add <owner/repo>` |
+| Publish a new skill from a local folder | `skills-registry publish <path>` |
+| Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
+| Re-run the wizard / bootstrap (idempotent) | `skills-registry bootstrap` |
 
-<!-- TODO(maintainer): drop a short GIF of `skill-registry sync` here — the multi-select TUI sells the experience. -->
-<img src="docs/img/sync.gif" alt="skill-registry sync" width="640">
+<!-- TODO(maintainer): drop a short GIF of `skills-registry sync` here — the multi-select TUI sells the experience. -->
+<img src="docs/img/sync.gif" alt="skills-registry sync" width="640">
 
 Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter to preview.
 
 ### `remove`: delete a skill end-to-end
 
 ```bash
-skill-registry remove code-review
+skills-registry remove code-review
 ```
 
 `remove` is destructive. It deletes the slug from three places at once:
@@ -123,11 +123,11 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 
 | Command | Payload shape |
 |---|---|
-| `skill-registry list --json` | `[{"slug", "name", "description"}, …]` |
-| `skill-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
-| `skill-registry publish <path> --json` | `{"slug", "sha", "url"}` |
-| `skill-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
-| `skill-registry remove <slug> --json` | `{"slug", "repo", "sha", "removed_from": [...]}` |
+| `skills-registry list --json` | `[{"slug", "name", "description"}, …]` |
+| `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
+| `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
+| `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
+| `skills-registry remove <slug> --json` | `{"slug", "repo", "sha", "removed_from": [...]}` |
 
 Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set, so piped invocations never hang on a Bubble Tea prompt that can't render.
 
@@ -155,7 +155,7 @@ The wizard sets sensible defaults. Override via shell env when needed:
 | `SKILLS_REGISTRY` | (from config) | Point at a different registry for one command: `owner/repo` or `owner/repo@branch`. Great for browsing a teammate's. |
 | `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` when debugging. |
 | `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a release tag (`v0.7.0`, etc.). |
-| `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the `skill-registry` binary. |
+| `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the `skills-registry` binary. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
 The registry repo URL itself lives in `~/.config/skills-mcp/registry.toml`.
@@ -173,7 +173,7 @@ Install GitHub CLI from <https://cli.github.com/> and run `gh auth login`. `skil
 <details>
 <summary><strong>"No registry configured"</strong></summary>
 
-The wizard hasn't run yet, or `~/.config/skills-mcp/registry.toml` is missing. Run `skill-registry` (it opens the wizard first run), or set `SKILLS_REGISTRY=owner/repo` directly.
+The wizard hasn't run yet, or `~/.config/skills-mcp/registry.toml` is missing. Run `skills-registry` (it opens the wizard first run), or set `SKILLS_REGISTRY=owner/repo` directly.
 </details>
 
 <details>
@@ -203,7 +203,7 @@ The wizard prints this JSON; if you prefer wiring it up by hand:
 ```json
 {
   "mcpServers": {
-    "skill-registry": {
+    "skills-registry": {
       "url": "https://mcp.skills-registry.dev/mcp"
     }
   }
@@ -212,7 +212,7 @@ The wizard prints this JSON; if you prefer wiring it up by hand:
 
 Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `list_skills` / `get_skill` call goes through the hosted server — no local binary required.
 
-> **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the CLI directly (`skill-registry list`, `skill-registry get <slug>`).
+> **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the CLI directly (`skills-registry list`, `skills-registry get <slug>`).
 
 ---
 

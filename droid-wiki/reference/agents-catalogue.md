@@ -2,7 +2,7 @@
 
 Active contributors: Nik Anand
 
-The 56-entry catalogue of known AI tool dot-folders the wizard's multi-select offers when copying `skill-registry/SKILL.md` into your environment. Source of truth: `cli/internal/agents/agents.go`.
+The 56-entry catalogue of known AI tool dot-folders the wizard's multi-select offers when copying `skills-registry/SKILL.md` into your environment. Source of truth: `cli/internal/agents/agents.go`.
 
 ## Schema
 
@@ -83,8 +83,8 @@ Each entry has four fields:
 
 Three call sites in the Go binary read this list:
 
-- **`cli/cmd/skill-registry/wizard.go`** — step 5 of the first-run wizard. Discovers which of these directories exist locally, opens the multi-select pre-populated with that subset, and writes `skill-registry/SKILL.md` (from `cli/internal/bootstrap/skillmd.go`) into each picked dot-folder.
-- **`cli/cmd/skill-registry/hub.go`** — the Add card on the dashboard hub. Same flow as the wizard's step 5, run on demand.
+- **`cli/cmd/skills-registry/wizard.go`** — step 5 of the first-run wizard. Discovers which of these directories exist locally, opens the multi-select pre-populated with that subset, and writes `skills-registry/SKILL.md` (from `cli/internal/bootstrap/skillmd.go`) into each picked dot-folder.
+- **`cli/cmd/skills-registry/hub.go`** — the Add card on the dashboard hub. Same flow as the wizard's step 5, run on demand.
 - **`cli/internal/scan/scan.go`** — `scan.Discover` walks the catalogue when looking for existing local skills to import. The bootstrap path uses this to seed the initial registry repo.
 
 The Python side does not need the catalogue. The legacy `gather` command was the only Python consumer and was removed in 0.3.0.

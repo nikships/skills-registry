@@ -606,7 +606,7 @@ func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, me
 	if err != nil {
 		return fmt.Errorf("resolve git author: %w", err)
 	}
-	work, err := os.MkdirTemp("", "skill-registry-push-*")
+	work, err := os.MkdirTemp("", "skills-registry-push-*")
 	if err != nil {
 		return err
 	}

@@ -47,7 +47,7 @@ func TestUpdateAssetNameSupported(t *testing.T) {
 	if err != nil {
 		t.Fatalf("updateAssetName returned err: %v", err)
 	}
-	if got != "skill-registry_darwin_arm64.tar.gz" {
+	if got != "skills-registry_darwin_arm64.tar.gz" {
 		t.Fatalf("asset = %q", got)
 	}
 }
@@ -63,8 +63,8 @@ func TestUpdateAssetNameRejectsUnsupported(t *testing.T) {
 
 func TestUpdateTargetPathResolvesSymlink(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "real-skill-registry")
-	link := filepath.Join(dir, "skill-registry")
+	target := filepath.Join(dir, "real-skills-registry")
+	link := filepath.Join(dir, "skills-registry")
 	if err := os.WriteFile(target, []byte("bin"), 0o755); err != nil {
 		t.Fatalf("write target: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestVersionMatches(t *testing.T) {
 }
 
 func TestPerformUpdateDryRunPinnedVersion(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "skill-registry")
+	bin := filepath.Join(t.TempDir(), "skills-registry")
 	res, err := performUpdate(context.Background(), updateOpts{
 		version: "v9.9.9",
 		binPath: bin,
@@ -116,7 +116,7 @@ func TestPerformUpdateDryRunPinnedVersion(t *testing.T) {
 
 func TestPerformUpdateFromLocalTarball(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "skill-registry")
+	bin := filepath.Join(dir, "skills-registry")
 	if err := os.WriteFile(bin, []byte("old"), 0o755); err != nil {
 		t.Fatalf("write old bin: %v", err)
 	}
@@ -153,7 +153,7 @@ func writeUpdateTarball(t *testing.T, path, body string) {
 	gz := gzip.NewWriter(f)
 	tw := tar.NewWriter(gz)
 	if err := tw.WriteHeader(&tar.Header{
-		Name: "skill-registry",
+		Name: "skills-registry",
 		Mode: 0o755,
 		Size: int64(len(body)),
 	}); err != nil {

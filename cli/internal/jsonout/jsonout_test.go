@@ -125,7 +125,7 @@ func TestSetEnabled(t *testing.T) {
 // TestBindFlagOnRootAffectsSubcommand pins down the central inheritance
 // contract: --json is bound on the root cobra command, but cobra's
 // persistent-flag propagation makes it observable from any subcommand.
-// This is what allows callers like `skill-registry list --json` to flip
+// This is what allows callers like `skills-registry list --json` to flip
 // Enabled() to true without each subcommand re-declaring the flag.
 func TestBindFlagOnRootAffectsSubcommand(t *testing.T) {
 	resetEnabled(t)

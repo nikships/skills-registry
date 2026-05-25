@@ -266,7 +266,7 @@ type CleanupEntry struct {
 // every coding agent re-reads each session.
 //
 // Rules:
-//   - Skip the literal name "skill-registry" (that's our SKILL.md install
+//   - Skip the literal name "skills-registry" (that's our SKILL.md install
 //     target, written by bootstrap.InstallSkillMd) and dotfiles (.DS_Store).
 //   - Match by literal name OR Slugify(name): folder names on disk often
 //     contain hyphens (e.g. "agp-9-upgrade"), but Slugify normalizes those
@@ -290,7 +290,7 @@ func EntriesForCleanup(sources []Source, registrySlugs map[string]struct{}) []Cl
 		}
 		for _, e := range list {
 			name := e.Name()
-			if name == "skill-registry" || strings.HasPrefix(name, ".") {
+			if name == "skills-registry" || strings.HasPrefix(name, ".") {
 				continue
 			}
 			if _, ok := registrySlugs[name]; !ok {
@@ -335,7 +335,7 @@ func EntriesForCleanup(sources []Source, registrySlugs map[string]struct{}) []Cl
 }
 
 // DedupeAgainst returns skills from `local` whose slugs are NOT present in the
-// `remote` slug set. Used by `skill-registry sync` to compute the diff.
+// `remote` slug set. Used by `skills-registry sync` to compute the diff.
 func DedupeAgainst(local []Skill, remoteSlugs map[string]struct{}) []Skill {
 	out := make([]Skill, 0, len(local))
 	for _, s := range local {

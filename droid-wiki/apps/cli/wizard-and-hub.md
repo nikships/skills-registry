@@ -4,24 +4,24 @@ Active contributors: Nik Anand
 
 ## What they do
 
-`skill-registry` invoked with no subcommand routes the user into one of two alt-screen Bubble Tea programs. The wizard handles first-run onboarding when no config exists. The hub is the returning-user dashboard. Both render in alt-screen mode so the terminal scrollback stays clean; both exit back to the prompt when the user picks Quit (`q` / `esc` / `ctrl+c`).
+`skills-registry` invoked with no subcommand routes the user into one of two alt-screen Bubble Tea programs. The wizard handles first-run onboarding when no config exists. The hub is the returning-user dashboard. Both render in alt-screen mode so the terminal scrollback stays clean; both exit back to the prompt when the user picks Quit (`q` / `esc` / `ctrl+c`).
 
-`cli/cmd/skill-registry/main.go:bareRouteDecision` picks between them based on `isTTY × --json × config load error`. See [apps/cli/index](index.md#bare-command-routing) for the truth table.
+`cli/cmd/skills-registry/main.go:bareRouteDecision` picks between them based on `isTTY × --json × config load error`. See [apps/cli/index](index.md#bare-command-routing) for the truth table.
 
 ## Wizard
 
-`cli/cmd/skill-registry/wizard.go:runWizard` is the launcher. It calls `registry.EnsureAuthed(gh)` and `requireGitForBootstrap()` up front so a missing `gh` auth or missing `git` aborts before the user clicks through any prompts, then constructs `tui.NewWizard(ctx).WithDeps(deps)` and runs the program inside `tea.WithAltScreen()`.
+`cli/cmd/skills-registry/wizard.go:runWizard` is the launcher. It calls `registry.EnsureAuthed(gh)` and `requireGitForBootstrap()` up front so a missing `gh` auth or missing `git` aborts before the user clicks through any prompts, then constructs `tui.NewWizard(ctx).WithDeps(deps)` and runs the program inside `tea.WithAltScreen()`.
 
 ### The 8 steps
 
 | # | Step | What runs | Source |
 | --- | --- | --- | --- |
 | 1 | Scan dot-folders | `scan.Discover` over `agents.All()`'s dot-folder list | `cli/internal/scan/scan.go` |
-| 2 | Prompt repo name | Single textinput with `skill-registry` as the default | `cli/internal/tui/wizard.go` |
+| 2 | Prompt repo name | Single textinput with `skills-registry` as the default | `cli/internal/tui/wizard.go` |
 | 3 | Prompt visibility | Choice between `private` (recommended) and `public` | `cli/internal/tui/wizard.go` |
-| 4 | Create repo + push | `gh repo create` then `registry.Client.PushTreeViaGit` (single `git push`) | `cli/cmd/skill-registry/wizard.go:wizardPushSkills` |
+| 4 | Create repo + push | `gh repo create` then `registry.Client.PushTreeViaGit` (single `git push`) | `cli/cmd/skills-registry/wizard.go:wizardPushSkills` |
 | 5 | Multi-select agents | Fuzzy multi-select over `agents.All()`; universal targets locked | `cli/internal/tui/multiselect.go` |
-| 6 | Offer cleanup | `scan.EntriesForCleanup` + Choice prompt to delete local copies | `cli/cmd/skill-registry/wizard.go:wizardLoadCleanup` |
+| 6 | Offer cleanup | `scan.EntriesForCleanup` + Choice prompt to delete local copies | `cli/cmd/skills-registry/wizard.go:wizardLoadCleanup` |
 | 7 | Install MCP entry point | `bootstrap.EnsureMCPEntryPoint` — `uv tool install` → `pipx install` → `pip install --user` | `cli/internal/bootstrap/mcp_install.go` |
 | 8 | Print MCP JSON snippet | `bootstrap.MCPJSONSnippet(bin)` with the resolved absolute binary path | `cli/internal/bootstrap/skillmd.go` |
 
@@ -48,13 +48,13 @@ type WizardDeps struct {
 }
 ```
 
-`buildWizardDeps(gh)` in `cli/cmd/skill-registry/wizard.go` wires every closure to its real implementation. The model only knows the shape; tests inject fakes and exercise the state machine without touching `gh`, `git`, or the filesystem. A `nil` callback is treated as a no-op so the unit tests don't need to stub every dep.
+`buildWizardDeps(gh)` in `cli/cmd/skills-registry/wizard.go` wires every closure to its real implementation. The model only knows the shape; tests inject fakes and exercise the state machine without touching `gh`, `git`, or the filesystem. A `nil` callback is treated as a no-op so the unit tests don't need to stub every dep.
 
 After the program exits, `finishWizard` reads `Completed()` and `Cancelled()` from the post-quit model. Cancelled runs print "Onboarding cancelled." and exit `0`. Completed runs print a one-line success caption (`"✓ onboarding complete — your registry <repo> is live."`) and exit `0`.
 
 ## Hub
 
-`cli/cmd/skill-registry/hub.go:runHub` launches the dashboard. It loads config, builds a `tui.HubProgram` with the registry repo + a count loader + every flow's dependencies, and runs the program inside `tea.WithAltScreen()`. Unlike the F2 hub design (which used a launch loop with toast threading), F3 collapses everything into one long-lived alt-screen program so the terminal never drops back to scrollback between actions.
+`cli/cmd/skills-registry/hub.go:runHub` launches the dashboard. It loads config, builds a `tui.HubProgram` with the registry repo + a count loader + every flow's dependencies, and runs the program inside `tea.WithAltScreen()`. Unlike the F2 hub design (which used a launch loop with toast threading), F3 collapses everything into one long-lived alt-screen program so the terminal never drops back to scrollback between actions.
 
 ### The five cards
 
@@ -101,9 +101,9 @@ The model focus ring is two fields (`settingsFieldRepo`, `settingsFieldBranch`).
 
 | File | Role |
 | --- | --- |
-| `cli/cmd/skill-registry/wizard.go` | `runWizard`, `buildWizardDeps`, step callbacks. |
-| `cli/cmd/skill-registry/hub.go` | `runHub`, `hubCountLoader`, `errToast`. |
-| `cli/cmd/skill-registry/hub_flow_deps.go` | `buildHubDeps` — wires every card to its real implementation. |
+| `cli/cmd/skills-registry/wizard.go` | `runWizard`, `buildWizardDeps`, step callbacks. |
+| `cli/cmd/skills-registry/hub.go` | `runHub`, `hubCountLoader`, `errToast`. |
+| `cli/cmd/skills-registry/hub_flow_deps.go` | `buildHubDeps` — wires every card to its real implementation. |
 | `cli/internal/tui/wizard.go` | `WizardModel`, `WizardDeps`, `WizardStep` enum. |
 | `cli/internal/tui/hub.go` | `HubModel`, `HubCard`, `DefaultHubCards()`. |
 | `cli/internal/tui/hub_program.go` | `HubProgram` — orchestrates hub + flow models in one alt-screen run. |

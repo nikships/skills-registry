@@ -39,7 +39,7 @@ The brand-binary-module split is deliberate and a little unhinged:
 | Where it appears | What it's called |
 |---|---|
 | The brand / PyPI package | `skills-registry` (plural) |
-| The Go binary | `skill-registry` (singular) |
+| The Go binary | `skills-registry` (singular) |
 | The local working directory | `skillsmcp` (no hyphen) |
 | The Python module path | `skills_mcp` (underscore) |
 | The GitHub repo's old name | `skills-mcp` (the URL still resolves) |
@@ -47,10 +47,10 @@ The brand-binary-module split is deliberate and a little unhinged:
 Why? Because renaming any of them would break someone:
 
 - The Python module path is stamped into every existing user's `mcp.json` and shell PATH. Renaming `skills_mcp` to `skills_registry` breaks every install in the wild.
-- The Go binary name `skill-registry` is hard-coded into `install.sh` and every PATH lookup. Re-pluralizing it breaks every install.
+- The Go binary name `skills-registry` is hard-coded into `install.sh` and every PATH lookup. Re-pluralizing it breaks every install.
 - The local directory `skillsmcp` is just where the original developer cloned it on day 1 and nobody renamed it.
 
-The brand stayed plural because "skills-registry" reads more naturally than "skill-registry-registry" in a sentence. The binary stayed singular because shells like singular nouns for verbs (`skill-registry list` reads like `git clone`).
+The brand stayed plural because "skills-registry" reads more naturally than "skills-registry-registry" in a sentence. The binary stayed singular because shells like singular nouns for verbs (`skills-registry list` reads like `git clone`).
 
 The result: every cross-reference in the docs, the README, the wiki, and the source tree has to pick the right spelling for the right context, and there are four valid ones.
 

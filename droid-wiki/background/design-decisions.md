@@ -22,7 +22,7 @@ The `gh api` path inherits the user's authenticated `gh` (via `find_gh` walking 
 
 The interactive surface needed a real TUI: alt-screen wizard, multi-select with fuzzy search and locked entries, dashboard hub with cards and toasts, settings screen. Charmbracelet (Bubble Tea + Lipgloss + bubbles) is the recommended library and it is Go-only. Python has nothing comparable.
 
-Given we needed Go for the TUI, we made the Go binary the user-facing entry point. `install.sh` drops it at `~/.local/bin/skill-registry`. The user never sees Python during onboarding. The Python wheel still ships to PyPI — but only as the host for `skill-registry-mcp`, the FastMCP server. The wizard installs it in the background via `uv tool install` → `pipx install` → `pip install --user`.
+Given we needed Go for the TUI, we made the Go binary the user-facing entry point. `install.sh` drops it at `~/.local/bin/skills-registry`. The user never sees Python during onboarding. The Python wheel still ships to PyPI — but only as the host for `skills-registry-mcp`, the FastMCP server. The wizard installs it in the background via `uv tool install` → `pipx install` → `pip install --user`.
 
 ## Why no PyYAML
 
@@ -40,7 +40,7 @@ It also means credentials work in the stripped MCP subprocess environment, becau
 
 ## Why `bareRouteDecision` is a pure function
 
-The bare-command routing matrix (`cli/cmd/skill-registry/main.go:bareRouteDecision`) decides where a user with no subcommand lands. It takes three values (`isTTY`, `--json`, `configLoadErr`) and returns one enum (`bareRouteHelp` / `bareRouteWizard` / `bareRouteHub` / `bareRouteError`). It does no I/O — the caller loaded the config and detected TTY/json mode.
+The bare-command routing matrix (`cli/cmd/skills-registry/main.go:bareRouteDecision`) decides where a user with no subcommand lands. It takes three values (`isTTY`, `--json`, `configLoadErr`) and returns one enum (`bareRouteHelp` / `bareRouteWizard` / `bareRouteHub` / `bareRouteError`). It does no I/O — the caller loaded the config and detected TTY/json mode.
 
 Keeping it pure makes the matrix unit-testable end-to-end. Side effects (rendering the wizard, rendering the hub, printing help) live in the caller. If you sprinkle I/O into the routing function during a feature, push back.
 
@@ -63,7 +63,7 @@ Tracked but not yet implemented:
 - **No third-party-registry browsing.** `list_skills` / `get_skill` do not require write access; wiring them to an arbitrary `owner/repo` would be a few lines.
 - **No Windows installer.** `install.sh` is POSIX-only. The Go binary builds for `windows/amd64` but Windows users download and unzip it manually. A PowerShell `install.ps1` (with `gh.exe` added to `FindGH`) would close the gap.
 - **No schema validation in `build_server()`.** A malformed SKILL.md makes `list_skills` skip it silently.
-- **Legacy `skills-registry init` is dead weight.** Dropping it would let the wheel host only `skill-registry-mcp`.
+- **Legacy `skills-registry bootstrap` is dead weight.** Dropping it would let the wheel host only `skills-registry-mcp`.
 
 Cross-links:
 

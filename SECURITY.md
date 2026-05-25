@@ -17,7 +17,7 @@ We will acknowledge your report, investigate, and coordinate a fix and disclosur
 
 ## Scope and threat model
 
-`skills-registry` ships two things: the **hosted MCP server** at `https://mcp.skills-registry.dev/mcp` (Python, FastMCP, deployed from `infa-not-for-users/` to Railway) and the `skill-registry` Go CLI users install via `install.sh`.
+`skills-registry` ships two things: the **hosted MCP server** at `https://mcp.skills-registry.dev/mcp` (Python, FastMCP, deployed from `infa-not-for-users/` to Railway) and the `skills-registry` Go CLI users install via `install.sh`.
 
 - **Hosted MCP server.** Two read-only tools (`list_skills`, `get_skill`). Auth is OAuth + a GitHub App installation on the user's registry repo. The server runs in a Docker container with no shell, no `gh`, no `git`; every GitHub call uses an installation-scoped GitHub App token fetched per request. The server never writes to user repos.
 - **Go CLI.** All writes (`publish` / `sync` / `add` / `remove`) and the wizard's bulk bootstrap path live here. The CLI shells out to the user's authenticated `gh` CLI for single-skill operations and to `git` (with `gh` as the credential helper) for the bulk `git push` in the wizard.

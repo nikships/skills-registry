@@ -4,7 +4,7 @@ Active contributors: Nik Anand
 
 ## What it does
 
-`skill-registry-mcp` is a FastMCP stdio server that exposes the user's GitHub-backed registry as three MCP tools. Desktop clients (Claude Desktop, Cursor, VS Code/Copilot) spawn it as a subprocess; the agent calls `list_skills`, `get_skill`, or `publish_skill` and the server proxies through to GitHub via the user's authenticated `gh` CLI.
+`skills-registry-mcp` is a FastMCP stdio server that exposes the user's GitHub-backed registry as three MCP tools. Desktop clients (Claude Desktop, Cursor, VS Code/Copilot) spawn it as a subprocess; the agent calls `list_skills`, `get_skill`, or `publish_skill` and the server proxies through to GitHub via the user's authenticated `gh` CLI.
 
 The entire server is one Python file: `src/skills_mcp/registry_server.py`. The Git Data API client it delegates to lives in `src/skills_mcp/registry_api.py`. There is no embedded HTTP client, no `git` shell-out, and no SSH dependency — desktop MCP clients spawn the subprocess with a stripped environment, so every assumption baked in has to survive without `PATH` extensions or `SSH_AUTH_SOCK`.
 
@@ -16,7 +16,7 @@ The entire server is one Python file: `src/skills_mcp/registry_server.py`. The G
 2. `ensure_authed()` locates `gh` via `find_gh()` (PATH + curated fallback dirs) and runs `gh auth status`. Missing binary raises `GhNotFoundError`; unauthenticated session raises `GhNotAuthedError`.
 3. `RegistryClient(repo=…, default_branch=…)` is constructed and its `gh` attribute is set to the already-resolved path so later calls skip re-lookup.
 
-The `FastMCP` constructor itself receives `name="skill-registry"`, an `instructions` blurb pointing at the configured repo, and `version=__version__` (resolved from installed package metadata via `importlib.metadata`).
+The `FastMCP` constructor itself receives `name="skills-registry"`, an `instructions` blurb pointing at the configured repo, and `version=__version__` (resolved from installed package metadata via `importlib.metadata`).
 
 Boot-time failures are surfaced to the desktop client as exit codes — never as silent retries. See [exit codes](#exit-codes) below.
 
@@ -120,7 +120,7 @@ Once `server.run()` is reached, the FastMCP runtime owns the lifecycle and any t
 | `src/skills_mcp/config.py` | TOML config read/save; honors `$SKILLS_REGISTRY` override. |
 | `src/skills_mcp/cache.py` | `lookup()` / `reserve()` / `commit()` with `<slug>.meta.json` tree-SHA storage. |
 | `src/skills_mcp/frontmatter.py` | `parse_frontmatter` + `first_paragraph` — YAML-ish parser, no PyYAML. |
-| `src/skills_mcp/init.py` | Legacy `skills-registry init` console script (still in wheel for back-compat). |
+| `src/skills_mcp/init.py` | Legacy `skills-registry bootstrap` console script (still in wheel for back-compat). |
 
 ## Cross-references
 

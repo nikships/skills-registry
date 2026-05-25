@@ -4,26 +4,26 @@ Active contributors: Nik Anand
 
 ## What it does
 
-`skill-registry` is the single Go binary installed at `~/.local/bin/skill-registry`. It owns every interactive surface (the onboarding wizard, the dashboard hub) and every headless subcommand (`list`, `get`, `sync`, `add`, `publish`, `remove`, `bootstrap`). A persistent `--json` flag flips every subcommand into machine-readable mode; the bare invocation routes the user to whichever screen is appropriate for their state.
+`skills-registry` is the single Go binary installed at `~/.local/bin/skills-registry`. It owns every interactive surface (the onboarding wizard, the dashboard hub) and every headless subcommand (`list`, `get`, `sync`, `add`, `publish`, `remove`, `bootstrap`). A persistent `--json` flag flips every subcommand into machine-readable mode; the bare invocation routes the user to whichever screen is appropriate for their state.
 
 ## Layout
 
 The CLI lives in a separate Go module (`cli/go.mod`). The two top-level directories:
 
-- `cli/cmd/skill-registry/` — Cobra entry point, `runRoot`/`runWizard`/`runHub`, one file per subcommand.
+- `cli/cmd/skills-registry/` — Cobra entry point, `runRoot`/`runWizard`/`runHub`, one file per subcommand.
 - `cli/internal/` — every reusable piece (registry client, Bubble Tea models, config, agents catalogue, dead-folder scan, JSON helpers, MCP installer).
 
-The single entry binary at `cli/cmd/skill-registry/main.go` builds the cobra command tree and dispatches. Subcommands are registered by name; cobra parses arguments and routes to the matching `RunE`. A bare invocation (no subcommand, no `--help`) falls through to `runRoot`.
+The single entry binary at `cli/cmd/skills-registry/main.go` builds the cobra command tree and dispatches. Subcommands are registered by name; cobra parses arguments and routes to the matching `RunE`. A bare invocation (no subcommand, no `--help`) falls through to `runRoot`.
 
 ## Build-time version injection
 
-The `version` variable in `cli/cmd/skill-registry/main.go` defaults to `"dev"` and is overridden at release time via Go's `-ldflags`:
+The `version` variable in `cli/cmd/skills-registry/main.go` defaults to `"dev"` and is overridden at release time via Go's `-ldflags`:
 
 ```bash
-go build -ldflags "-X main.version=v0.5.1" ./cmd/skill-registry
+go build -ldflags "-X main.version=v0.5.1" ./cmd/skills-registry
 ```
 
-`cobra.Command.Version = version` wires the value into `skill-registry --version`. Local development builds stamp `"dev"`; release tarballs stamp the matching `vX.Y.Z` tag.
+`cobra.Command.Version = version` wires the value into `skills-registry --version`. Local development builds stamp `"dev"`; release tarballs stamp the matching `vX.Y.Z` tag.
 
 ## Persistent `--json` flag
 
@@ -39,7 +39,7 @@ See [systems/json-output](../../systems/json-output.md) for the per-subcommand p
 
 ## Bare-command routing
 
-`cli/cmd/skill-registry/main.go:bareRouteDecision` is the pure decision function that picks where a bare `skill-registry` invocation lands. No I/O, no globals — all inputs are arguments so the routing matrix is unit-testable end-to-end.
+`cli/cmd/skills-registry/main.go:bareRouteDecision` is the pure decision function that picks where a bare `skills-registry` invocation lands. No I/O, no globals — all inputs are arguments so the routing matrix is unit-testable end-to-end.
 
 The four resolutions:
 
@@ -69,11 +69,11 @@ Anything that talks to GitHub shells out to `gh`. Anything that pushes a bulk tr
 
 | File | Role |
 | --- | --- |
-| `cli/cmd/skill-registry/main.go` | Cobra root, `version` ldflag injection, `runRoot` + `bareRouteDecision`. |
-| `cli/cmd/skill-registry/wizard.go` | `runWizard` — alt-screen onboarding launcher. |
-| `cli/cmd/skill-registry/hub.go` | `runHub` — returning-user dashboard launcher. |
-| `cli/cmd/skill-registry/bootstrap.go` | Headless `bootstrap` subcommand. |
-| `cli/cmd/skill-registry/list.go` `get.go` `sync.go` `add.go` `publish.go` `remove.go` | Per-subcommand handlers, all honor `--json`. |
+| `cli/cmd/skills-registry/main.go` | Cobra root, `version` ldflag injection, `runRoot` + `bareRouteDecision`. |
+| `cli/cmd/skills-registry/wizard.go` | `runWizard` — alt-screen onboarding launcher. |
+| `cli/cmd/skills-registry/hub.go` | `runHub` — returning-user dashboard launcher. |
+| `cli/cmd/skills-registry/bootstrap.go` | Headless `bootstrap` subcommand. |
+| `cli/cmd/skills-registry/list.go` `get.go` `sync.go` `add.go` `publish.go` `remove.go` | Per-subcommand handlers, all honor `--json`. |
 | `cli/internal/jsonout/jsonout.go` | Persistent `--json` flag + `Print`/`PrintError` helpers. |
 | `cli/internal/registry/registry.go` | `registry.Client` — mirror of the Python `RegistryClient`, plus `PushTreeViaGit` and `Delete`. |
 

@@ -53,4 +53,4 @@ EXPOSE 8000
 
 # Ensure the volume's oauth subdir exists on every boot (mount may shadow
 # the build-time mkdir if the volume is empty).
-CMD mkdir -p /data/oauth && exec skill-registry-mcp
+CMD mkdir -p /data/oauth && exec skills-registry-mcp

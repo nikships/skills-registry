@@ -31,7 +31,7 @@ func TestInstallSkillMdWritesEverywhere(t *testing.T) {
 		if !strings.Contains(string(body), "alice/skills") {
 			t.Fatalf("registry repo missing from %s", p)
 		}
-		if !strings.HasSuffix(p, filepath.Join("skill-registry", "SKILL.md")) {
+		if !strings.HasSuffix(p, filepath.Join("skills-registry", "SKILL.md")) {
 			t.Fatalf("unexpected path: %s", p)
 		}
 	}
@@ -42,7 +42,7 @@ func TestMCPJSONSnippetPointsAtHostedServer(t *testing.T) {
 	if !strings.Contains(out, HostedMCPURL) {
 		t.Fatalf("snippet missing hosted URL %q: %s", HostedMCPURL, out)
 	}
-	if !strings.Contains(out, "\"skill-registry\":") {
+	if !strings.Contains(out, "\"skills-registry\":") {
 		t.Fatalf("snippet missing server name: %s", out)
 	}
 	if strings.Contains(out, "\"command\"") || strings.Contains(out, "\"args\"") {

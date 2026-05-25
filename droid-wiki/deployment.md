@@ -91,20 +91,20 @@ Five targets, built in parallel:
 
 | GOOS | GOARCH | Artifact |
 | --- | --- | --- |
-| darwin | amd64 | `skill-registry_darwin_amd64.tar.gz` |
-| darwin | arm64 | `skill-registry_darwin_arm64.tar.gz` |
-| linux | amd64 | `skill-registry_linux_amd64.tar.gz` |
-| linux | arm64 | `skill-registry_linux_arm64.tar.gz` |
-| windows | amd64 | `skill-registry_windows_amd64.zip` |
+| darwin | amd64 | `skills-registry_darwin_amd64.tar.gz` |
+| darwin | arm64 | `skills-registry_darwin_arm64.tar.gz` |
+| linux | amd64 | `skills-registry_linux_amd64.tar.gz` |
+| linux | arm64 | `skills-registry_linux_arm64.tar.gz` |
+| windows | amd64 | `skills-registry_windows_amd64.zip` |
 
 Build command:
 
 ```bash
 go build -trimpath -ldflags "-s -w -X main.version=${version}" \
-  -o skill-registry ./cmd/skill-registry
+  -o skills-registry ./cmd/skills-registry
 ```
 
-`-trimpath` strips build-time absolute paths from the binary. `-s -w` strips the symbol table and DWARF debug info. `-X main.version=${version}` stamps the version reported by `skill-registry --version`.
+`-trimpath` strips build-time absolute paths from the binary. `-s -w` strips the symbol table and DWARF debug info. `-X main.version=${version}` stamps the version reported by `skills-registry --version`.
 
 **macOS only:** both darwin binaries are codesigned with the Developer ID certificate (`apple-actions/import-codesign-certs@v3`) and notarized via `xcrun notarytool submit ... --wait` before being packaged. Without this Gatekeeper will block first launch from a `curl | sh` install on user machines.
 
@@ -117,21 +117,21 @@ Creates (or updates, if re-running) the GitHub release for the freshly-pushed ta
 - 4 `.tar.gz` (darwin amd64/arm64, linux amd64/arm64)
 - 1 `.zip` (windows amd64)
 
-`install.sh` always resolves the binary URL as `https://github.com/{owner}/{repo}/releases/latest/download/skill-registry_{os}_{arch}.tar.gz` (with `SKILLS_REGISTRY_VERSION` overriding the `latest` segment), so the moment this release is published the installer points at it.
+`install.sh` always resolves the binary URL as `https://github.com/{owner}/{repo}/releases/latest/download/skills-registry_{os}_{arch}.tar.gz` (with `SKILLS_REGISTRY_VERSION` overriding the `latest` segment), so the moment this release is published the installer points at it.
 
 ### 6. pypi
 
 Uploads the wheel to PyPI via the `pypi` GitHub environment using `PYPI_API_TOKEN`. The job is gated on the `pypi` environment so the secret is scoped to release runs only.
 
-The `skill-registry-mcp` console script ships in this wheel. The wizard's MCP-entry-point install (`cli/internal/bootstrap/mcp_install.go:EnsureMCPEntryPoint`) consumes whichever PyPI version `uv tool install skills-registry` / `pipx install skills-registry` / `pip install --user skills-registry` resolves — i.e. the freshly-published one.
+The `skills-registry-mcp` console script ships in this wheel. The wizard's MCP-entry-point install (`cli/internal/bootstrap/mcp_install.go:EnsureMCPEntryPoint`) consumes whichever PyPI version `uv tool install skills-registry` / `pipx install skills-registry` / `pip install --user skills-registry` resolves — i.e. the freshly-published one.
 
 ## Installer flow
 
 `install.sh` is the user-facing entry point. It is POSIX `sh` and:
 
 1. Detects OS and arch via `uname -s` / `uname -m`. Overridable with `SKILLS_REGISTRY_OS` / `SKILLS_REGISTRY_ARCH`.
-2. Resolves the tarball URL. Default: `https://github.com/anand-92/skills-registry/releases/latest/download/skill-registry_{os}_{arch}.tar.gz`. Override with `SKILLS_REGISTRY_URL`, or supply a local tarball via `SKILLS_REGISTRY_TARBALL`.
-3. Downloads, extracts, and drops the binary at `${SKILLS_BIN_DIR:-~/.local/bin}/skill-registry`.
+2. Resolves the tarball URL. Default: `https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_{os}_{arch}.tar.gz`. Override with `SKILLS_REGISTRY_URL`, or supply a local tarball via `SKILLS_REGISTRY_TARBALL`.
+3. Downloads, extracts, and drops the binary at `${SKILLS_BIN_DIR:-~/.local/bin}/skills-registry`.
 4. If `SKILLS_REGISTRY_DRY_RUN` is set, prints the resolved URL/dest and exits without writing anything.
 
 The installer does not touch the Python wheel — that lives on PyPI and the Go wizard installs it in the background on first run.

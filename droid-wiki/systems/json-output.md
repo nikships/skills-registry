@@ -6,7 +6,7 @@ Active contributors: Nik Anand
 
 Every CLI subcommand honors a persistent `--json` flag. When the flag is set, the command suppresses every TUI / interactive surface and emits a single line of JSON to stdout describing its result. Failures emit `{"error": "..."}` and exit non-zero. The mechanism lives in `cli/internal/jsonout/jsonout.go` and is just three functions plus a flag binding.
 
-The point is to make the CLI scriptable. An agent or a shell pipeline can run `skill-registry list --json | jq '.[].slug'` and get a stable, machine-readable result without parsing the human-formatted output.
+The point is to make the CLI scriptable. An agent or a shell pipeline can run `skills-registry list --json | jq '.[].slug'` and get a stable, machine-readable result without parsing the human-formatted output.
 
 ## The persistent flag pattern
 
@@ -52,7 +52,7 @@ The JSON path is its own function (`runListJSON`, `runGetJSON`, `runPublishJSON`
 
 ## Auto-`--yes` for destructive commands
 
-The destructive subcommands (`sync`, `remove`) normally prompt the user before any registry write. In `--json` mode the prompt would hang because Bubble Tea can't render in a piped environment. We solve this with `shouldAutoYes()` in `cli/cmd/skill-registry/list.go`:
+The destructive subcommands (`sync`, `remove`) normally prompt the user before any registry write. In `--json` mode the prompt would hang because Bubble Tea can't render in a piped environment. We solve this with `shouldAutoYes()` in `cli/cmd/skills-registry/list.go`:
 
 ```go
 func shouldAutoYes() bool {
@@ -94,18 +94,18 @@ The whole point of `--json` is to make the CLI usable as a building block in a l
 
 ```bash
 # Download every skill in the registry.
-skill-registry list --json | jq -r '.[].slug' | xargs -I{} skill-registry get {} --json
+skills-registry list --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json
 
 # Push every local dot-folder skill missing from the registry, then capture
 # the set of slugs that were actually pushed.
-PUSHED=$(skill-registry sync --json | jq -r '.pushed[]')
+PUSHED=$(skills-registry sync --json | jq -r '.pushed[]')
 
 # Open the GitHub URL after a publish.
-URL=$(skill-registry publish ./my-skill --json | jq -r '.url')
+URL=$(skills-registry publish ./my-skill --json | jq -r '.url')
 open "$URL"
 
 # Remove a slug and capture which locations were cleaned.
-skill-registry remove auth_skill --json | jq -r '.removed_from[]'
+skills-registry remove auth_skill --json | jq -r '.removed_from[]'
 ```
 
 Without `--json`, parsing the human-formatted output is brittle — column widths shift, the unicode `✓` chip might break a downstream `grep`, and any future change to the display format would silently break callers. The JSON payload is the contract; the human output is not.
@@ -117,16 +117,16 @@ Without `--json`, parsing the human-formatted output is brittle — column width
 - The top-level error envelope is `{"error": "..."}`. There is no `{"success": false, "error": ...}` variant.
 - Exit codes match the human-mode behavior: 0 on success, non-zero on failure. The presence of `{"error": ...}` on stdout and a non-zero exit code are redundant; consumers can choose either signal.
 
-These are tested in `cli/cmd/skill-registry/json_test.go`. New fields and new commands go through that test file.
+These are tested in `cli/cmd/skills-registry/json_test.go`. New fields and new commands go through that test file.
 
 ## Key source files
 
 | File | Role |
 | --- | --- |
 | `cli/internal/jsonout/jsonout.go` | The flag binding + helpers. ~100 lines of Go. |
-| `cli/cmd/skill-registry/list.go` | Hosts `shouldAutoYes()` and `isStdinTerminal` (the latter is a swappable variable so tests can stub it). |
-| `cli/cmd/skill-registry/json_test.go` | The contract tests: per-subcommand payload shapes, error envelope, exit codes. |
-| Each `cli/cmd/skill-registry/<cmd>.go` | Per-command handler with the `if jsonout.Enabled() { … }` branch. |
+| `cli/cmd/skills-registry/list.go` | Hosts `shouldAutoYes()` and `isStdinTerminal` (the latter is a swappable variable so tests can stub it). |
+| `cli/cmd/skills-registry/json_test.go` | The contract tests: per-subcommand payload shapes, error envelope, exit codes. |
+| Each `cli/cmd/skills-registry/<cmd>.go` | Per-command handler with the `if jsonout.Enabled() { … }` branch. |
 
 ## Cross-links
 

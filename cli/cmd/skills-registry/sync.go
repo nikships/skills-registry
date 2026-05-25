@@ -20,7 +20,7 @@ import (
 // syncJSONResult is the payload emitted by `sync --json --yes`. Field
 // order matches the JSON-004 contract ({pushed, skipped}). Each array
 // holds canonical slugs (no source labels) so a consumer can pipe
-// `.pushed | .[]` straight into another `skill-registry get` call.
+// `.pushed | .[]` straight into another `skills-registry get` call.
 // Both arrays are always present (possibly empty) so `jq 'length'`
 // users don't have to special-case the missing field.
 type syncJSONResult struct {

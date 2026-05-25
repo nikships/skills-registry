@@ -235,7 +235,7 @@ func (m WizardModel) renderAgentSelectBody() string {
 func (m WizardModel) renderAgentInstallingBody(title string) string {
 	picked := len(m.agentSelectedValues())
 	caption := lipgloss.NewStyle().Foreground(ColInk).
-		Render(fmt.Sprintf("Installing skill-registry/SKILL.md into %d agent folder(s)…", picked))
+		Render(fmt.Sprintf("Installing skills-registry/SKILL.md into %d agent folder(s)…", picked))
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title, "",
 		m.spinner.View()+" "+caption,
@@ -702,7 +702,7 @@ func (m WizardModel) renderDoneBody() string {
 		Render("Your registry is live.")
 	stats := m.renderDoneStats()
 	hint := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-		Render("· run `skill-registry` any time to open the hub.")
+		Render("· run `skills-registry` any time to open the hub.")
 	cta := DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
 			Render("  continue to the hub")

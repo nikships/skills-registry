@@ -6,15 +6,15 @@ A troubleshooting runbook for the two most common failure surfaces — the MCP s
 
 | Symptom | First place to look | Likely cause |
 | --- | --- | --- |
-| MCP server exits with code `2` | `~/.config/skills-mcp/registry.toml` | `ConfigError` — no config file, or `repo` field is missing / malformed. Run `skill-registry` (no args) to re-bootstrap, or set `SKILLS_REGISTRY=owner/repo` for a one-shot. |
+| MCP server exits with code `2` | `~/.config/skills-mcp/registry.toml` | `ConfigError` — no config file, or `repo` field is missing / malformed. Run `skills-registry` (no args) to re-bootstrap, or set `SKILLS_REGISTRY=owner/repo` for a one-shot. |
 | MCP server exits with code `3` | `PATH` inside the spawning client | `GhNotFoundError` — `gh` not found by `find_gh`. Desktop clients spawn the server with a stripped `PATH`; install `gh` to `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, or `~/.local/bin`. |
 | MCP server exits with code `4` | `gh auth status` | `GhNotAuthedError` — `gh` is installed but not authed. Run `gh auth login` in a real shell. |
 | Wizard fails before the first prompt | `gh auth status`, `git --version` | Missing `gh` or `git`. The wizard `requireGitForBootstrap` step hard-stops if `git` isn't on `PATH`. |
 | `publish_skill` keeps returning `HTTP 409` / `422` | Another writer is racing | Retry budget is 3 with exponential backoff. Persistent conflicts mean a second client is publishing the same slug; serialize callers. |
 | Cache never invalidates | `~/.cache/skills-mcp/skills/<slug>.meta.json` | Stale `tree_sha` field. Compare against the registry's current `<slug>/` tree SHA from `gh api repos/<repo>/contents/`. Wipe the cache directory to force a refresh. |
-| `install.sh` 404s on tarball download | GitHub release assets | Asset pattern is `skill-registry_<os>_<arch>.tar.gz` (or `.zip` for Windows). Mismatched OS/arch detection in `uname` is the usual cause. |
-| Wizard hangs on "Installing skill-registry-mcp" | `SKILLS_SKIP_INSTALL=1` not set | The Go binary tries `uv tool install` → `pipx install` → `pip install --user` in order. Long pauses are pip being slow. Set `SKILLS_SKIP_INSTALL=1` to skip and install the entry point yourself. |
-| CLI prints help instead of opening the hub | TTY detection | The hub only opens for interactive TTY sessions. Piped invocations (`skill-registry | cat`) or `--json` print help. See `bareRouteDecision` in `cli/cmd/skill-registry/main.go`. |
+| `install.sh` 404s on tarball download | GitHub release assets | Asset pattern is `skills-registry_<os>_<arch>.tar.gz` (or `.zip` for Windows). Mismatched OS/arch detection in `uname` is the usual cause. |
+| Wizard hangs on "Installing skills-registry-mcp" | `SKILLS_SKIP_INSTALL=1` not set | The Go binary tries `uv tool install` → `pipx install` → `pip install --user` in order. Long pauses are pip being slow. Set `SKILLS_SKIP_INSTALL=1` to skip and install the entry point yourself. |
+| CLI prints help instead of opening the hub | TTY detection | The hub only opens for interactive TTY sessions. Piped invocations (`skills-registry | cat`) or `--json` print help. See `bareRouteDecision` in `cli/cmd/skills-registry/main.go`. |
 | `gofmt -l .` fails in CI but passes locally | Editor formatting | Run `(cd cli && gofmt -w .)` to fix. Don't gitignore `.editorconfig`; the repo doesn't ship one. |
 | `ruff format --check` fails in CI | Indent style is tabs | `ruff.toml` sets `[format].indent-style = "tab"`. Editors that auto-indent with spaces will trip CI. |
 
@@ -22,7 +22,7 @@ A troubleshooting runbook for the two most common failure surfaces — the MCP s
 
 ```bash
 SKILLS_LOG_LEVEL=DEBUG uv run python -m skills_mcp.registry_server
-SKILLS_LOG_LEVEL=DEBUG skill-registry-mcp
+SKILLS_LOG_LEVEL=DEBUG skills-registry-mcp
 ```
 
 `SKILLS_LOG_LEVEL` is read at server boot by `registry_server.main()` (and again by `__main__.py:main()` for the legacy init path) and fed into `logging.basicConfig`. Valid levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`. Default is `INFO`. Logs land on stderr so they don't tangle with MCP stdio responses.
@@ -35,8 +35,8 @@ The Go CLI honours `--json` for machine-readable output but does not have a verb
 | --- | --- |
 | `~/.config/skills-mcp/registry.toml` | Persistent config: `repo = "owner/name"`, optional `branch`. Read by both Python and Go. Overridden per-run with `SKILLS_REGISTRY=owner/repo` (or `owner/repo@branch`). |
 | `~/.cache/skills-mcp/skills/<slug>/` | Cached skill folder fetched by `get_skill`. Sibling `<slug>.meta.json` carries the `tree_sha` used for invalidation. |
-| `~/.local/bin/skill-registry` | The Go CLI, dropped by `install.sh`. Override with `SKILLS_BIN_DIR=<dir>`. |
-| `~/.local/bin/skill-registry-mcp` (or `~/.local/share/uv/tools/skills-registry/bin/skill-registry-mcp`, or `/opt/homebrew/bin/...`, or `/usr/local/bin/...`) | The Python MCP entry point. The wizard probes these in order. |
+| `~/.local/bin/skills-registry` | The Go CLI, dropped by `install.sh`. Override with `SKILLS_BIN_DIR=<dir>`. |
+| `~/.local/bin/skills-registry-mcp` (or `~/.local/share/uv/tools/skills-registry/bin/skills-registry-mcp`, or `/opt/homebrew/bin/...`, or `/usr/local/bin/...`) | The Python MCP entry point. The wizard probes these in order. |
 | `~/.gitconfig` | After the wizard's bootstrap step, contains `[credential "https://github.com"] helper = !gh auth git-credential` written by `gh auth setup-git`. |
 | `~/.factory/skills`, `~/.claude/skills`, `~/.cursor/skills`, … | Per-agent dot-folders. The wizard's agent multi-select writes the bootstrap `SKILL.md` into each chosen folder. |
 
@@ -52,7 +52,7 @@ SKILLS_REGISTRY=owner/repo uv run python -m skills_mcp.registry_server
 SKILLS_REGISTRY=owner/repo@dev uv run python -m skills_mcp.registry_server
 ```
 
-The server prints initialization errors to stderr and exits with codes `2`, `3`, `4`. If it starts cleanly it blocks on stdin; kill with Ctrl-C. To test the installed wheel: `uv tool install --force skills-registry && SKILLS_LOG_LEVEL=DEBUG skill-registry-mcp`. To rule out a stripped-PATH issue, run the server with the exact env the desktop client passes.
+The server prints initialization errors to stderr and exits with codes `2`, `3`, `4`. If it starts cleanly it blocks on stdin; kill with Ctrl-C. To test the installed wheel: `uv tool install --force skills-registry && SKILLS_LOG_LEVEL=DEBUG skills-registry-mcp`. To rule out a stripped-PATH issue, run the server with the exact env the desktop client passes.
 
 ## Inspecting the wizard model
 

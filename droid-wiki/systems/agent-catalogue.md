@@ -7,7 +7,7 @@ Active contributors: Nik Anand
 The agent catalogue is the single source of truth for every AI tool dot-folder we recognise. It's a 56-entry table of `Target` records living in `cli/internal/agents/agents.go`, each describing one tool's dot-folder convention: where it lives on disk, what we call it in the multi-select TUI, and whether it counts as a universal (project-local, applies to every agent) target. The list seeds three things in the CLI:
 
 - `scan.DiscoverSources` uses it to find local skills during `sync` and the wizard's scan step.
-- `bootstrap.InstallSkillMd` writes the generated `skill-registry/SKILL.md` into every selected target's `skills/` folder.
+- `bootstrap.InstallSkillMd` writes the generated `skills-registry/SKILL.md` into every selected target's `skills/` folder.
 - The wizard's agent multi-select renders one row per target, with universals locked on at the top.
 
 The Python side does not carry this list. It used to, when the legacy `gather` command consolidated local skills, but that command was removed in 0.3.0; the catalogue is Go-only now.
@@ -47,7 +47,7 @@ It takes the user's home directory and the current working directory as explicit
 
 ## The `Universal` flag
 
-Universals are project-local folders that aren't tied to one specific tool. Today there is exactly one universal target: `.agents/` under the working directory. Many tools — Claude Code, Codex CLI, others — read `./.agents/skills` as a convention, in addition to (or instead of) their own dot-folder. Writing `skill-registry/SKILL.md` there once means every tool that respects the convention picks it up.
+Universals are project-local folders that aren't tied to one specific tool. Today there is exactly one universal target: `.agents/` under the working directory. Many tools — Claude Code, Codex CLI, others — read `./.agents/skills` as a convention, in addition to (or instead of) their own dot-folder. Writing `skills-registry/SKILL.md` there once means every tool that respects the convention picks it up.
 
 The flag has two consequences:
 
@@ -81,7 +81,7 @@ Universals first, then everything else sorted by display name. `sort.SliceStable
 | Caller | What it does |
 | --- | --- |
 | `scan.DiscoverSources(home, cwd, extra, dotDirs)` | Receives a `[]string` of dot-dirs derived from `agents.All()` and probes each `<home>/<dot>/skills` plus `<cwd>/<dot>/skills` for existence. Skills found in those folders are the candidates for `sync`. |
-| `bootstrap.InstallSkillMd(targets, body, home, cwd)` | Writes the generated `skill-registry/SKILL.md` body into `target.SkillsDir(home, cwd) + "/skill-registry"` for each selected target. |
+| `bootstrap.InstallSkillMd(targets, body, home, cwd)` | Writes the generated `skills-registry/SKILL.md` body into `target.SkillsDir(home, cwd) + "/skills-registry"` for each selected target. |
 | `tui.NewMultiSelect(...)` (wizard step 5) | Renders one row per `Target`, with universals locked on. |
 | `runRemove → removeFromDotFoldersAt` | When deleting a slug, iterates `agents.All()` and tries to remove the slug subfolder from every target's `SkillsDir`. |
 

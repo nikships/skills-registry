@@ -69,7 +69,7 @@ func TestBareRouteDecisionWrappedErrMissing(t *testing.T) {
 // TestRootCmdRegistersJSONFlag verifies F1.4's central wiring: the
 // persistent --json flag must be registered on the root cobra command
 // so cobra propagates it to every subcommand at parse time. Without
-// this, `skill-registry list --json` would fail with "unknown flag".
+// this, `skills-registry list --json` would fail with "unknown flag".
 func TestRootCmdRegistersJSONFlag(t *testing.T) {
 	root := newRootCmd()
 	f := root.PersistentFlags().Lookup(jsonout.FlagName)
@@ -158,18 +158,18 @@ func TestRootCmdHelpDoesNotTriggerRouting(t *testing.T) {
 		t.Fatalf("--help returned error: %v", err)
 	}
 	out := stdout.String() + stderr.String()
-	if !strings.Contains(out, "skill-registry") {
+	if !strings.Contains(out, "skills-registry") {
 		t.Fatalf("help output missing program name:\n%s", out)
 	}
 	// The long description's hint about subcommands should make it
 	// into the help text — cheap sanity check that we wired Long.
-	if !strings.Contains(out, "skill-registry list") {
+	if !strings.Contains(out, "skills-registry list") {
 		t.Fatalf("help output missing subcommand example:\n%s", out)
 	}
 }
 
 // TestRootCmdHelpSubcommandDoesNotTriggerRouting mirrors the previous
-// test for `skill-registry help` (cobra's auto-injected help command).
+// test for `skills-registry help` (cobra's auto-injected help command).
 // Same guarantee: routing must not fire when the user is asking for
 // usage info.
 func TestRootCmdHelpSubcommandDoesNotTriggerRouting(t *testing.T) {
@@ -182,7 +182,7 @@ func TestRootCmdHelpSubcommandDoesNotTriggerRouting(t *testing.T) {
 		t.Fatalf("help subcommand returned error: %v", err)
 	}
 	out := stdout.String() + stderr.String()
-	if !strings.Contains(out, "skill-registry") {
+	if !strings.Contains(out, "skills-registry") {
 		t.Fatalf("help subcommand output missing program name:\n%s", out)
 	}
 }

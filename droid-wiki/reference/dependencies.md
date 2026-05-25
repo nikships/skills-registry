@@ -77,7 +77,7 @@ Lives in `/Users/dks0662779/skillsmcp/website/`. Declared in `website/package.js
 | `eslint` | `^9` (dev) | Linter. |
 | `eslint-config-next` | `16.2.6` (dev) | Next.js ESLint preset. |
 
-The website uses **Bun** as the package manager (`bun.lock` is the lockfile, not `package-lock.json`). It deploys to Firebase. The site is a docs / marketing surface, not part of the runtime path for `skill-registry` or `skill-registry-mcp` — both ship through GitHub Releases and PyPI respectively.
+The website uses **Bun** as the package manager (`bun.lock` is the lockfile, not `package-lock.json`). It deploys to Firebase. The site is a docs / marketing surface, not part of the runtime path for `skills-registry` or `skills-registry-mcp` — both ship through GitHub Releases and PyPI respectively.
 
 ## Why the runtime surface is intentionally small
 

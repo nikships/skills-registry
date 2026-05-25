@@ -7,15 +7,15 @@
 ```mermaid
 flowchart LR
   U([user]) -->|"curl … install.sh | sh"| InstallSh["install.sh<br/>(POSIX)"]
-  InstallSh -->|"downloads tarball"| GoCLI["skill-registry<br/>(Go + Bubble Tea)"]
-  GoCLI -->|"installs via uv/pipx/pip"| McpBin["skill-registry-mcp<br/>(Python, FastMCP)"]
+  InstallSh -->|"downloads tarball"| GoCLI["skills-registry<br/>(Go + Bubble Tea)"]
+  GoCLI -->|"installs via uv/pipx/pip"| McpBin["skills-registry-mcp<br/>(Python, FastMCP)"]
   GoCLI -->|"gh api / git push"| GH["gh CLI"]
   McpBin -->|"gh api"| GH
   GH -->|"REST + Git Data API"| Repo[(GitHub registry)]
   Agent([MCP agent]) -->|"stdio"| McpBin
 ```
 
-The user never sees Python during onboarding. `install.sh` drops the Go binary into `~/.local/bin/skill-registry`, the bare invocation routes into the wizard (no config) or the hub (config present), and the wizard installs the Python MCP server in the background via `uv` → `pipx` → `pip`.
+The user never sees Python during onboarding. `install.sh` drops the Go binary into `~/.local/bin/skills-registry`, the bare invocation routes into the wizard (no config) or the hub (config present), and the wizard installs the Python MCP server in the background via `uv` → `pipx` → `pip`.
 
 ## Two upload paths, one repository
 
@@ -24,7 +24,7 @@ A single skill is 1–10 files; a first-time bootstrap is 30–200 skills (100�
 ```mermaid
 flowchart TD
   subgraph CLI bootstrap
-    Boot["skill-registry bootstrap<br/>(or wizard step 4)"] --> GitPush["registry.Client.PushTreeViaGit<br/>= ONE git push"]
+    Boot["skills-registry bootstrap<br/>(or wizard step 4)"] --> GitPush["registry.Client.PushTreeViaGit<br/>= ONE git push"]
     GitPush --> Auth["gh auth setup-git<br/>(idempotent)"]
     GitPush --> Remote["https://github.com/&lt;repo&gt;.git"]
   end
@@ -49,7 +49,7 @@ See [systems/registry-client](../systems/registry-client.md) and [systems/bootst
 
 ## Bare-command routing
 
-When a user types `skill-registry` with no subcommand, `cli/cmd/skill-registry/main.go:bareRouteDecision` decides where they land. It is a pure function — no I/O — so the routing matrix is unit-testable end to end.
+When a user types `skills-registry` with no subcommand, `cli/cmd/skills-registry/main.go:bareRouteDecision` decides where they land. It is a pure function — no I/O — so the routing matrix is unit-testable end to end.
 
 | isTTY | `--json` | config load error | → route |
 | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ Bare invocation always lands somewhere safe. Non-TTY → no Bubble Tea. `--json`
 
 ## First-run wizard (8 steps)
 
-`runWizard` (`cli/cmd/skill-registry/wizard.go`) owns the full onboarding flow inside an alt-screen Bubble Tea program:
+`runWizard` (`cli/cmd/skills-registry/wizard.go`) owns the full onboarding flow inside an alt-screen Bubble Tea program:
 
 ```mermaid
 flowchart TD
@@ -110,7 +110,7 @@ src/skills_mcp/             # Python MCP server + legacy init shim
   frontmatter.py            # YAML-ish parser
   init.py                   # legacy bootstrap shim
 cli/                        # Go module (own go.mod)
-  cmd/skill-registry/       # cobra root + subcommand handlers
+  cmd/skills-registry/       # cobra root + subcommand handlers
   internal/
     agents/                 # 56-entry dot-folder catalogue
     bootstrap/              # SKILL.md template + MCP entry-point installer
@@ -140,9 +140,9 @@ If you want to understand the system end to end:
 1. `src/skills_mcp/registry_api.py` — the contract with GitHub (Publish + Get + List).
 2. `src/skills_mcp/registry_server.py` — how the contract is exposed as MCP tools.
 3. `cli/internal/registry/registry.go` — the Go mirror, plus `Delete` + `PushTreeViaGit`.
-4. `cli/cmd/skill-registry/main.go` — `bareRouteDecision`.
-5. `cli/cmd/skill-registry/wizard.go` — alt-screen onboarding.
-6. `cli/cmd/skill-registry/hub.go` — dashboard loop.
+4. `cli/cmd/skills-registry/main.go` — `bareRouteDecision`.
+5. `cli/cmd/skills-registry/wizard.go` — alt-screen onboarding.
+6. `cli/cmd/skills-registry/hub.go` — dashboard loop.
 7. `cli/internal/bootstrap/mcp_install.go` — Go-side `uv` → `pipx` → `pip` installer.
 8. `cli/internal/jsonout/jsonout.go` — persistent `--json` flag plumbing.
 

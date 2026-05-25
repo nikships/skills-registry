@@ -5,13 +5,13 @@ package bootstrap
 
 import "fmt"
 
-// SkillMd returns the body of the generated skill-registry/SKILL.md.
+// SkillMd returns the body of the generated skills-registry/SKILL.md.
 func SkillMd(registryRepo string) string {
 	return fmt.Sprintf(skillMdTemplate, registryRepo, registryRepo)
 }
 
 const skillMdTemplate = `---
-name: skill-registry
+name: skills-registry
 description: |
   Broker to your GitHub-hosted personal skill library at %s. Use when the
   user asks for a skill, mentions installing/sharing skills, says 'use the
@@ -29,7 +29,7 @@ Skills live at https://github.com/%s and can be reached two ways:
    Use them — they're faster and don't require a CLI binary.
 
 2. **CLI (fallback / write-side).** When MCP isn't available, or for write
-   operations (publish / sync / remove), shell out to the ` + "`skill-registry`" + `
+   operations (publish / sync / remove), shell out to the ` + "`skills-registry`" + `
    binary. Requires the ` + "`gh`" + ` CLI to be authenticated
    (` + "`gh auth status`" + `); all I/O routes through ` + "`gh api`" + ` — no
    ` + "`git`" + ` or SSH needed for day-to-day commands.
@@ -44,7 +44,7 @@ and when.
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
 ` + "```" + `
 
-Drops the binary into ` + "`~/.local/bin/skill-registry`" + `. Re-run any time
+Drops the binary into ` + "`~/.local/bin/skills-registry`" + `. Re-run any time
 to upgrade.
 
 ## 1. Discover what's available
@@ -53,7 +53,7 @@ MCP: call ` + "`list_skills`" + `.
 
 CLI:
 ` + "```" + `
-skill-registry list
+skills-registry list
 ` + "```" + `
 
 Match the user's request against descriptions, not just slugs.
@@ -64,7 +64,7 @@ MCP: call ` + "`get_skill(slug=\"<slug>\")`" + ` — returns the raw ` + "`SKILL
 
 CLI:
 ` + "```" + `
-skill-registry get <slug> [--dest PATH]
+skills-registry get <slug> [--dest PATH]
 ` + "```" + `
 
 The CLI fetches the **entire upstream directory tree** for the skill and
@@ -92,23 +92,23 @@ by ` + "`get`" + `) and ask:
 > Would you like me to delete the local copy now?"
 
 If the user says yes, delete the folder at the returned path. Do **not** use
-` + "`skill-registry remove`" + ` for this — that command deletes the skill
+` + "`skills-registry remove`" + ` for this — that command deletes the skill
 from the public registry, the cache, and every agent dot-folder. For simple
 local cleanup, just remove the specific folder the ` + "`get`" + ` command
 returned.
 
 ## 3. Publish a new or updated skill (CLI only; hosted MCP is read-only)
 
-- ` + "`skill-registry publish <path>`" + ` — single-skill push from a local folder
-- ` + "`skill-registry add <source>`" + ` — pull from a path, ` + "`owner/repo`" + `, or git URL,
+- ` + "`skills-registry publish <path>`" + ` — single-skill push from a local folder
+- ` + "`skills-registry add <source>`" + ` — pull from a path, ` + "`owner/repo`" + `, or git URL,
   then push selections to the registry
-- ` + "`skill-registry sync`" + ` — scan your AI tool dot-folders for skills not yet in
+- ` + "`skills-registry sync`" + ` — scan your AI tool dot-folders for skills not yet in
   the registry; multi-select what to push
 
 ## 4. Remove a skill (CLI only; hosted MCP is read-only)
 
 ` + "```" + `
-skill-registry remove <slug>
+skills-registry remove <slug>
 ` + "```" + `
 
 Deletes the slug end-to-end: from the GitHub registry repo (single
@@ -126,22 +126,22 @@ letting a human pick from a list.
 
 | Command | Payload shape |
 |---|---|
-| ` + "`skill-registry list --json`" + ` | ` + "`[{\"slug\": \"...\", \"name\": \"...\", \"description\": \"...\"}, …]`" + ` |
-| ` + "`skill-registry get <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"path\": \"...\"}`" + ` (path is the on-disk dest) |
-| ` + "`skill-registry publish <path> --json`" + ` | ` + "`{\"slug\": \"...\", \"sha\": \"...\", \"url\": \"...\"}`" + ` |
-| ` + "`skill-registry sync --json`" + ` | ` + "`{\"pushed\": [...slugs], \"skipped\": [...slugs]}`" + ` |
-| ` + "`skill-registry remove <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"repo\": \"...\", \"sha\": \"...\", \"removed_from\": [\"registry\", \"cache\", \"dotfolders\"]}`" + ` |
+| ` + "`skills-registry list --json`" + ` | ` + "`[{\"slug\": \"...\", \"name\": \"...\", \"description\": \"...\"}, …]`" + ` |
+| ` + "`skills-registry get <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"path\": \"...\"}`" + ` (path is the on-disk dest) |
+| ` + "`skills-registry publish <path> --json`" + ` | ` + "`{\"slug\": \"...\", \"sha\": \"...\", \"url\": \"...\"}`" + ` |
+| ` + "`skills-registry sync --json`" + ` | ` + "`{\"pushed\": [...slugs], \"skipped\": [...slugs]}`" + ` |
+| ` + "`skills-registry remove <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"repo\": \"...\", \"sha\": \"...\", \"removed_from\": [\"registry\", \"cache\", \"dotfolders\"]}`" + ` |
 
 ` + "`--json`" + ` always implies ` + "`--yes`" + ` on destructive commands
 (` + "`sync`" + `, ` + "`remove`" + `): JSON callers never get a Bubble Tea
 prompt. Combine with ` + "`jq`" + ` to chain calls — e.g.
-` + "`skill-registry list --json | jq -r '.[].slug' | xargs -I{} skill-registry get {} --json`" + `.
+` + "`skills-registry list --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json`" + `.
 
 ## Troubleshooting
 
-- ` + "`skill-registry --help`" + ` — full command list and flags
+- ` + "`skills-registry --help`" + ` — full command list and flags
 - ` + "`gh auth status`" + ` — confirm GitHub credentials are present
-- If ` + "`skill-registry list`" + ` errors, check the config at
+- If ` + "`skills-registry list`" + ` errors, check the config at
   ` + "`~/.config/skills-mcp/registry.toml`" + ` points at the right ` + "`owner/repo`" + `
 - If MCP tools (` + "`list_skills`" + ` / ` + "`get_skill`" + `) say "no repo
   linked yet", install the Skills Registry GitHub App on your registry repo

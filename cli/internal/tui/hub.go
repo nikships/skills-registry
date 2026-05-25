@@ -13,7 +13,7 @@ import (
 // ────────────────────────────────────────────────────────────────────────────
 // HubModel — the F3.1 dashboard for returning users
 //
-// The hub is launched whenever `skill-registry` is invoked without a
+// The hub is launched whenever `skills-registry` is invoked without a
 // subcommand AND a registry is already configured. It's an alt-screen
 // Bubble Tea model so it can render the same hero chrome as the list /
 // wizard TUIs.

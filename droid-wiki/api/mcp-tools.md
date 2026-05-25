@@ -4,9 +4,9 @@ Active contributors: Nik Anand
 
 ## What this page covers
 
-`skill-registry-mcp` is a FastMCP stdio server that registers three tools against the user's GitHub-backed registry repo. All three are defined inline in `src/skills_mcp/registry_server.py:_register_tools` and built on top of `RegistryClient` from `src/skills_mcp/registry_api.py`. Read this page for the contract — signatures, return shapes, annotations, error cases — and cross to [../systems/registry-client.md](../systems/registry-client.md) for the implementation walkthrough of the publish sequence and retry behavior.
+`skills-registry-mcp` is a FastMCP stdio server that registers three tools against the user's GitHub-backed registry repo. All three are defined inline in `src/skills_mcp/registry_server.py:_register_tools` and built on top of `RegistryClient` from `src/skills_mcp/registry_api.py`. Read this page for the contract — signatures, return shapes, annotations, error cases — and cross to [../systems/registry-client.md](../systems/registry-client.md) for the implementation walkthrough of the publish sequence and retry behavior.
 
-The server is constructed as `FastMCP("skill-registry", instructions=..., version=__version__)` inside `build_server()`. Boot validation runs config load → `gh` lookup → `gh auth status`; see [../apps/mcp-server.md](../apps/mcp-server.md) for the exit-code mapping.
+The server is constructed as `FastMCP("skills-registry", instructions=..., version=__version__)` inside `build_server()`. Boot validation runs config load → `gh` lookup → `gh auth status`; see [../apps/mcp-server.md](../apps/mcp-server.md) for the exit-code mapping.
 
 ## Annotation profiles
 

@@ -1,4 +1,4 @@
-// Package tui contains reusable Bubble Tea components for the skill-registry CLI.
+// Package tui contains reusable Bubble Tea components for the skills-registry CLI.
 package tui
 
 import "github.com/charmbracelet/lipgloss"

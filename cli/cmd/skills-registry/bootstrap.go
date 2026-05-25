@@ -31,7 +31,7 @@ func newBootstrapCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
 		Short: "Create the registry repo, push local skills, and install agent docs",
-		Long: `Run by "skills-registry init" — but safe to re-run.
+		Long: `Run by "skills-registry bootstrap" — but safe to re-run.
 
 If a registry config already exists, the repo-creation step is skipped and
 you go straight to the agent multi-select.`,
@@ -85,7 +85,7 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 	if err != nil {
 		return fmt.Errorf("scan local skills: %w", err)
 	}
-	fmt.Println(tui.TitleStyle.Render("skill-registry — bootstrap"))
+	fmt.Println(tui.TitleStyle.Render("skills-registry — bootstrap"))
 	fmt.Printf("\nFound %s local skill(s) in %d source folder(s).\n",
 		tui.OkStyle.Render(fmt.Sprintf("%d", len(localSkills))), len(sources))
 	for _, s := range sources {
@@ -213,7 +213,7 @@ func installAgentDocs(home, cwd, repo string, opts bootstrapOpts) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\n%s installed skill-registry/SKILL.md into %d agent folder(s):\n",
+	fmt.Printf("\n%s installed skills-registry/SKILL.md into %d agent folder(s):\n",
 		tui.OkStyle.Render("✓"), len(paths))
 	for _, p := range paths {
 		fmt.Println("  ·", p)
@@ -361,7 +361,7 @@ func selectAgents(nonInteractive bool) ([]agents.Target, error) {
 			defaultValues = append(defaultValues, t)
 		}
 	}
-	model := tui.NewMultiSelect("Install skill-registry SKILL.md into which agents?", items, defaultValues, false)
+	model := tui.NewMultiSelect("Install skills-registry SKILL.md into which agents?", items, defaultValues, false)
 	program := tea.NewProgram(model)
 	result, err := program.Run()
 	if err != nil {
@@ -436,7 +436,7 @@ func promptAndCreateRepo(ctx context.Context, gh string, opts bootstrapOpts, loc
 		repo = owner + "/" + repo
 	}
 
-	description := fmt.Sprintf("Personal skill registry (%d skills) — managed via skill-registry.", len(localSkills))
+	description := fmt.Sprintf("Personal skill registry (%d skills) — managed via skills-registry.", len(localSkills))
 	tempClient, err := registry.New(repo, "main")
 	if err != nil {
 		return "", "", err
@@ -466,7 +466,7 @@ func promptRepoName(opts bootstrapOpts, defaultName string) (string, error) {
 	}
 	seed := defaultName
 	if seed == "" {
-		seed = "skill-registry"
+		seed = "skills-registry"
 	}
 	nameModel := tui.NewInput(
 		"Registry repo name",
@@ -485,7 +485,7 @@ func promptRepoName(opts bootstrapOpts, defaultName string) (string, error) {
 	}
 	name := final.Value()
 	if name == "" {
-		name = "skill-registry"
+		name = "skills-registry"
 	}
 	return name, nil
 }

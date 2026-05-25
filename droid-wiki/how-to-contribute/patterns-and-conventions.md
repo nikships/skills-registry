@@ -21,7 +21,7 @@ The shared contract surface:
 | Frontmatter parser | `frontmatter.parse_frontmatter` | `registry.parseFlatYAML` + `scan.parseFrontmatter` |
 | `gh` lookup | `gh.find_gh` | `registry.FindGH` |
 
-The `skill-registry/SKILL.md` template that's installed into each agent dot-folder is Go-only (lives in `cli/internal/bootstrap/skillmd.go`). There's no Python copy.
+The `skills-registry/SKILL.md` template that's installed into each agent dot-folder is Go-only (lives in `cli/internal/bootstrap/skillmd.go`). There's no Python copy.
 
 ## FastMCP server conventions
 
@@ -81,7 +81,7 @@ Both must agree. If one rejects a path, the other must reject it.
 `SKILLS_MAX_FILE_BYTES` (default 2 MiB) prevents accidental upload of large binaries. Honor it in any new path that writes blobs.
 
 - Python: env-var-tunable, read at module load (`_MAX_FILE_BYTES` in `registry_server.py`).
-- Go: `const maxFileBytes = 2 * 1024 * 1024` in `cli/cmd/skill-registry/publish.go`.
+- Go: `const maxFileBytes = 2 * 1024 * 1024` in `cli/cmd/skills-registry/publish.go`.
 
 The Python side rejects files that exceed it; the Go publish path logs a warning and skips them. The asymmetry is historical; if you touch either, consider aligning them.
 

@@ -29,7 +29,7 @@ The same day brought a long string of follow-ups:
 - `feat(cli): F4.1 add remove command + registry.Client.Delete` — atomic slug-level removal via the same Git Data API sequence as `publish`, with null SHAs in the tree.
 - `feat(cli): F4.2 wire --json output into every subcommand` — persistent `--json` flag in `cli/internal/jsonout/jsonout.go`.
 - `feat(tui): F3.1`/`F3.2`/`F3.3` — alt-screen hub with a responsive card grid, toast feedback loop, settings view, rune- and width-aware list truncation.
-- `feat(cli): route bare skill-registry to wizard/hub/help` — `bareRouteDecision` becomes the pure routing function for bare invocation.
+- `feat(cli): route bare skills-registry to wizard/hub/help` — `bareRouteDecision` becomes the pure routing function for bare invocation.
 - `feat(bootstrap): port _ensure_mcp_entry_point to Go` — MCP-server install (uv → pipx → pip) moved out of Python and into `cli/internal/bootstrap/mcp_install.go`, so first-run users never see Python during onboarding.
 - `feat(install): add curl|sh installer for the Go binary` — `install.sh`, the only commit in the entire repo with `droid` as the author.
 
@@ -61,7 +61,7 @@ For a 3-day-old codebase, "longest-standing" is shorthand for "survived the pivo
 ## Major rewrites
 
 - **The pivot itself** — `gather`/`add`/`show_skills` → registry model. One day, one breaking commit.
-- **PyPI rename** — `skills-mcp` → `skills-registry` at v0.5.0. The Python module path stayed `skills_mcp` to avoid breaking existing installs; the Go binary became `skill-registry` (singular). The mismatch is deliberate.
+- **PyPI rename** — `skills-mcp` → `skills-registry` at v0.5.0. The Python module path stayed `skills_mcp` to avoid breaking existing installs; the Go binary became `skills-registry` (singular). The mismatch is deliberate.
 - **Website rebuild** — original `website/` and `Web-Prototype.zip` deleted, replaced with a Next.js 16 / React 19 / Tailwind 4 single-page site (~631 LOC TS).
 - **Bootstrap UX migration** — MCP-entry-point install ported from `init.py:_ensure_mcp_entry_point` to `cli/internal/bootstrap/mcp_install.go:EnsureMCPEntryPoint`. The Python helper is still in-tree but no longer canonical.
 

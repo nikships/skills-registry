@@ -358,7 +358,7 @@ func TestSlugMatchesName(t *testing.T) {
 		{"adaptive", "adaptive", true},
 		{"camera1-to-camerax", "camera1_to_camerax", true},
 		{"My Skill", "my_skill", true},
-		{"agent-platform-skill-registry", "agent_platform_skill_registry", true},
+		{"agent-platform-skills-registry", "agent_platform_skills_registry", true},
 		// Genuinely different — slug was overridden or stored differently.
 		{"camera1-to-camerax", "cam1", false},
 		// Empty cases.

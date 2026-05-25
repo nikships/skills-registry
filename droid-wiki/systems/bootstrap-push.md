@@ -90,7 +90,7 @@ When there's a real change, the function runs `git commit -m <message>`, calls `
 
 ## Tempdir lifecycle
 
-The working directory is `os.MkdirTemp("", "skill-registry-push-*")`, and the function defers `os.RemoveAll(work)` immediately. Nothing persists outside the user's `~/.gitconfig` (which now references `gh` as its credential helper for `github.com`). The credential helper line is added by `gh auth setup-git` and we don't try to remove it — it's the same line `gh` would add for any other operation, and removing it would break the next push.
+The working directory is `os.MkdirTemp("", "skills-registry-push-*")`, and the function defers `os.RemoveAll(work)` immediately. Nothing persists outside the user's `~/.gitconfig` (which now references `gh` as its credential helper for `github.com`). The credential helper line is added by `gh auth setup-git` and we don't try to remove it — it's the same line `gh` would add for any other operation, and removing it would break the next push.
 
 ## What `PushTreeViaGit` does NOT do
 

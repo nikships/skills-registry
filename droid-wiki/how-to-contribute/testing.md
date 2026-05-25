@@ -7,7 +7,7 @@ Both halves of the codebase run offline. Python uses `pytest`; Go uses `go test`
 | Suite | Where | Count | What it touches |
 | --- | --- | --- | --- |
 | Python | `tests/` | 139 | `cache`, `config`, `frontmatter`, `gh`, `init`, `registry_api`, `registry_server` |
-| Go | colocated `*_test.go` under `cli/` | varies | `agents`, `bootstrap`, `config`, `scan`, `registry`, `tui`, `jsonout`, plus every `cli/cmd/skill-registry/*.go` handler |
+| Go | colocated `*_test.go` under `cli/` | varies | `agents`, `bootstrap`, `config`, `scan`, `registry`, `tui`, `jsonout`, plus every `cli/cmd/skills-registry/*.go` handler |
 
 Python tests live in a separate `tests/` directory. Go follows the stdlib convention and keeps `*_test.go` next to the production code (`registry.go` + `registry_test.go`, `wizard.go` + `wizard_test.go`, …).
 

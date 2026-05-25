@@ -109,7 +109,7 @@ const (
 	stateError
 )
 
-// ListModel is the main interactive list TUI for `skill-registry list`.
+// ListModel is the main interactive list TUI for `skills-registry list`.
 type ListModel struct {
 	// configuration
 	repo     string

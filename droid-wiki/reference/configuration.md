@@ -21,7 +21,7 @@ repo = "owner/name"
 default_branch = "main"
 ```
 
-Both keys are required. `default_branch` defaults to `main` when the wizard writes the file, but the loader does not synthesize one — a malformed file is surfaced as `ErrMissing`-adjacent so the bare-command router can land the user on the right screen (see `cli/cmd/skill-registry/main.go:bareRouteDecision`).
+Both keys are required. `default_branch` defaults to `main` when the wizard writes the file, but the loader does not synthesize one — a malformed file is surfaced as `ErrMissing`-adjacent so the bare-command router can land the user on the right screen (see `cli/cmd/skills-registry/main.go:bareRouteDecision`).
 
 The reader is `src/skills_mcp/config.py:load_config` on the Python side and `cli/internal/config/config.go` on the Go side. The two are kept in sync; if you change one, change the other in the same PR.
 
@@ -44,7 +44,7 @@ The MCP server invalidates `<slug>/` by comparing the live registry tree SHA to 
 | --- | --- | --- | --- |
 | `SKILLS_REGISTRY` | (from config) | Override the registry for one command. Accepts `owner/repo` or `owner/repo@branch`. Takes precedence over `registry.toml`. | MCP server, CLI |
 | `SKILLS_LOG_LEVEL` | `INFO` | Log verbosity for the MCP server. Set to `DEBUG` for verbose output. | MCP server |
-| `SKILLS_SKIP_INSTALL` | unset | Set to `1` to skip auto-install of `skill-registry-mcp` in the wizard. | Go bootstrap |
+| `SKILLS_SKIP_INSTALL` | unset | Set to `1` to skip auto-install of `skills-registry-mcp` in the wizard. | Go bootstrap |
 | `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a specific release tag (e.g. `v0.5.1`). | `install.sh` |
 | `SKILLS_REGISTRY_REPO` | `anand-92/skills-registry` | Override the GitHub repo `install.sh` fetches the binary from. | `install.sh` |
 | `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the binary. | `install.sh` |

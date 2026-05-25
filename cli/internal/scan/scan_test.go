@@ -155,15 +155,15 @@ func TestEntriesForCleanup_IncludesSymlinks(t *testing.T) {
 
 func TestEntriesForCleanup_ProtectsSkillRegistryInstall(t *testing.T) {
 	// bootstrap.InstallSkillMd writes our own SKILL.md into
-	// <source>/skill-registry/SKILL.md. If the registry happened to have a
-	// slug named "skill-registry" (it usually does — this very project), we
+	// <source>/skills-registry/SKILL.md. If the registry happened to have a
+	// slug named "skills-registry" (it usually does — this very project), we
 	// MUST NOT delete it.
 	tmp := t.TempDir()
-	writeSkill(t, filepath.Join(tmp, ".factory", "skills"), "skill-registry", "---\nname: x\n---\n")
+	writeSkill(t, filepath.Join(tmp, ".factory", "skills"), "skills-registry", "---\nname: x\n---\n")
 	sources := []Source{{Path: filepath.Join(tmp, ".factory", "skills"), Label: "~/.factory/skills"}}
-	entries := EntriesForCleanup(sources, map[string]struct{}{"skill-registry": {}})
+	entries := EntriesForCleanup(sources, map[string]struct{}{"skills-registry": {}})
 	if len(entries) != 0 {
-		t.Fatalf("skill-registry install target must be protected, got %+v", entries)
+		t.Fatalf("skills-registry install target must be protected, got %+v", entries)
 	}
 }
 

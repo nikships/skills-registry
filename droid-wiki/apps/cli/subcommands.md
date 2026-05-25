@@ -4,7 +4,7 @@ Active contributors: Nik Anand
 
 ## What they do
 
-`skill-registry` exposes seven headless subcommands. Each is a single file under `cli/cmd/skill-registry/` registered on the root cobra command. They share one persistent flag (`--json`) and three pieces of shared infrastructure: `config.Load`, `registry.New`, and `walkSkillIntoFiles` / `rekeyBySlug` for file collection.
+`skills-registry` exposes seven headless subcommands. Each is a single file under `cli/cmd/skills-registry/` registered on the root cobra command. They share one persistent flag (`--json`) and three pieces of shared infrastructure: `config.Load`, `registry.New`, and `walkSkillIntoFiles` / `rekeyBySlug` for file collection.
 
 ## The table
 
@@ -34,7 +34,7 @@ Empty arrays are always emitted as `[]` (never elided) so a consumer can `jq 'le
 
 Destructive commands (`sync`, `add`, `remove`) need a confirmation prompt by default. But an agent driving the CLI with piped stdin can't render a Bubble Tea prompt — it would hang.
 
-`shouldAutoYes()` in `cli/cmd/skill-registry/list.go` resolves the ambiguity:
+`shouldAutoYes()` in `cli/cmd/skills-registry/list.go` resolves the ambiguity:
 
 ```go
 func shouldAutoYes() bool {
@@ -80,13 +80,13 @@ The `--json` payload's `removed_from` array contains string constants (`"registr
 
 | File | Role |
 | --- | --- |
-| `cli/cmd/skill-registry/bootstrap.go` | Headless `bootstrap` flow + shared helpers (`walkSkillIntoFiles`, `locateMCPBinary`, `requireGitForBootstrap`). |
-| `cli/cmd/skill-registry/list.go` | `runListJSON` + `runList` + `printPlainList`; also hosts `isTerminal` / `isStdinTerminal` / `shouldAutoYes`. |
-| `cli/cmd/skill-registry/get.go` | `runGetJSON` + `runGet` + shared `DownloadSkill` + `resolveDest`. |
-| `cli/cmd/skill-registry/sync.go` | `runSyncJSON` + `runSync` + `planSync` + `publishSkills` + `confirmPush` + `promptSync`. |
-| `cli/cmd/skill-registry/add.go` | `runAddJSON` + `runAdd` + `resolveSource` + `promptAddSelection`. |
-| `cli/cmd/skill-registry/publish.go` | `runPublishJSON` + `runPublish` + shared `doPublish` + `collectFiles`. |
-| `cli/cmd/skill-registry/remove.go` | `runRemoveCmd` + `runRemove` (shared with hub) + `removeFromCache` + `removeFromDotFolders`. |
+| `cli/cmd/skills-registry/bootstrap.go` | Headless `bootstrap` flow + shared helpers (`walkSkillIntoFiles`, `locateMCPBinary`, `requireGitForBootstrap`). |
+| `cli/cmd/skills-registry/list.go` | `runListJSON` + `runList` + `printPlainList`; also hosts `isTerminal` / `isStdinTerminal` / `shouldAutoYes`. |
+| `cli/cmd/skills-registry/get.go` | `runGetJSON` + `runGet` + shared `DownloadSkill` + `resolveDest`. |
+| `cli/cmd/skills-registry/sync.go` | `runSyncJSON` + `runSync` + `planSync` + `publishSkills` + `confirmPush` + `promptSync`. |
+| `cli/cmd/skills-registry/add.go` | `runAddJSON` + `runAdd` + `resolveSource` + `promptAddSelection`. |
+| `cli/cmd/skills-registry/publish.go` | `runPublishJSON` + `runPublish` + shared `doPublish` + `collectFiles`. |
+| `cli/cmd/skills-registry/remove.go` | `runRemoveCmd` + `runRemove` (shared with hub) + `removeFromCache` + `removeFromDotFolders`. |
 | `cli/internal/jsonout/jsonout.go` | `BindFlag` / `Enabled` / `Print` / `PrintError`. |
 
 ## Cross-references
