@@ -91,6 +91,7 @@ export default function Home() {
             <span className="term-line"><span className="term-warn">&#123;</span></span>
             <span className="term-line"><span className="term-warn">  "mcpServers": &#123;</span></span>
             <span className="term-line"><span className="term-warn">    "skills-registry": &#123;</span></span>
+            <span className="term-line"><span className="term-warn">      "type": "http",</span></span>
             <span className="term-line"><span className="term-warn">      "url": "https://mcp.skills-registry.dev/mcp"</span></span>
             <span className="term-line"><span className="term-warn">    &#125;</span></span>
             <span className="term-line"><span className="term-warn">  &#125;</span></span>
@@ -361,6 +362,7 @@ export default function Home() {
 <span className="p">&#123;</span>
   <span className="k">"mcpServers"</span><span className="p">:</span> <span className="p">&#123;</span>
     <span className="k">"skills-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
+      <span className="k">"type"</span><span className="p">:</span> <span className="s">"http"</span><span className="p">,</span>
       <span className="k">"url"</span><span className="p">:</span> <span className="s">"https://mcp.skills-registry.dev/mcp"</span>
     <span className="p">&#125;</span>
   <span className="p">&#125;</span>
@@ -447,6 +449,7 @@ export default function Home() {
 <span className="p">&#123;</span>
   <span className="k">"mcpServers"</span><span className="p">:</span> <span className="p">&#123;</span>
     <span className="k">"skills-registry"</span><span className="p">:</span> <span className="p">&#123;</span>
+      <span className="k">"type"</span><span className="p">:</span> <span className="s">"http"</span><span className="p">,</span>
       <span className="k">"url"</span><span className="p">:</span> <span className="s">"https://mcp.skills-registry.dev/mcp"</span>
     <span className="p">&#125;</span>
   <span className="p">&#125;</span>
