@@ -149,12 +149,26 @@ def build_auth_provider(
 	settings: ServerSettings,
 	storage: FernetEncryptionWrapper,
 ) -> GitHubProvider:
+	# Request zero OAuth scopes. The only piece of user data this server
+	# touches is the GitHub ``id`` (the ``sub`` claim) returned from
+	# ``GET /user`` — which is public profile data, available with no
+	# scope at all. All repo access goes through the GitHub App installation
+	# token, not the user's OAuth token, so we never need ``repo``,
+	# ``read:user``, or anything else.
+	#
+	# FastMCP's GitHubProvider defaults ``required_scopes`` to ``["user"]``,
+	# which GitHub renders on the consent screen as "Full access … read and
+	# write all user data (private email addresses, private profile
+	# information, followers)". That's egregiously over-provisioned for
+	# identity-only OAuth — passing ``[]`` reduces the consent prompt to
+	# the minimum GitHub will render.
 	return GitHubProvider(
 		client_id=settings.github_client_id,
 		client_secret=settings.github_client_secret,
 		base_url=settings.base_url,
 		jwt_signing_key=settings.jwt_signing_key,
 		client_storage=storage,
+		required_scopes=[],
 	)
 
 
