@@ -22,10 +22,9 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-# .git is excluded from the build context, so hatch-vcs can't read the tag.
-# Pin a build-time version so the wheel builds without a working git repo.
-ENV HATCH_BUILD_HOOKS_ENABLE=false \
-    HATCH_VCS_PRETEND_VERSION=0.6.0
+# .git is excluded from the build context, so hatch-vcs (setuptools-scm) can't
+# read the tag. Pin a build-time version so the wheel builds without git.
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SKILLS_REGISTRY=0.6.0
 
 RUN uv venv /opt/venv \
     && uv pip install --python /opt/venv/bin/python .
