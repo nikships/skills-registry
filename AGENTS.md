@@ -18,7 +18,7 @@ A living guide for AI agents and new contributors. Captures the architecture, pa
 | Piece | Language | Distribution | Job |
 |---|---|---|---|
 | `skill-registry` (Go) | Go 1.24+ | GitHub Releases tarballs, installed by `install.sh` (`curl … \| sh`) | Charmbracelet TUI + headless commands. Bare invocation routes to wizard / hub / help. Subcommands: `bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`. All subcommands honor a persistent `--json` flag. |
-| `skill-registry-mcp` (Python, hosted) | Python 3.10+ (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server with 3 tools (`list_skills`, `get_skill`, `publish_skill`). OAuth + GitHub App on first connect. Users never install this. |
+| `skill-registry-mcp` (Python, hosted) | Python 3.10+ (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server with **2 read-only tools** (`list_skills`, `get_skill`). All writes (`publish` / `sync` / `remove`) go through the Go CLI — the hosted server never mutates the user's repo. OAuth + GitHub App on first connect. Users never install this. |
 
 - **Build (Python, maintainer-only):** `hatchling` + `hatch-vcs` (PEP 517; version pinned via `HATCH_VCS_PRETEND_VERSION` in Dockerfile) — the wheel exists only to provide the `skill-registry-mcp` entry point inside the Docker image.
 - **Package manager (Python):** `uv`
@@ -43,20 +43,22 @@ install.sh               # POSIX `curl | sh` installer — the user-facing entry
                          # Downloads the matching skill-registry tarball from GitHub Releases.
 
 infa-not-for-users/      # Maintainer-only. Hosted MCP server source + Docker/Railway config.
-  src/skills_mcp/
+  skills_mcp/            # Python package (no `src/` layout — packages = ["skills_mcp"] in pyproject.toml)
     __init__.py          # __version__ resolved from installed package metadata
-    registry_server.py   # `skill-registry-mcp` — FastMCP with list_skills / get_skill / publish_skill
-    registry_api.py      # RegistryClient: GitHub Git Data API wrapper, atomic publish/delete with retry
-    gh.py                # (legacy) PATH+fallback gh lookup — unused in hosted runtime; kept for parity tests
-    config.py            # SKILLS_REGISTRY env override + repo-link table backing store
-    cache.py             # ~/.cache/skills-mcp/skills/<slug>/ with tree-SHA meta files (legacy, unused server-side)
-    frontmatter.py       # parse_frontmatter / first_paragraph helpers used by registry_api
-  tests/                 # pytest suite (~139 tests, mirrors the CLI's contract)
-  pyproject.toml         # hatch-vcs + fastmcp; consumed by Dockerfile only
+    remote_server.py     # `skill-registry-mcp` — FastMCP build_server() + main(); registers list_skills + get_skill
+    github_api.py        # Token-based GitHub REST helpers: list_skill_folders, get_skill_md, repo_has_skills
+    github_app.py        # GitHubAppClient: JWT minting, installation lookup, installation-token issuance, retry
+    linking.py           # LinkStore + LinkedRepo: {github_user → owner/repo} persistence on the Railway volume
+    setup_routes.py      # /setup/install + post-install landing routes (GitHub App install handoff)
+    webhooks.py          # /webhooks/github handler: parses `installation` events and writes to LinkStore
+    frontmatter.py       # parse_frontmatter / first_paragraph helpers used by github_api
+  tests/                 # pytest suite (~81 tests) covering frontmatter, github_api, github_app, linking, remote_server, setup_routes, webhooks
+  pyproject.toml         # hatch-vcs + fastmcp + uvicorn + httpx + PyJWT + cryptography + py-key-value-aio + starlette
   Dockerfile             # uv → build wheel → install entry point → run skill-registry-mcp
   railway.json           # Railway service definition (volume mount at /data/oauth)
-  .env.example           # OAuth + GitHub App env var template
+  .env.example           # OAuth + GitHub App env var template (FASTMCP_*, GITHUB_APP_*, JWT_SIGNING_KEY, STORAGE_ENCRYPTION_KEY)
   README.md              # Deployment + repo-link table notes (maintainer-facing)
+  HANDOFF.md             # Post-launch ops runbook (URLs, env vars, common operations, troubleshooting)
 
 cli/                     # Separate Go module (own go.mod) — the user-facing binary.
   cmd/skill-registry/
@@ -79,7 +81,7 @@ docs/
   registry.md            # Architecture deep dive (refreshed for the hosted-MCP topology)
 .github/workflows/
   ci.yml                 # Two parallel jobs: `server` (ruff + pytest in infa-not-for-users/) and `cli` (vet/staticcheck/deadcode/gocyclo/build/test)
-  release.yml            # CLI-only path filter (cli/, docs/, install.sh). Builds Go binaries for 5 targets; no PyPI publish, no wheel build.
+  release.yml            # CLI-only path filter (cli/**, install.sh). Builds Go binaries for 5 targets; no PyPI publish, no wheel build.
 website/                 # Next.js landing page (skills-registry.dev). Static; deployed separately.
 ```
 
@@ -124,8 +126,8 @@ website/                 # Next.js landing page (skills-registry.dev). Static; d
             ├─ OAuth handshake on first connect (browser pop-up → GitHub)
             ├─ Server resolves {github_user → owner/repo} from its repo-link table
             │     (table populated by Skills Registry GitHub App `installation` webhook)
-            └─ list_skills / get_skill / publish_skill → GitHub REST + Git Data API
-                  via installation-scoped GitHub App token
+            └─ list_skills / get_skill → GitHub REST contents API
+                  via installation-scoped GitHub App token (read-only)
 ```
 
 **MCP wire-up is a static URL.** `cli/internal/bootstrap/install.go` exposes `HostedMCPURL = "https://mcp.skills-registry.dev/mcp"` and `MCPJSONSnippet()` (no arguments — no binary path to compute). The wizard's step 7 (`WizardStepMCPConnect`) and the headless `bootstrap` subcommand both print this snippet. **The CLI never installs, boots, or proxies an MCP server.** Codex remains unsupported because the hosted server speaks Streamable HTTP and Codex's TOML config only accepts stdio (`command = "..."`); the wizard prints a one-line caveat instead of a Codex snippet.
@@ -161,15 +163,13 @@ The loop terminates on `Quit()` (q / esc / ctrl+c) or when a launcher-level erro
 
 The `building-glamorous-tuis` skill recommends Charmbracelet (Go), which has no first-class Python equivalent. Building the bootstrap UX in Bubble Tea required a Go binary, so `install.sh` drops the Go binary directly and **the user never sees Python**. The hosted MCP server is a service users connect to, not software they install.
 
-### Two upload paths: `gh api` for the hosted MCP + day-to-day commands, `git push` for bootstrap
+### Two upload paths in the CLI: `gh api` for day-to-day writes, `git push` for bootstrap
 
-The hosted MCP server runs in a Docker container with no shell state:
-- `PATH` is whatever the Dockerfile sets up; `gh` is not on it.
-- `SSH_AUTH_SOCK` is unset.
-- `git config user.email` is blank.
-- The only credential is an installation-scoped GitHub App token, fetched per request.
+The **hosted MCP server is read-only.** It runs in a Docker container with no shell state — no `gh`, no `git`, no SSH, no `user.email` — and its only credential is an installation-scoped GitHub App token fetched per request. `list_skills` and `get_skill` are served via the GitHub Contents API; the server never invokes anything that could mutate the user's repo.
 
-So **the hosted MCP server** (`registry_api.RegistryClient.publish_skill`) never touches `git`/SSH. Every write goes through the GitHub Git Data API using the App token. The sequence (mirrored in Go's `registry.Client.Publish`):
+That means **every write lives in the Go CLI** (`publish`, `sync`, `add`, `remove`). The CLI has two upload paths:
+
+1. **Single-skill `gh api` blob path** (`registry.Client.Publish` / `registry.Client.Delete`). Used by `publish`, `add`, `sync`, and `remove`. Each call walks the standard atomic-commit dance:
 
 ```text
 GET  /repos/{r}/git/ref/heads/{branch}        → parent SHA
@@ -181,9 +181,9 @@ POST /repos/{r}/git/commits                   → commit pointing at new tree, p
 PATCH /repos/{r}/git/refs/heads/{branch}      → fast-forward ref
 ```
 
-Conflicts (409/422) trigger up to 3 retries with exponential backoff against the freshly-fetched HEAD. Fine for `publish_skill`: a single skill is ~1–10 files, well under the secondary-rate-limit threshold. `remove` (Python `delete_skill` / Go `Client.Delete`) uses the same six-call sequence with null SHAs in the new tree entries to drop the slug atomically — see §6 of `docs/registry.md`.
+Conflicts (409/422) trigger up to 3 retries with exponential backoff against the freshly-fetched HEAD. Fine for one skill: ~1–10 files, well under the secondary-rate-limit threshold. `Client.Delete` uses the same six-call sequence with null SHAs in the new tree entries to drop the slug atomically — see §3.3 of `docs/registry.md`.
 
-The **CLI bootstrap** flow is different. A first-time user typically has 30–200 skills (≈100–500 files); per-file blob POSTs trip GitHub's secondary rate limit at ~80 requests/minute. `registry.Client.PushTreeViaGit` sidesteps that with one `git push`:
+2. **Bulk `git push` path** (`registry.Client.PushTreeViaGit`). The wizard's step 4 only. A first-time user typically has 30–200 skills (≈100–500 files); per-file blob POSTs trip GitHub's secondary rate limit at ~80 requests/minute. `PushTreeViaGit` sidesteps that with one `git push`:
 
 1. `gh auth setup-git --hostname github.com` (idempotent — wires `gh` as the HTTPS credential helper).
 2. `gh api user` → commit author name/email (falls back to `<login>@users.noreply.github.com`).
@@ -191,7 +191,7 @@ The **CLI bootstrap** flow is different. A first-time user typically has 30–20
 4. Materialize every file in the tempdir; `git add -A`; commit; `git push -u origin main`.
 5. Tempdir removed on exit; nothing persists outside the user's `~/.gitconfig` (which now references `gh` as credential helper for github.com).
 
-Hard requirements: `git` on PATH and an authenticated `gh`. `cmd_bootstrap` fails fast (before any prompts) when `git` is missing, with an install hint. Single-skill `publish` still uses the `gh api` blob path — never close to the rate limit.
+Hard requirements for the bulk path: `git` on PATH and an authenticated `gh`. `cmd_bootstrap` fails fast (before any prompts) when `git` is missing, with an install hint. Outside the wizard, every CLI write stays on the `gh api` blob path — never close to the rate limit.
 
 ### Caching
 
@@ -212,9 +212,13 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
 
 | Symbol | File | Role |
 |---|---|---|
-| `RegistryClient` | `infa-not-for-users/src/skills_mcp/registry_api.py` | Python (hosted): `list_skills` / `download_skill` / `publish_skill`. Owns Git Data API logic + retry. |
-| `registry.Client` | `cli/internal/registry/registry.go` | Go mirror of `RegistryClient`. Same endpoints, same order, same retries. Also exposes `PushTreeViaGit` (bulk bootstrap path) and `Delete` (slug-level atomic remove). |
-| `build_server()` | `infa-not-for-users/src/skills_mcp/registry_server.py` | Constructs the FastMCP server. Validates auth + config at boot. |
+| `build_server()` | `infa-not-for-users/skills_mcp/remote_server.py` | Constructs the FastMCP server, validates settings at boot, and registers the two read-only tools (`list_skills`, `get_skill`). Returns `(FastMCP, LinkStore, GitHubAppClient)`. |
+| `list_skill_folders` / `get_skill_md` / `repo_has_skills` | `infa-not-for-users/skills_mcp/github_api.py` | Token-based GitHub REST helpers used by the hosted server's read tools. No `gh` binary, no `git`. |
+| `GitHubAppClient` | `infa-not-for-users/skills_mcp/github_app.py` | Mints the JWT, looks up the installation for a given user, and exchanges JWT → installation access token per request. Owns the retry policy. |
+| `LinkStore` / `LinkedRepo` | `infa-not-for-users/skills_mcp/linking.py` | Persists `{github_user → owner/repo}` on the Railway-backed volume. Populated by the `installation` webhook (`webhooks.py`) and read on every tool call. |
+| `parse_frontmatter` / `first_paragraph` | `infa-not-for-users/skills_mcp/frontmatter.py` | YAML-ish frontmatter parser + description fallback used by `github_api` to render `list_skills` rows. |
+| `registry.Client` | `cli/internal/registry/registry.go` | The Go-side GitHub Git Data API client: `Publish`, `Delete`, `PushTreeViaGit`, list/get mirror operations. All CLI writes flow through here. |
+| `validateRelPath` | `cli/internal/registry/registry.go` | Path-traversal guard for repo-relative paths. Rejects `..`, absolute paths, and empty strings. Applied to every file before blob upload or `git add`. |
 | `bareRouteDecision` | `cli/cmd/skill-registry/main.go` | Pure routing function for `skill-registry` with no subcommand: returns `bareRouteHelp` / `bareRouteWizard` / `bareRouteHub` / `bareRouteError`. |
 | `runWizard` | `cli/cmd/skill-registry/wizard.go` | First-run alt-screen Bubble Tea wizard. 8 steps, owns scan/repo-create/push/agent-install/cleanup/MCP-snippet/done. |
 | `runHub` | `cli/cmd/skill-registry/hub.go` | Returning-user dashboard loop: launches `tui.HubModel`, dispatches the picked action, seeds the next frame with a toast. |
@@ -223,20 +227,20 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
 | `WizardStepMCPConnect` / `startMCPConnect` | `cli/internal/tui/wizard.go`, `cli/internal/tui/wizard_steps.go` | Step 7 of the wizard — purely informational. Synchronous snapshot of `MCPJSONSnippet()`, no goroutine. |
 | `jsonout.BindFlag` / `Enabled` / `Print` / `PrintError` | `cli/internal/jsonout/jsonout.go` | Persistent `--json` flag plumbing. Every subcommand checks `Enabled()` and branches into a JSON-only code path. |
 | `Client.Delete` | `cli/internal/registry/registry.go` | Atomic `<slug>/` removal via the Git Data API. Mirrors `Publish` but builds a tree with null-SHA entries. Used by `remove` (and the hub's Remove card). |
-| `find_gh` / `FindGH` | `infa-not-for-users/src/skills_mcp/gh.py`, `cli/internal/registry/registry.go` | PATH + fallback lookup. CLI-side only — the hosted server uses GitHub App tokens directly. |
+| `FindGH` | `cli/internal/registry/registry.go` | PATH + fallback lookup for the `gh` CLI. CLI-side only — the hosted server doesn't shell out to anything. |
 | `MultiSelectModel` | `cli/internal/tui/multiselect.go` | Fuzzy-searchable multi-select with locked-universal section. |
-| `parse_frontmatter` / `first_paragraph` | `infa-not-for-users/src/skills_mcp/frontmatter.py` | Tiny YAML-ish frontmatter parser + description fallback used by `registry_api`. |
-| `SkillMd` | `cli/internal/bootstrap/skillmd.go` | Sole source of the generated `skill-registry/SKILL.md` template (CLI-only; written into each agent dot-folder by Go bootstrap). Documents both the hosted MCP (preferred) and the CLI (fallback + write side). |
+| `SkillMd` | `cli/internal/bootstrap/skillmd.go` | Sole source of the generated `skill-registry/SKILL.md` template (CLI-only; written into each agent dot-folder by Go bootstrap). Documents both the hosted MCP (preferred for reads) and the CLI (writes + fallback reads). |
 | `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`. |
 
 ---
 
 ## Testing
 
-- **Python (hosted server):** covers `cache`, `config`, `frontmatter`, `gh`, `registry_api`, `registry_server`. The `registry_api` suite stubs `gh` with a Python shim that replays scripted JSON responses based on argv substring matches. Run from `infa-not-for-users/`:
+- **Python (hosted server):** 81 tests covering `frontmatter`, `github_api`, `github_app`, `linking`, `remote_server`, `setup_routes`, `webhooks`. GitHub REST calls are stubbed with `httpx.MockTransport`; OAuth + GitHub App flows use scripted JWT fixtures. Run from `infa-not-for-users/`:
   ```bash
   cd infa-not-for-users && uv run pytest -v --cov=skills_mcp --cov-report=term-missing
   ```
+  (If `hatch-vcs` complains about a missing tag, prefix with `SETUPTOOLS_SCM_PRETEND_VERSION=0.7.0` — the Dockerfile sets this automatically.)
 - **Go:** Tests for `agents`, `bootstrap`, `config`, `scan`, `registry`, `tui` (also uses a `gh` shim invoked via `/bin/sh` → `python3`). Run with `cd cli && go test ./...`.
 - Run everything:
   ```bash
@@ -256,7 +260,7 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
 2. **No multi-registry support.** Config is one-repo. A `[registries]` array + `connect <owner/repo>` would let an agent see several side-by-side.
 3. **Browsing third-party public registries** isn't a first-class flow. The read tools (`list_skills`, `get_skill`) don't require write access — wiring them to an arbitrary `owner/repo` would be a few lines.
 4. **Windows installer.** `install.sh` is POSIX-only. The Go binary builds for `windows/amd64`, but Windows users need an `install.ps1` (and `gh.exe` lookup in `FindGH`) for the same one-shot experience.
-5. **`build_server()` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `list_skills`; a verbose-mode error log would help.
+5. **`get_skill_md` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `list_skills`; a verbose-mode error log in the hosted server would help diagnose user reports.
 6. **No server-side cache.** Every `get_skill` reads through to GitHub. A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 7. **Codex unsupported by the hosted MCP.** Codex's TOML config only accepts stdio MCPs. Either Codex needs Streamable HTTP, or we'd ship a stdio→HTTP shim for Codex specifically.
 
@@ -269,7 +273,7 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
 ## CI / CD
 
 - `.github/workflows/ci.yml` — two parallel jobs: `server` (ruff lint + format + pytest with coverage from `infa-not-for-users/`) and `cli` (vet + staticcheck + deadcode + gocyclo + build + test from `cli/`). Both must be green to merge.
-- `.github/workflows/release.yml` — **auto-releases on every push to `main` touching `cli/`, `install.sh`, or `docs/`**. Path filter is the release decision; commits that only touch the hosted server (`infa-not-for-users/`), workflows, or the website do not release. The hosted server is redeployed by Railway directly from `main` — no PyPI publish, no wheel build, no version tag for the server.
+- `.github/workflows/release.yml` — **auto-releases on every push to `main` touching `cli/**` or `install.sh`**. Path filter is the release decision; commits that only touch the hosted server (`infa-not-for-users/`), docs, workflows, or the website do not release. The hosted server is redeployed by Railway directly from `main` — no PyPI publish, no wheel build, no version tag for the server.
   1. Tests gate (go vet + staticcheck + deadcode + gocyclo + go test) — must pass.
   2. Tag job computes the next semver from the latest `vX.Y.Z` tag, then pushes a lightweight tag on the triggering commit. CI never commits version bumps back to `main`.
   3. Builds the Go CLI for `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`, `windows/amd64`.
@@ -281,14 +285,12 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
 
 ## Security Notes
 
-- **Hosted MCP server (Python):** runs in a Docker container with no `gh`, no `git`, no SSH, no user shell state. All GitHub I/O uses installation-scoped GitHub App tokens fetched per request. OAuth state + repo-link table live on a Railway-backed volume at `/data/oauth/`.
-- **CLI bootstrap (Go):** `PushTreeViaGit` shells out to `git` over HTTPS, with credentials resolved by `gh auth setup-git` (which writes a credential-helper entry to the user's `~/.gitconfig` pointing at `gh`). Token never appears in argv, env, or on disk. The temp working directory is `os.RemoveAll`'d on exit.
-- `subprocess.run()` (Python) and `exec.CommandContext()` (Go) are used with list args; no `shell=True`/`sh -c`.
-- `RegistryClient.publish_skill` rejects paths containing `..` segments and skips dotfiles (`.git`, `.DS_Store`, …) and `__pycache__`.
-- `_normalize_rel_path` rejects backslash-encoded traversals and absolute-path injection.
-- `PushTreeViaGit` applies the same traversal rejection (`..`, `../`, `/../`) before writing any file to disk.
+- **Hosted MCP server (Python):** runs in a Docker container with no `gh`, no `git`, no SSH, no user shell state. All GitHub I/O uses installation-scoped GitHub App tokens fetched per request via `GitHubAppClient`. OAuth state + repo-link table live on a Railway-backed volume at `/data/oauth/`. The server is **read-only** — it never mutates the user's repo, so it has no need for write-path safety checks.
+- **CLI writes (Go):** `registry.Client.Publish` and `registry.Client.Delete` shell out to `gh api` (no token in argv/env/disk — `gh` resolves credentials from its own store). `registry.Client.PushTreeViaGit` shells out to `git` over HTTPS with credentials resolved by `gh auth setup-git`. The bootstrap tempdir is `os.RemoveAll`'d on exit.
+- `subprocess.run()` (Python) and `exec.CommandContext()` (Go) are used with list args; no `shell=True` / `sh -c`.
+- **Path-traversal guard (Go):** `validateRelPath` rejects `..`, `../`, `/../`, absolute paths, and empty strings; it normalizes separators and re-checks via `filepath.Clean`. Applied to every file before blob upload (`Publish`) and before `git add` (`PushTreeViaGit`).
+- `Client.Publish` skips dotfiles (`.git`, `.DS_Store`, …) and `__pycache__` directories so accidental upload of editor or build artifacts can't slip through.
 - A per-file size cap (`SKILLS_MAX_FILE_BYTES`, default 2 MiB) prevents accidental upload of huge binaries.
-- The Go binary uses identical validation paths for the REST blob upload.
 
 ---
 
@@ -333,11 +335,11 @@ When making changes:
   - **Python:** `snake_case` for functions/vars/modules, `CapWords` for classes, `UPPER_SNAKE_CASE` for module constants, leading underscore for private. Enforced by ruff's `N` rule set (`infa-not-for-users/ruff.toml`).
   - **Go (`cli/`):** packages short, lowercase, no underscores; exported `PascalCase`, unexported `camelCase`; acronyms keep case (`URL`, `SHA`, `MCP`, `ID`); receivers 1–2 letter abbreviations. Enforced by `gofmt -l` + `go vet` (both gate CI) plus code review.
   When you add a construct existing rules don't cover, expand both the linter config and the `CONTRIBUTING.md` table in the same PR — do not silently introduce a new style.
-- **Keep Python and Go in sync.** Changes to the registry contract (`registry_api.py` ↔ `registry.go`) must update both implementations and both test suites in the same PR. The `skill-registry/SKILL.md` template is Go-only at `cli/internal/bootstrap/skillmd.go`.
+- **Keep Python and Go in sync on the shared contract.** The hosted server and the CLI both call the GitHub Contents API for reads — if you change skill-folder discovery or slug derivation (`infa-not-for-users/skills_mcp/github_api.py:slugify` ↔ `cli/internal/scan` / `cli/internal/registry`), update both implementations and both test suites in the same PR. The write surface (`registry.Client.Publish` / `Delete` / `PushTreeViaGit`) is Go-only and has no Python mirror. The `skill-registry/SKILL.md` template is Go-only at `cli/internal/bootstrap/skillmd.go`.
 - **Do not reintroduce the local MCP-install path.** The hosted MCP is the only MCP server users connect to. The CLI must never shell out to `uv tool install` / `pipx install` / `pip install` for any MCP-related purpose. The wizard's step 7 is a static snippet; nothing more.
 - Do not add new mandatory runtime dependencies without justification. The hosted server has one (`fastmcp`); the Go side has cobra + bubbletea/bubbles/lipgloss + yaml.v3.
 - Update `README.md` and `docs/registry.md` for any user-visible change.
 - Add or update tests for any behavior change. Untested behavior is undefined.
 - Use conventional-commit prefixes (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
-- **Hosted server safety:** any new server code that talks to GitHub MUST go through the GitHub App token (`registry_api.RegistryClient.gh_api`). Never assume `git`, `ssh`, `gh`, or `user.name`/`user.email` are configured — the container has none of them.
+- **Hosted server safety:** any new server code that talks to GitHub MUST route through `GitHubAppClient` so it gets an installation-scoped token (with the right retry policy) for the requesting user. Never assume `git`, `ssh`, `gh`, or `user.name`/`user.email` are configured — the container has none of them. The server stays read-only; if a feature genuinely needs to write, route it through the CLI instead.
 </coding_guidelines>

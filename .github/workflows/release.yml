@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "cli/**"
+      - "install.sh"
   workflow_dispatch:
     inputs:
       bump:

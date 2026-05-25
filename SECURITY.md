@@ -17,17 +17,19 @@ We will acknowledge your report, investigate, and coordinate a fix and disclosur
 
 ## Scope and threat model
 
-`skills-registry` ships three things: the `skills-registry init` bootstrap, the `skill-registry-mcp` MCP server, and the `skill-registry` Go CLI. All three talk to GitHub exclusively through the user's authenticated `gh` CLI — there is no embedded HTTP client, no direct `git` shell-out, and no SSH agent dependency. `gh auth status` is the only trust anchor; if it fails, every command exits before touching the network.
+`skills-registry` ships two things: the **hosted MCP server** at `https://mcp.skills-registry.dev/mcp` (Python, FastMCP, deployed from `infa-not-for-users/` to Railway) and the `skill-registry` Go CLI users install via `install.sh`.
 
-The MCP server's surface is three tools (`list_skills`, `get_skill`, `publish_skill`) plus a local on-disk cache at `~/.cache/skills-mcp/skills/<slug>/`. The CLI exposes the same operations interactively.
+- **Hosted MCP server.** Two read-only tools (`list_skills`, `get_skill`). Auth is OAuth + a GitHub App installation on the user's registry repo. The server runs in a Docker container with no shell, no `gh`, no `git`; every GitHub call uses an installation-scoped GitHub App token fetched per request. The server never writes to user repos.
+- **Go CLI.** All writes (`publish` / `sync` / `add` / `remove`) and the wizard's bulk bootstrap path live here. The CLI shells out to the user's authenticated `gh` CLI for single-skill operations and to `git` (with `gh` as the credential helper) for the bulk `git push` in the wizard.
 
 Vulnerabilities we care about (non-exhaustive):
 
-- Path traversal in `publish_skill` or `get_skill` that escapes the intended skill folder. We reject paths containing `..` segments and skip dotfiles + `__pycache__`.
-- Resource URIs that disclose unintended paths.
+- Path traversal in the CLI's `publish` / `sync` / bootstrap paths that escapes the intended skill folder. We reject paths containing `..` segments via `validateRelPath` in `cli/internal/registry/registry.go` and skip dotfiles + `__pycache__`.
+- Resource URIs from the hosted server that disclose unintended paths.
 - Crashes or hangs triggered by maliciously crafted `SKILL.md` files (frontmatter parser is intentionally minimal; it never invokes a real YAML deserializer).
-- Bypasses of the per-file size cap (`SKILLS_MAX_FILE_BYTES`, default 2 MiB) used by `publish_skill`.
-- Supply-chain issues in our published Python wheel or Go release tarballs.
+- Bypasses of the per-file size cap (`SKILLS_MAX_FILE_BYTES`, default 2 MiB) enforced by the CLI's publish path.
+- Supply-chain issues in our Go release tarballs or the hosted server's Docker image.
+- OAuth / GitHub App handling issues in the hosted server (token leakage, scope confusion, webhook spoofing).
 
 Out of scope:
 

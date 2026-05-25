@@ -297,10 +297,10 @@ func (c *Client) getViaMirror(ctx context.Context, slug, dest string) error {
 }
 
 // copyTree recursively materializes src → dest, skipping dotfiles
-// (mirrors the publish-side `RegistryClient.publish_skill` hardening:
-// dotfiles like `.git`, `.DS_Store`, and `__pycache__` never round-trip
-// through the registry). Non-regular files (symlinks, devices) are
-// skipped — the registry data model is plain text files.
+// (matches the publish-side `Client.Publish` hardening: dotfiles like
+// `.git`, `.DS_Store`, and `__pycache__` never round-trip through the
+// registry). Non-regular files (symlinks, devices) are skipped — the
+// registry data model is plain text files.
 func copyTree(src, dest string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {

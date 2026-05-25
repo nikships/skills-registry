@@ -23,7 +23,7 @@ Two user-facing deliverables, **single repo**, two languages.
 |---|---|---|---|
 | `install.sh` | POSIX sh | Raw GitHub Content (`curl \| sh`) | One-shot installer. Detects OS/arch, downloads the matching Go tarball, drops the binary into `~/.local/bin/skill-registry`. |
 | `skill-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`). All honor `--json`. |
-| `skill-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. Three tools: `list_skills`, `get_skill`, `publish_skill`. Users never install this — their MCP client connects to the URL and does the OAuth dance. |
+| `skill-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. **Two read-only tools**: `list_skills`, `get_skill`. The hosted server never writes — `publish` / `sync` / `add` / `remove` all happen through the Go CLI. Users never install this; their MCP client connects to the URL and does the OAuth dance. |
 
 > **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli). Users see only the CLI; the hosted server is a service, not a deliverable.
 
@@ -33,7 +33,7 @@ The hosted server is a single FastMCP Streamable-HTTP process behind a TLS-termi
 
 1. **Auth.** MCP clients (Claude Code / Cursor / VS Code+Copilot / Claude Desktop) negotiate OAuth on first connect — a browser window opens to the server's `/authorize` endpoint, which hands off to GitHub. The resulting token is scoped to the user's GitHub identity.
 2. **Repo linking.** After OAuth, the server needs to know *which* repo to serve. Users install the **Skills Registry GitHub App** on their registry repo; an `installation` webhook records the `{github_user → owner/repo}` link in the server's key-value store. Subsequent tool calls resolve the user's repo from that link.
-3. **GitHub I/O.** Every read (`list_skills`, `get_skill`) and write (`publish_skill`) uses an installation-scoped GitHub App token. The user's local `gh` is not involved — the server runs in a Docker container with no shell state.
+3. **GitHub I/O.** Both reads (`list_skills`, `get_skill`) use an installation-scoped GitHub App token via the GitHub Contents API. The server is read-only — there is no write tool. The user's local `gh` is not involved either; the server runs in a Docker container with no shell state.
 4. **Persistence.** A small Railway-backed volume at `/data/oauth/` holds the OAuth state + repo-link table. No skills are cached server-side; every `get_skill` reads through to GitHub.
 
 The CLI (`skill-registry list`, `get`, …) is separate — it makes GitHub calls via the user's local `gh`. The hosted MCP and the CLI are two independent paths to the same GitHub data, optimized for different environments (browser-OAuth on remote compute vs. local `gh`).
@@ -137,16 +137,22 @@ The URL constant lives at `cli/internal/bootstrap/install.go:HostedMCPURL`; `MCP
 
 ---
 
-## 3. Why the hosted MCP avoids `git` (and the CLI bootstrap doesn't)
+## 3. Where writes happen: the CLI, in two flavors
 
-The hosted MCP runs in a Docker container on Railway with no shell state:
+The hosted MCP is **read-only**. It runs in a Docker container on Railway with no shell state:
 
 - `PATH` contains only what the image declares; `gh` is not on it.
 - `SSH_AUTH_SOCK` is unset.
 - `git config user.name` / `user.email` are blank.
-- The only credential is an installation-scoped GitHub App token, fetched per request.
+- The only credential is an installation-scoped GitHub App token, fetched per request via `GitHubAppClient`.
 
-So `publish_skill` **never** clones, commits, or pushes. Everything goes through the Git Data API using the GitHub App token:
+`list_skills` and `get_skill` route through the GitHub Contents API using that token — no `git`, no `gh`, no working tree. The server has no write tool by design: every mutation (publish, sync, add, remove) lives in the Go CLI, which talks to GitHub from the user's machine where credentials and tooling are richer.
+
+The CLI has two upload paths.
+
+### 3.1 Single-skill writes — `gh api` blob path
+
+`registry.Client.Publish` (and the equivalent `Delete`) implement the atomic-commit dance for one slug at a time. Used by `publish`, `add`, `sync`, and `remove`:
 
 ```text
 GET  repos/{owner}/{repo}/git/ref/heads/{branch}        → parent SHA
@@ -158,13 +164,15 @@ POST repos/{owner}/{repo}/git/commits                   → create commit
 PATCH repos/{owner}/{repo}/git/refs/heads/{branch}      → fast-forward ref
 ```
 
-If the PATCH returns 409/422 (non-fast-forward), the server refetches HEAD and retries up to 3 times with exponential backoff. Implementation lives in `infa-not-for-users/src/skills_mcp/registry_api.py:RegistryClient.publish_skill` (Python) and mirrors in `cli/internal/registry/registry.go` (Go) — same endpoints, same order. (Go shells out to `gh api`; the server uses the GitHub App token via plain HTTP.)
+If the PATCH returns 409/422 (non-fast-forward), the CLI refetches HEAD and retries up to 3 times with exponential backoff. Fine for one skill: ~1–10 files, well under the secondary-rate-limit threshold. The implementation lives in `cli/internal/registry/registry.go` and shells out to `gh api`, so the user's authenticated `gh` session is the only credential involved.
 
-The CLI bootstrap (Go) has stronger guarantees: it runs in an interactive terminal where `git` is virtually always available. So bootstrap uses `registry.Client.PushTreeViaGit`: `gh auth setup-git` once, clone-or-init a tempdir, write every file, single `git push`. One network operation regardless of file count; no secondary rate limit. The hosted MCP can't assume `git` and stays on the REST blob path.
+### 3.2 Bulk writes — `git push` path
 
-### 3.1 The `remove` API sequence
+`registry.Client.PushTreeViaGit` is used by the wizard's step 4. A first-time user typically has 30–200 skills (≈100–500 files); per-file blob POSTs trip GitHub's secondary rate limit at ~80 requests/minute. Bootstrap sidesteps that: `gh auth setup-git` once, clone-or-init a tempdir, write every file, single `git push`. One network operation regardless of file count.
 
-`Client.Delete` (Go) and the analogous Python `delete_skill` use **the same six-call sequence** as `publish_skill`, but build a tree that drops every file under `<slug>/`:
+### 3.3 The `remove` API sequence
+
+`Client.Delete` uses **the same six-call sequence** as `Publish`, but builds a tree that drops every file under `<slug>/`:
 
 ```text
 GET  repos/{owner}/{repo}/git/ref/heads/{branch}        → parent SHA
@@ -267,7 +275,7 @@ The hosted MCP does not carry this catalogue; it lives only in the Go CLI.
 | Wizard push fails with `secondary rate limit` | Shouldn't happen on the `PushTreeViaGit` path. If it does, your binary may predate F1.1 — re-run `install.sh` for the latest release. |
 | MCP client says "no repo linked yet" | Install the **Skills Registry GitHub App** on your registry repo via the link in the error, then retry. The webhook auto-links within seconds. |
 | MCP client OAuth loop never completes | Check the browser pop-up finished the GitHub OAuth dance. If the redirect was blocked, restart the client and retry. |
-| `publish_skill` / `remove` keeps returning 409 conflicts | Another writer is racing. Retry budget is 3; repeated 409s mean something is fanning out updates. |
+| CLI `publish` / `remove` keeps returning 409 conflicts | Another writer is racing. Retry budget is 3; repeated 409s mean something is fanning out updates. |
 | `remove` exits 1 with "slug not found in registry" | Expected when the slug isn't on GitHub. Nothing destructive runs. Check `skill-registry list --json \| jq '.[].slug'` for the canonical name. |
 | Cache never invalidates | Check `~/.cache/skills-mcp/skills/<slug>.meta.json` — its `tree_sha` must equal the GitHub-reported folder SHA. |
 
@@ -294,7 +302,9 @@ Read in this order to understand the system:
 4. `cli/cmd/skill-registry/hub.go` — the dashboard loop returning users land in.
 5. `cli/internal/bootstrap/install.go` — `HostedMCPURL` + `MCPJSONSnippet()` printed at the end of bootstrap.
 6. `cli/internal/jsonout/jsonout.go` — the persistent `--json` plumbing every subcommand branches on.
-7. `infa-not-for-users/src/skills_mcp/registry_server.py` — the FastMCP server (read after the Go contract so the mirror is obvious).
-8. `infa-not-for-users/src/skills_mcp/registry_api.py` — Python contract with GitHub; same endpoints as the Go client.
+7. `infa-not-for-users/skills_mcp/remote_server.py` — the FastMCP server: `build_server`, settings loading, tool registration.
+8. `infa-not-for-users/skills_mcp/github_api.py` — the read-side GitHub Contents API helpers (`list_skill_folders`, `get_skill_md`, `slugify`).
+9. `infa-not-for-users/skills_mcp/github_app.py` — `GitHubAppClient`: JWT minting, installation lookup, token exchange, retry.
+10. `infa-not-for-users/skills_mcp/linking.py` — `LinkStore`: persistence for `{github_user → owner/repo}` on the Railway volume.
 
 Each file is intentionally small and self-contained.

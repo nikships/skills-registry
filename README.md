@@ -218,7 +218,7 @@ Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS C
 
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The MCP tool surface (`list_skills`, `get_skill`, `publish_skill`) and CLI commands are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The hosted MCP read tools (`list_skills`, `get_skill`) and the CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
