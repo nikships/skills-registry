@@ -212,7 +212,7 @@ The wizard prints this JSON; if you prefer wiring it up by hand:
 }
 ```
 
-Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `list_skills` / `get_skill` call goes through the hosted server — no local binary required.
+Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `search_skills` / `get_skill` call goes through the hosted server — no local binary required.
 
 > **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the CLI directly (`skills-registry list`, `skills-registry get <slug>`).
 
@@ -220,7 +220,7 @@ Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS C
 
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The hosted MCP read tools (`list_skills`, `get_skill`) and the CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The hosted MCP read tools (`search_skills`, `get_skill`) and the CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

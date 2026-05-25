@@ -165,7 +165,7 @@ The `building-glamorous-tuis` skill recommends Charmbracelet (Go), which has no 
 
 ### Two upload paths in the CLI: `gh api` for day-to-day writes, `git push` for bootstrap
 
-The **hosted MCP server is read-only.** It runs in a Docker container with no shell state — no `gh`, no `git`, no SSH, no `user.email` — and its only credential is an installation-scoped GitHub App token fetched per request. `list_skills` and `get_skill` are served via the GitHub Contents API; the server never invokes anything that could mutate the user's repo.
+The **hosted MCP server is read-only.** It runs in a Docker container with no shell state — no `gh`, no `git`, no SSH, no `user.email` — and its only credential is an installation-scoped GitHub App token fetched per request. `search_skills` and `get_skill` are served via the GitHub Contents API; the server never invokes anything that could mutate the user's repo.
 
 That means **every write lives in the Go CLI** (`publish`, `sync`, `add`, `remove`). The CLI has two upload paths:
 
@@ -207,7 +207,7 @@ Force-pushes and any subtree change invalidate correctly. The hosted MCP does no
 Every MCP request to the hosted server flows through three middleware in this order (see `infa-not-for-users/skills_mcp/middleware.py:build_middleware_stack`):
 
 1. **`ErrorHandlingMiddleware`** (outermost). Converts uncaught exceptions into MCP error responses, with `include_traceback=False` and `transform_errors=True`. Pairs with `mask_error_details=True` on the `FastMCP` constructor so raw `GitHubAppError("status=404 …")` text never bleeds into LLM-visible payloads. `ToolError` remains the escape hatch when you *do* want a specific message to reach the client.
-2. **`RateLimitingMiddleware`**. Token-bucket per authenticated GitHub user: **5 req/s sustained, 15-request burst**. `client_id_from_token` keys on the OAuth `sub` claim (`get_access_token().claims["sub"]`) so two users behind a shared NAT don't share a bucket and a malformed token falls back to a single `"anonymous"` bucket rather than gifting itself a fresh one. **Constants are hardcoded; tuning them is a code-review-gated change, not a Railway env flip.** Reasoning lives in `middleware.py`: read tools fan out to GitHub, so the MCP request rate is a leverage multiplier — 5 RPS sustained × the `list_skills` fan-out is already close to GitHub's per-installation REST budget, and 15-burst covers the typical Claude/Cursor session opening.
+2. **`RateLimitingMiddleware`**. Token-bucket per authenticated GitHub user: **5 req/s sustained, 15-request burst**. `client_id_from_token` keys on the OAuth `sub` claim (`get_access_token().claims["sub"]`) so two users behind a shared NAT don't share a bucket and a malformed token falls back to a single `"anonymous"` bucket rather than gifting itself a fresh one. **Constants are hardcoded; tuning them is a code-review-gated change, not a Railway env flip.** Reasoning lives in `middleware.py`: read tools fan out to GitHub, so the MCP request rate is a leverage multiplier — 5 RPS sustained × the `search_skills` fan-out is already close to GitHub's per-installation REST budget, and 15-burst covers the typical Claude/Cursor session opening.
 3. **`StructuredLoggingMiddleware`** (innermost). Emits JSON per accepted request: client id, method, duration. Honors `SKILLS_LOG_LEVEL`. This is what makes the rate limit tunable — without it we can't see who's getting throttled or why.
 
 Two additional safeguards run outside the middleware chain:
@@ -232,7 +232,7 @@ Two additional safeguards run outside the middleware chain:
 | `list_skill_folders` / `get_skill_md` / `repo_has_skills` | `infa-not-for-users/skills_mcp/github_api.py` | Token-based GitHub REST helpers used by the hosted server's read tools. No `gh` binary, no `git`. SKILL.md fan-out bounded by `_FANOUT_CONCURRENCY = 8` via `asyncio.Semaphore`. |
 | `GitHubAppClient` | `infa-not-for-users/skills_mcp/github_app.py` | Mints the JWT, looks up the installation for a given user, and exchanges JWT → installation access token. Caches installation tokens in-process per `installation_id` (refresh 60s before `expires_at`) under an `asyncio.Lock` so concurrent first-time mints fan into one HTTP call. Owns the retry policy. |
 | `LinkStore` / `LinkedRepo` / `DeliveryStore` | `infa-not-for-users/skills_mcp/linking.py` | Persists `{github_user → owner/repo}` on the Railway-backed volume. `DeliveryStore` records seen `X-GitHub-Delivery` IDs for 25 hours so webhook replays (legitimate or hostile) are no-ops instead of state mutations. |
-| `parse_frontmatter` / `first_paragraph` | `infa-not-for-users/skills_mcp/frontmatter.py` | YAML-ish frontmatter parser + description fallback used by `github_api` to render `list_skills` rows. |
+| `parse_frontmatter` / `first_paragraph` | `infa-not-for-users/skills_mcp/frontmatter.py` | YAML-ish frontmatter parser + description fallback used by `github_api` to render `search_skills` rows. |
 | `registry.Client` | `cli/internal/registry/registry.go` | The Go-side GitHub Git Data API client: `Publish`, `Delete`, `PushTreeViaGit`, list/get mirror operations. All CLI writes flow through here. |
 | `validateRelPath` | `cli/internal/registry/registry.go` | Path-traversal guard for repo-relative paths. Rejects `..`, absolute paths, and empty strings. Applied to every file before blob upload or `git add`. |
 | `bareRouteDecision` | `cli/cmd/skills-registry/main.go` | Pure routing function for `skills-registry` with no subcommand: returns `bareRouteHelp` / `bareRouteWizard` / `bareRouteHub` / `bareRouteError`. |
@@ -273,9 +273,9 @@ Two additional safeguards run outside the middleware chain:
 
 1. **No `update` command.** `remove` shipped in F4.1; in-place `update` would still be useful (today users `publish` from a folder, which works but doesn't surface "what changed").
 2. **No multi-registry support.** Config is one-repo. A `[registries]` array + `connect <owner/repo>` would let an agent see several side-by-side.
-3. **Browsing third-party public registries** isn't a first-class flow. The read tools (`list_skills`, `get_skill`) don't require write access — wiring them to an arbitrary `owner/repo` would be a few lines.
+3. **Browsing third-party public registries** isn't a first-class flow. The read tools (`search_skills`, `get_skill`) don't require write access — wiring them to an arbitrary `owner/repo` would be a few lines.
 4. **Windows installer.** `install.sh` is POSIX-only. The Go binary builds for `windows/amd64`, but Windows users need an `install.ps1` (and `gh.exe` lookup in `FindGH`) for the same one-shot experience.
-5. **`get_skill_md` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `list_skills`; a verbose-mode error log in the hosted server would help diagnose user reports.
+5. **`get_skill_md` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `search_skills`; a verbose-mode error log in the hosted server would help diagnose user reports.
 6. **No server-side cache.** Every `get_skill` reads through to GitHub. A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 7. **Codex unsupported by the hosted MCP.** Codex's TOML config only accepts stdio MCPs. Either Codex needs Streamable HTTP, or we'd ship a stdio→HTTP shim for Codex specifically.
 

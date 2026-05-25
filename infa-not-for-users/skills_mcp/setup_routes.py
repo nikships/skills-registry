@@ -83,7 +83,7 @@ def make_routes(*, install_url: str, mcp_url: str) -> dict[str, object]:
 				body=f"""  <h1 class=ok>You're connected.</h1>
   <p>The Skills Registry GitHub App is installed on
      <code>installation {install_id}</code>. Go back to your MCP client (Claude Desktop,
-     Cursor, VS Code, etc.) and try <code>list_skills</code> — it should
+     Cursor, VS Code, etc.) and try <code>search_skills</code> — it should
      return your skills from this repo.</p>
   <p>If you need to switch which repo is linked, re-run the App install
      and grant access to just the repo you want.</p>""",

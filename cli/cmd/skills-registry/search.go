@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -45,6 +44,7 @@ func newSearchCmd() *cobra.Command {
 				query = args[0]
 			}
 			if jsonout.Enabled() {
+				cmd.SilenceErrors = true
 				return runSearchJSON(cmd.Context(), query)
 			}
 			return runSearch(cmd.Context(), query)
@@ -57,17 +57,17 @@ func runSearchJSON(ctx context.Context, query string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 	summaries, err := client.List(ctx)
 	if err != nil {
 		jsonout.PrintError(err)
-		os.Exit(1)
+		return err
 	}
 
 	results := scoreAndSort(summaries, query)

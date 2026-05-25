@@ -330,7 +330,5 @@ async def test_search_skills(monkeypatch: pytest.MonkeyPatch) -> None:
 	# Fuzzy search matching multiple
 	run_search = await search_skills("token", "acme/skills", "Run")
 	assert len(run_search) == 3
-	# Git Tools might score higher on "Run git status and commits" vs "Run ruff on your codebase"? Wait:
-	# "git status and commits" -> git_tools (slug has git_tools, name has Git Tools).
-	# Let's just assert they are returned.
-	assert {s.slug for s in run_search} == {"git_tools", "js_format", "python_lint"}
+	# Enforce deterministic sort behavior for search_skills results.
+	assert [s.slug for s in run_search] == ["git_tools", "js_format", "python_lint"]

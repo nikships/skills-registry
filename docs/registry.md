@@ -143,7 +143,7 @@ The hosted MCP is **read-only**. It runs in a Docker container on Railway with n
 
 - `PATH` contains only what the image declares; `gh` is not on it.
 - `SSH_AUTH_SOCK` is unset.
-- `git config user.name` / `user.email` are blank.
+- `git config user.name` / `git config user.email` are blank.
 - The only credential is an installation-scoped GitHub App token, fetched per request via `GitHubAppClient`.
 
 `search_skills` and `get_skill` route through the GitHub Contents API using that token — no `git`, no `gh`, no working tree. The server has no write tool by design: every mutation (publish, sync, add, remove) lives in the Go CLI, which talks to GitHub from the user's machine where credentials and tooling are richer.
@@ -223,7 +223,7 @@ The hosted server captures a small, fixed set of product-usage events to PostHog
 
 | Event | Where | Properties | Question it answers |
 |---|---|---|---|
-| `list_skills_called` | `remote_server.list_skills` | `skill_count` | List vs. get ratio; registry sizes |
+| `search_skills_called` | `remote_server.search_skills` | `skill_count` | List vs. get ratio; registry sizes |
 | `get_skill_called` | `remote_server.get_skill` | `slug`, `found` (bool) | Hot skills; "not found" rate (data-quality signal) |
 | `user_not_linked` | `remote_server._track_not_linked` | `tool_name` | Activation funnel: authenticated but no GitHub App install |
 | `repo_linked` | `webhooks._adopt_best_repo` | `installation_id`, `repo_name` | Funnel completion |
@@ -315,7 +315,7 @@ The hosted MCP does not carry this catalogue; it lives only in the Go CLI.
 ## 9. Future-proofing notes
 
 - **Multiple registries**: config is single-registry today. A `connect <owner/repo>` command + a `[registries]` array in the TOML would let an agent see several side-by-side.
-- **Browsing public registries** without owning one — the read tools (`list_skills`, `get_skill`) don't require write access.
+- **Browsing public registries** without owning one — the read tools (`search_skills`, `get_skill`) don't require write access.
 - **`update`** would round out the destructive surface. `remove` shipped in F4.1; an explicit `update` would surface "what changed" diffs that "publish from a folder" doesn't.
 - **Windows installer.** `install.sh` is POSIX-only. A `install.ps1` (and `gh.exe` lookup in `FindGH`) would close the gap.
 - **PR-based contribution flow** to upstream registries: `skills-registry contribute <owner/repo> <slug>` could lean on `gh api` for the fork+PR dance.

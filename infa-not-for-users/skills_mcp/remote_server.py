@@ -18,7 +18,7 @@ Wire-up:
 
 Two MCP tools (read-only):
 
-* ``list_skills`` → markdown table from the linked repo.
+* ``search_skills`` → markdown table from the linked repo.
 * ``get_skill(slug)`` → verbatim ``SKILL.md`` contents.
 
 No filesystem caching of skill content (the registry repo is the source of
@@ -234,7 +234,7 @@ def _register_tools(
 			"if query is empty, lists all skills alphabetically."
 		),
 		tags={"skills", "registry"},
-		annotations={"readOnlyHint": True, "openWorldHint": True},
+		annotations={"readOnlyHint": True, "openWorldHint": True, "destructiveHint": False},
 	)
 	async def search_skills_tool(query: str = "") -> str:
 		link = await _resolve_link(link_store, install_url=install_url)
@@ -249,7 +249,7 @@ def _register_tools(
 			properties={"query": query, "skill_count": len(summaries)},
 		)
 		if not summaries:
-			if query:
+			if query.strip():
 				return f"No skills matching `{query}` found in `{link.repo}`."
 			return (
 				f"No skills found in `{link.repo}`. Add a skill with `SKILL.md` "
