@@ -150,10 +150,38 @@ func buildSyncFlowDeps(cfg config.Config) tui.SyncFlowDeps {
 func buildPurgeFlowDeps() tui.PurgeFlowDeps {
 	return tui.PurgeFlowDeps{
 		Discover: func(context.Context) ([]scan.Skill, error) {
-			return discoverLocalSkills()
+			skills, err := discoverLocalSkills()
+			if err != nil {
+				return nil, err
+			}
+			return filterMetaSkill(skills), nil
 		},
 		Delete: purgeLocalSkills,
 	}
+}
+
+// filterMetaSkill strips the bootstrapped `skills-registry` meta-skill
+// (written by bootstrap.InstallSkillMd into every agent dot-folder) so
+// the Purge flow never wipes the agent's gateway back into the registry.
+// The wizard's post-publish cleanup (scan.EntriesForCleanup) makes the
+// same carve-out; this keeps the two flows consistent.
+func filterMetaSkill(skills []scan.Skill) []scan.Skill {
+	out := make([]scan.Skill, 0, len(skills))
+	for _, sk := range skills {
+		if isMetaSkill(sk) {
+			continue
+		}
+		out = append(out, sk)
+	}
+	return out
+}
+
+// isMetaSkill reports whether sk is the bootstrapped `skills-registry`
+// meta-skill. scan.Skill.Folder is always the folder containing SKILL.md,
+// so a single basename compare is sufficient — no need to also probe for
+// the SKILL.md sibling, scan.Discover already guarantees it.
+func isMetaSkill(sk scan.Skill) bool {
+	return filepath.Base(sk.Folder) == "skills-registry"
 }
 
 func discoverLocalSkills() ([]scan.Skill, error) {
@@ -190,6 +218,13 @@ func purgeLocalSkills(ctx context.Context, skills []scan.Skill) (int, int, error
 	for _, sk := range skills {
 		if err := ctx.Err(); err != nil {
 			return deleted, failed, err
+		}
+		// Defense in depth: even if a caller bypasses the Discover-side
+		// filter (filterMetaSkill), never wipe the bootstrapped
+		// `skills-registry` meta-skill. Silent skip — neither deleted
+		// nor failed — because Purge's contract is "never touch it".
+		if isMetaSkill(sk) {
+			continue
 		}
 		if !pathUnderAnyRoot(sk.Folder, allowed) {
 			failed++

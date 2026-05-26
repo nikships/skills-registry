@@ -97,6 +97,68 @@ func TestPurgeLocalSkillsRefusesUnknownRoot(t *testing.T) {
 	}
 }
 
+// TestPurgeLocalSkillsKeepsMetaSkill pins the carve-out for the
+// bootstrapped `skills-registry` meta-skill: Purge must never wipe it,
+// even when the folder lives under a known dot-folder allow-list root.
+// Re-bootstrapping would otherwise be the only way to restore the
+// agent's gateway back into the registry.
+func TestPurgeLocalSkillsKeepsMetaSkill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustChdir(t, t.TempDir())
+
+	claudeSkills := filepath.Join(home, ".claude", "skills")
+	meta := filepath.Join(claudeSkills, "skills-registry")
+	regular := filepath.Join(claudeSkills, "alpha")
+	// Distinct frontmatter names so scan.Discover's slug-dedupe keeps
+	// both rows (the rest of the test depends on both surviving the scan).
+	fixtures := map[string]string{
+		meta:    "skills-registry",
+		regular: "alpha",
+	}
+	for dir, name := range fixtures {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		body := "---\nname: " + name + "\n---\nbody"
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", dir, err)
+		}
+	}
+
+	skills, err := discoverLocalSkills()
+	if err != nil {
+		t.Fatalf("discoverLocalSkills: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Fatalf("discovered %d skills, want 2 (meta + alpha)", len(skills))
+	}
+
+	// Discover-side filter (what the hub flow actually feeds the
+	// deleter): the meta-skill row must be stripped.
+	filtered := filterMetaSkill(skills)
+	if len(filtered) != 1 || filepath.Base(filtered[0].Folder) != "alpha" {
+		t.Fatalf("filterMetaSkill = %+v, want only alpha", filtered)
+	}
+
+	// Defense-in-depth: even if a caller passes the unfiltered slice,
+	// purgeLocalSkills must skip the meta-skill (silent — neither
+	// counted as deleted nor failed).
+	deleted, failed, err := purgeLocalSkills(context.Background(), skills)
+	if err != nil {
+		t.Fatalf("purgeLocalSkills returned err: %v", err)
+	}
+	if deleted != 1 || failed != 0 {
+		t.Fatalf("counters = (%d,%d), want (1,0) — meta-skill should be a silent skip", deleted, failed)
+	}
+	if _, err := os.Stat(meta); err != nil {
+		t.Errorf("meta-skill folder was removed by purge: %v", err)
+	}
+	if _, err := os.Stat(regular); !os.IsNotExist(err) {
+		t.Errorf("alpha folder should have been removed, got err=%v", err)
+	}
+}
+
 // TestPurgeLocalSkillsEmptyIsNoOp confirms the zero-skill case returns
 // (0, 0, nil) without touching the filesystem or even probing for
 // allowed roots.
