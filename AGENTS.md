@@ -17,7 +17,7 @@ A living guide for AI agents and new contributors. Captures the architecture, pa
 
 | Piece | Language | Distribution | Job |
 |---|---|---|---|
-| `skills-registry` (Go) | Go 1.24+ | GitHub Releases tarballs, installed by `install.sh` (`curl … \| sh`) | Charmbracelet TUI + headless commands. Bare invocation routes to wizard / hub / help. Subcommands: `bootstrap`, `list`, `search`, `get`, `sync`, `add`, `publish`, `remove`. All subcommands honor a persistent `--json` flag. |
+| `skills-registry` (Go) | Go 1.24+ | GitHub Releases tarballs, installed by `install.sh` (`curl … \| sh`) | Charmbracelet TUI + headless commands. Bare invocation routes to wizard / hub / help. Subcommands: `bootstrap`, `list`, `search`, `get`, `sync`, `add`, `publish`, `remove`, `update`. All subcommands honor a persistent `--json` flag. |
 | `skills-registry-mcp` (Python, hosted) | Python 3.10+ (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server with **2 read-only tools** (`search_skills`, `get_skill`). All writes (`publish` / `sync` / `remove`) go through the Go CLI — the hosted server never mutates the user's repo. OAuth + GitHub App on first connect. Users never install this. |
 
 - **Build (Python, maintainer-only):** `hatchling` (PEP 517) with a static `version = "0.0.0+server"` in `pyproject.toml`. The server is never published to PyPI, never tagged, and Railway redeploys on every push to `main`, so there's no semver to derive. The wheel exists only to provide the `skills-registry-mcp` entry point inside the Docker image.
@@ -66,7 +66,7 @@ cli/                     # Separate Go module (own go.mod) — the user-facing b
     wizard.go            # First-run onboarding wizard (Bubble Tea alt-screen, 8 steps)
     hub.go               # Returning-user dashboard hub (alt-screen card grid)
     bootstrap.go         # Legacy headless `bootstrap` subcommand (still useful for scripting)
-    list.go / search.go / get.go / sync.go / add.go / publish.go / remove.go   # Per-subcommand handlers
+    list.go / search.go / get.go / sync.go / add.go / publish.go / remove.go / update.go   # Per-subcommand handlers
   internal/
     agents/              # 56-entry KNOWN_DOT_DIRS catalogue with display names + universal flag
     bootstrap/           # SkillMd renderer + InstallSkillMd + hosted-MCP JSON snippet (HostedMCPURL constant + MCPJSONSnippet())
@@ -247,6 +247,7 @@ Two additional safeguards run outside the middleware chain:
 | `MultiSelectModel` | `cli/internal/tui/multiselect.go` | Fuzzy-searchable multi-select with locked-universal section. |
 | `SkillMd` | `cli/internal/bootstrap/skillmd.go` | Sole source of the generated `skills-registry/SKILL.md` template (CLI-only; written into each agent dot-folder by Go bootstrap). Documents both the hosted MCP (preferred for reads) and the CLI (writes + fallback reads). |
 | `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`. |
+| `performUpdate` / `latestReleaseTag` / `downloadUpdateAsset` | `cli/cmd/skills-registry/update.go` | Self-updater. Resolves the latest tag via GitHub's REST API, downloads the matching release tarball straight from `github.com/<owner>/<repo>/releases/...` (no `gh` dependency — mirrors `install.sh`), extracts, and `os.Rename`s the binary in place. `--version`, `--bin`, `--force`, `--dry-run` flags. `runAutoUpdate` opportunistically invokes it before the hub when `SKILLS_REGISTRY_AUTO_UPDATE=1`. |
 
 ---
 
@@ -271,10 +272,10 @@ Two additional safeguards run outside the middleware chain:
 
 ### Outstanding
 
-1. **No `update` command.** `remove` shipped in F4.1; in-place `update` would still be useful (today users `publish` from a folder, which works but doesn't surface "what changed").
+1. **No `update --diff` / skill-content `update`.** `remove` shipped in F4.1 and a binary-level self-update shipped alongside `update.go` (mirrors `install.sh`); an *in-place skill update* command that surfaces "what changed" diffs in registry skills is still missing — today users `publish` from a folder, which works but is opaque.
 2. **No multi-registry support.** Config is one-repo. A `[registries]` array + `connect <owner/repo>` would let an agent see several side-by-side.
 3. **Browsing third-party public registries** isn't a first-class flow. The read tools (`search_skills`, `get_skill`) don't require write access — wiring them to an arbitrary `owner/repo` would be a few lines.
-4. **Windows installer.** `install.sh` is POSIX-only. The Go binary builds for `windows/amd64`, but Windows users need an `install.ps1` (and `gh.exe` lookup in `FindGH`) for the same one-shot experience.
+4. **Windows installer.** `install.sh` is POSIX-only. The Go binary builds for `windows/amd64`, but Windows users need an `install.ps1` (and `gh.exe` lookup in `FindGH`) for the same one-shot experience. `skills-registry update` mirrors this restriction — it accepts only `darwin/linux × amd64/arm64`.
 5. **`get_skill_md` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `search_skills`; a verbose-mode error log in the hosted server would help diagnose user reports.
 6. **No server-side cache.** Every `get_skill` reads through to GitHub. A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 7. **Codex unsupported by the hosted MCP.** Codex's TOML config only accepts stdio MCPs. Either Codex needs Streamable HTTP, or we'd ship a stdio→HTTP shim for Codex specifically.

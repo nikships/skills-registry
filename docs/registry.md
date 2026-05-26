@@ -22,7 +22,7 @@ Two user-facing deliverables, **single repo**, two languages.
 | Piece | Language | Distribution | Role |
 |---|---|---|---|
 | `install.sh` | POSIX sh | Raw GitHub Content (`curl \| sh`) | One-shot installer. Detects OS/arch, downloads the matching Go tarball, drops the binary into `~/.local/bin/skills-registry`. |
-| `skills-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`). All honor `--json`. |
+| `skills-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`, `update`). All honor `--json`. |
 | `skills-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. **Two read-only tools**: `search_skills`, `get_skill`. The hosted server never writes — `publish` / `sync` / `add` / `remove` all happen through the Go CLI. Users never install this; their MCP client connects to the URL and does the OAuth dance. |
 
 > **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli). Users see only the CLI; the hosted server is a service, not a deliverable.
@@ -194,6 +194,31 @@ The CLI's `runRemove` then layers two non-registry cleanup steps on `Delete`:
 
 One command leaves no trace of the slug across the registry + cache + every wired-up agent. JSON callers get a `{"removed_from": [...]}` array showing which locations actually had anything to delete.
 
+### 3.4 Self-update — `skills-registry update`
+
+`cli/cmd/skills-registry/update.go:performUpdate` is the CLI's self-updater. It mirrors `install.sh` step-for-step so the curl|sh install path and the in-binary update path always hit the same release surface — no `gh`, no `git`, no auth required, just a straight HTTPS GET.
+
+```text
+GET  https://api.github.com/repos/{owner}/{repo}/releases/latest                     → {"tag_name": "vX.Y.Z"}
+GET  https://github.com/{owner}/{repo}/releases/download/<tag>/<asset>.tar.gz        → tarball bytes
+extract entry `skills-registry`                                                       → tmpDir/skills-registry
+chmod 0755 + os.Rename → binPath                                                      → atomic swap on the same filesystem
+```
+
+The tarball assets are the same ones `install.sh` downloads (`skills-registry_<goos>_<goarch>.tar.gz`). The temp dir is created next to `binPath` so the final `os.Rename` stays on one filesystem — that's the only POSIX-portable way to replace a running executable (the kernel keeps the old inode alive for the running process; the directory entry now points at the new inode).
+
+Knobs:
+
+- `--version vX.Y.Z` pins a tag and skips the API call; otherwise `latest` triggers a single GET to `api.github.com` to resolve the tag.
+- `--bin /path/to/skills-registry` overrides the target (default: `os.Executable()`). Symlinks are dereferenced via `filepath.EvalSymlinks` so `~/.local/bin/skills-registry → /opt/.../skills-registry` updates the real file.
+- `--force` reinstalls even when the linked-in `version` matches the resolved tag.
+- `--dry-run` resolves the tag, prints the planned action, and exits without writing.
+- `--json` emits `{"updated", "version", "asset", "path", "message"}`.
+
+`SKILLS_REGISTRY_AUTO_UPDATE=1` is the opt-in env knob `runAutoUpdate` in `main.go` reads before opening the hub — auto-update failures are warning-logged and swallowed so a flaky network never blocks the dashboard.
+
+**Why not `gh release download`?** `gh` requires a GitHub auth token and the binary to be on `PATH`. The whole point of `install.sh` (and now `update`) is to work in a fresh shell against the public download URLs with zero extra setup. Tests use `httptest.NewServer` to stand in for `api.github.com` / `github.com` — the same code path runs in CI and in production.
+
 ---
 
 ## 4. The cache
@@ -318,8 +343,8 @@ The hosted MCP does not carry this catalogue; it lives only in the Go CLI.
 
 - **Multiple registries**: config is single-registry today. A `connect <owner/repo>` command + a `[registries]` array in the TOML would let an agent see several side-by-side.
 - **Browsing public registries** without owning one — the read tools (`search_skills`, `get_skill`) don't require write access.
-- **`update`** would round out the destructive surface. `remove` shipped in F4.1; an explicit `update` would surface "what changed" diffs that "publish from a folder" doesn't.
-- **Windows installer.** `install.sh` is POSIX-only. A `install.ps1` (and `gh.exe` lookup in `FindGH`) would close the gap.
+- **Skill-content `update` with diff preview.** `remove` shipped in F4.1 and a binary-level `update` ships in this milestone (see §3.4 below); what's still missing is an *in-place skill update* that surfaces "what changed" between the local folder and the registry copy before pushing.
+- **Windows installer + self-update.** `install.sh` is POSIX-only and `skills-registry update` inherits the same `darwin/linux × amd64/arm64` matrix. A `install.ps1` (and `gh.exe` lookup in `FindGH`) plus `windows/amd64` cases in `updateAssetName` would close the gap.
 - **PR-based contribution flow** to upstream registries: `skills-registry contribute <owner/repo> <slug>` could lean on `gh api` for the fork+PR dance.
 - **Server-side caching.** A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 
