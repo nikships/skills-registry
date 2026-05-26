@@ -777,7 +777,11 @@ func (m ListModel) renderPreviewPanel() string {
 		// itself instead. We'd rather show "first N lines of desc + …"
 		// than have the trailing chrome silently disappear (the old
 		// behavior with Height(m.preview.Height) — see issue #28).
-		descBlock = clampPreviewDesc(descBlock, innerWidth, m.preview.Height, slugLine != "")
+		if row.Desc == "" {
+			descBlock = lipgloss.NewStyle().Foreground(ColMuted).Italic(true).Width(innerWidth).Render("(no description)")
+		} else {
+			descBlock = clampPreviewDesc(row.Desc, innerWidth, m.preview.Height, slugLine != "")
+		}
 
 		gradient := miniGradientBar(m.preview.Width-2, m.sparkleIdx)
 		dest := ".agents/skills/" + row.Slug + "/"
