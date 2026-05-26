@@ -10,9 +10,13 @@ import httpx
 import pytest
 
 from skills_mcp.github_api import (
+	SkillSummary,
+	_fuzzy_score,
+	_score_skill,
 	get_skill_md,
 	list_skill_folders,
 	repo_has_skills,
+	search_skills,
 	slugify,
 )
 from skills_mcp.github_app import GitHubAppError
@@ -271,3 +275,136 @@ def _file_blob(text: str) -> dict[str, Any]:
 def _skill_md(slug: str, name: str, description: str) -> dict[str, Any]:
 	body = f"---\nname: {name}\ndescription: {description}\n---\nbody for {slug}\n"
 	return _file_blob(body)
+
+
+def test_fuzzy_score_returns_zero_when_chars_dont_appear_in_order() -> None:
+	"""Out-of-order or missing query chars must produce a no-match (0)."""
+	# "abc" in "xabcx" matches in order; "cba" in "abc" does not.
+	assert _fuzzy_score("abc", "xabcx") > 0
+	assert _fuzzy_score("cba", "abc") == 0
+	# Missing char.
+	assert _fuzzy_score("abz", "abc") == 0
+	# Query longer than text.
+	assert _fuzzy_score("abcdef", "abc") == 0
+
+
+def test_fuzzy_score_prefers_word_boundary_and_consecutive_matches() -> None:
+	"""Two valid matches against the same text rank by alignment quality."""
+	# Two texts that both technically match "git" in order; the one where
+	# the chars are contiguous at the start should score higher.
+	contiguous = _fuzzy_score("git", "git_tools")
+	scattered = _fuzzy_score("git", "g_blah_i_blah_t")
+	assert contiguous > scattered > 0
+
+
+def test_fuzzy_score_case_bonus_breaks_tie() -> None:
+	"""Same alignment, different case agreement → exact case wins."""
+	# Both texts contain "Git" as a prefix-aligned subsequence; the
+	# query "Git" should score the exact-case text strictly higher.
+	exact_case = _fuzzy_score("Git", "Git Tools")
+	wrong_case = _fuzzy_score("Git", "git tools")
+	assert exact_case > wrong_case > 0
+
+
+def test_score_skill_empty_query_is_zero() -> None:
+	"""An empty / whitespace-only query never scores any summary."""
+	s = SkillSummary(slug="x", name="X", description="x")
+	assert _score_skill("", s) == 0
+	assert _score_skill("   ", s) == 0
+
+
+def test_score_skill_name_outweighs_slug_and_description() -> None:
+	"""Field weighting: name 2x, slug 1x, description 1x."""
+	# Two summaries with the same query match strength on different
+	# fields. The one that matches via name should outrank the one
+	# matching via description.
+	name_match = SkillSummary(slug="zzz", name="Git Helper", description="zzz")
+	desc_match = SkillSummary(slug="zzz", name="zzz", description="Git Helper")
+	assert _score_skill("Git Helper", name_match) > _score_skill("Git Helper", desc_match)
+
+
+def test_score_skill_unrelated_query_is_zero() -> None:
+	"""A query whose chars don't appear (in order) in any field scores 0."""
+	s = SkillSummary(
+		slug="git_tools",
+		name="Git Helper Tools",
+		description="Provides advanced git commit and status helpers.",
+	)
+	assert _score_skill("xyzqq", s) == 0
+
+
+async def test_search_skills(monkeypatch: pytest.MonkeyPatch) -> None:
+	handler = _handler(
+		{
+			"https://api.github.com/repos/acme/skills/contents/": _dir_listing(
+				["git_tools", "python_lint", "js_format"]
+			),
+			"https://api.github.com/repos/acme/skills/contents/git_tools/SKILL.md": _skill_md(
+				"git_tools", "Git Tools", "Run git status and commits"
+			),
+			"https://api.github.com/repos/acme/skills/contents/python_lint/SKILL.md": _skill_md(
+				"python_lint", "Python Linting", "Run ruff on your codebase"
+			),
+			"https://api.github.com/repos/acme/skills/contents/js_format/SKILL.md": _skill_md(
+				"js_format", "JS Formatter", "Run prettier beautifully"
+			),
+		}
+	)
+	_install_mock_transport(monkeypatch, handler)
+
+	# Empty / whitespace-only queries return no results — search requires
+	# a search term. Callers wanting the full registry should use
+	# list_skill_folders directly.
+	assert await search_skills("token", "acme/skills", "") == []
+	assert await search_skills("token", "acme/skills", "   ") == []
+
+	# Single-match query.
+	git_search = await search_skills("token", "acme/skills", "Git")
+	assert len(git_search) == 1
+	assert git_search[0].slug == "git_tools"
+
+	# Multi-match query: "Run" appears in every description. Tiebreaker
+	# is alphabetical slug ascending, so the deterministic ordering is
+	# git_tools < js_format < python_lint.
+	run_search = await search_skills("token", "acme/skills", "Run")
+	assert [s.slug for s in run_search] == ["git_tools", "js_format", "python_lint"]
+
+
+async def test_search_skills_cross_language_corpus(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Golden corpus that the Go CLI test runs the same query against.
+
+	The Go side (``cli/cmd/skills-registry/search_test.go``) replicates
+	this exact summary list and the same queries. If the rankings
+	diverge between Python and Go, that test will fail too — which is
+	the whole point of porting the scorer to both languages.
+	"""
+	handler = _handler(
+		{
+			"https://api.github.com/repos/p/r/contents/": _dir_listing(
+				["alpha_git", "beta_python", "gamma_js"]
+			),
+			"https://api.github.com/repos/p/r/contents/alpha_git/SKILL.md": _skill_md(
+				"alpha_git", "Alpha Git", "Git helpers"
+			),
+			"https://api.github.com/repos/p/r/contents/beta_python/SKILL.md": _skill_md(
+				"beta_python", "Beta Python", "Python tooling"
+			),
+			"https://api.github.com/repos/p/r/contents/gamma_js/SKILL.md": _skill_md(
+				"gamma_js", "Gamma JS", "JavaScript tooling"
+			),
+		}
+	)
+	_install_mock_transport(monkeypatch, handler)
+
+	# "git" → only alpha_git matches.
+	assert [s.slug for s in await search_skills("token", "p/r", "git")] == [
+		"alpha_git",
+	]
+	# "tool" → matches both python ("tooling") and js ("tooling"); the
+	# slug tiebreaker orders them beta_python < gamma_js.
+	assert [s.slug for s in await search_skills("token", "p/r", "tool")] == [
+		"beta_python",
+		"gamma_js",
+	]

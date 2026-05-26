@@ -25,7 +25,7 @@ Skills live at https://github.com/%s and can be reached two ways:
 
 1. **MCP (preferred when available).** If this agent's client is wired to
    the hosted MCP server at ` + "`https://mcp.skills-registry.dev/mcp`" + `, you
-   already have the ` + "`list_skills`" + ` and ` + "`get_skill`" + ` tools.
+   already have the ` + "`search_skills`" + ` and ` + "`get_skill`" + ` tools.
    Use them — they're faster and don't require a CLI binary.
 
 2. **CLI (fallback / write-side).** When MCP isn't available, or for write
@@ -49,12 +49,25 @@ to upgrade.
 
 ## 1. Discover what's available
 
-MCP: call ` + "`list_skills`" + `.
+The hosted MCP and the CLI use the **same fzf V1-style fuzzy scorer**, so
+agents see the same top-10 ordering via either surface.
+
+**Searching with a query (top 10 ranked matches):**
+
+MCP: call ` + "`search_skills(query=\"<query>\")`" + ` — a non-empty query is
+required; passing ` + "`\"\"`" + ` returns a "search requires a term" message,
+not the full registry.
 
 CLI:
 ` + "```" + `
-skills-registry list
+skills-registry search <query>
 ` + "```" + `
+
+**Enumerating every skill (no query):**
+
+Use ` + "`skills-registry list`" + ` (TUI or ` + "`--json`" + `). ` + "`search`" + `
+intentionally does not enumerate — the two commands have separate
+responsibilities.
 
 Match the user's request against descriptions, not just slugs.
 
@@ -127,6 +140,7 @@ letting a human pick from a list.
 | Command | Payload shape |
 |---|---|
 | ` + "`skills-registry list --json`" + ` | ` + "`[{\"slug\": \"...\", \"name\": \"...\", \"description\": \"...\"}, …]`" + ` |
+| ` + "`skills-registry search <query> --json`" + ` | ` + "`[{\"slug\": \"...\", \"name\": \"...\", \"description\": \"...\"}, …]`" + ` (top 10) |
 | ` + "`skills-registry get <slug> --json`" + ` | ` + "`{\"slug\": \"...\", \"path\": \"...\"}`" + ` (path is the on-disk dest) |
 | ` + "`skills-registry publish <path> --json`" + ` | ` + "`{\"slug\": \"...\", \"sha\": \"...\", \"url\": \"...\"}`" + ` |
 | ` + "`skills-registry sync --json`" + ` | ` + "`{\"pushed\": [...slugs], \"skipped\": [...slugs]}`" + ` |
@@ -135,15 +149,17 @@ letting a human pick from a list.
 ` + "`--json`" + ` always implies ` + "`--yes`" + ` on destructive commands
 (` + "`sync`" + `, ` + "`remove`" + `): JSON callers never get a Bubble Tea
 prompt. Combine with ` + "`jq`" + ` to chain calls — e.g.
-` + "`skills-registry list --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json`" + `.
+` + "`skills-registry search <query> --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json`" + `
+(or swap ` + "`search <query>`" + ` for ` + "`list`" + ` to enumerate every slug — ` + "`search`" + ` always requires a query).
 
 ## Troubleshooting
 
 - ` + "`skills-registry --help`" + ` — full command list and flags
 - ` + "`gh auth status`" + ` — confirm GitHub credentials are present
-- If ` + "`skills-registry list`" + ` errors, check the config at
-  ` + "`~/.config/skills-mcp/registry.toml`" + ` points at the right ` + "`owner/repo`" + `
-- If MCP tools (` + "`list_skills`" + ` / ` + "`get_skill`" + `) say "no repo
+- If ` + "`skills-registry list`" + ` or ` + "`skills-registry search`" + ` errors,
+  check the config at ` + "`~/.config/skills-mcp/registry.toml`" + ` points at
+  the right ` + "`owner/repo`" + `
+- If MCP tools (` + "`search_skills`" + ` / ` + "`get_skill`" + `) say "no repo
   linked yet", install the Skills Registry GitHub App on your registry repo
   via the link the server prints, then retry — the webhook auto-links
   within a few seconds.

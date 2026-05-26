@@ -113,7 +113,7 @@ func TestRootJSONFlagPropagatesToSubcommands(t *testing.T) {
 // added (ROUTING-004: explicit subcommand bypasses hub/wizard).
 func TestRootCmdRegistersAllSubcommands(t *testing.T) {
 	root := newRootCmd()
-	expected := []string{"bootstrap", "list", "get", "sync", "add", "publish", "remove", "update"}
+	expected := []string{"bootstrap", "list", "search", "get", "sync", "add", "publish", "remove", "update"}
 	for _, name := range expected {
 		cmd, _, err := root.Find([]string{name})
 		if err != nil {

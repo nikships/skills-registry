@@ -1468,7 +1468,7 @@ func renderOverlayButton(label string, focused, destructive bool) string {
 	}
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#FFFDF5")).
+		Foreground(lipgloss.Color("#0B090A")).
 		Background(bg).
 		Padding(0, 1).
 		Render(label)

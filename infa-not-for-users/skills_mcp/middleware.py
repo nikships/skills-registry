@@ -19,7 +19,7 @@ Three middlewares are registered in this order (see ``remote_server.py``):
 Rate-limit thresholds are intentionally hardcoded:
 
 * The two read tools both fan out to GitHub, so a low MCP-request rate
-  already maps to a much higher GitHub-call rate (``list_skills`` on a
+  already maps to a much higher GitHub-call rate (``search_skills`` on a
   large registry walks every folder).
 * Tuning these numbers is a deployment-time decision that warrants a
   code review, not a Railway env-var flip.
@@ -42,12 +42,12 @@ log = logging.getLogger("skills_mcp.middleware")
 
 
 # Sustained request rate per authenticated GitHub user. 5 req/s comfortably
-# covers a Claude/Cursor session opening (one list_skills + several
+# covers a Claude/Cursor session opening (one search_skills + several
 # get_skill calls) and stays well under GitHub's per-installation REST
-# allowance even after the ``list_skills`` fan-out amplifies the call count.
+# allowance even after the ``search_skills`` fan-out amplifies the call count.
 MAX_REQUESTS_PER_SECOND = 5.0
 
-# Burst budget. The typical opening pattern is `list_skills` immediately
+# Burst budget. The typical opening pattern is `search_skills` immediately
 # followed by 5-10 `get_skill` calls as the agent inspects the catalog;
 # 15 absorbs that without delay while still preventing scraping floods.
 BURST_CAPACITY = 15

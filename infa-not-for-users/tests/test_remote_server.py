@@ -111,7 +111,7 @@ async def test_build_server_wires_tools_and_routes(env: dict[str, str]) -> None:
 	# Tools registered.
 	tools = await server.list_tools()
 	tool_names = {t.name for t in tools}
-	assert tool_names == {"list_skills", "get_skill"}
+	assert tool_names == {"search_skills", "get_skill"}
 	# Link store is a real LinkStore.
 	from skills_mcp.linking import LinkStore as ExpectedLinkStore
 

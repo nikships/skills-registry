@@ -23,7 +23,7 @@ Two user-facing deliverables, **single repo**, two languages.
 |---|---|---|---|
 | `install.sh` | POSIX sh | Raw GitHub Content (`curl \| sh`) | One-shot installer. Detects OS/arch, downloads the matching Go tarball, drops the binary into `~/.local/bin/skills-registry`. |
 | `skills-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`). All honor `--json`. |
-| `skills-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. **Two read-only tools**: `list_skills`, `get_skill`. The hosted server never writes — `publish` / `sync` / `add` / `remove` all happen through the Go CLI. Users never install this; their MCP client connects to the URL and does the OAuth dance. |
+| `skills-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. **Two read-only tools**: `search_skills`, `get_skill`. The hosted server never writes — `publish` / `sync` / `add` / `remove` all happen through the Go CLI. Users never install this; their MCP client connects to the URL and does the OAuth dance. |
 
 > **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli). Users see only the CLI; the hosted server is a service, not a deliverable.
 
@@ -33,10 +33,10 @@ The hosted server is a single FastMCP Streamable-HTTP process behind a TLS-termi
 
 1. **Auth.** MCP clients (Claude Code / Cursor / VS Code+Copilot / Claude Desktop) negotiate OAuth on first connect — a browser window opens to the server's `/authorize` endpoint, which hands off to GitHub. The resulting token is scoped to the user's GitHub identity.
 2. **Repo linking.** After OAuth, the server needs to know *which* repo to serve. Users install the **Skills Registry GitHub App** on their registry repo; an `installation` webhook records the `{github_user → owner/repo}` link in the server's key-value store. Subsequent tool calls resolve the user's repo from that link.
-3. **GitHub I/O.** Both reads (`list_skills`, `get_skill`) use an installation-scoped GitHub App token via the GitHub Contents API. The server is read-only — there is no write tool. The user's local `gh` is not involved either; the server runs in a Docker container with no shell state.
+3. **GitHub I/O.** Both reads (`search_skills`, `get_skill`) use an installation-scoped GitHub App token via the GitHub Contents API. The server is read-only — there is no write tool. The user's local `gh` is not involved either; the server runs in a Docker container with no shell state.
 4. **Persistence.** A small Railway-backed volume at `/data/oauth/` holds the OAuth state + repo-link table. No skills are cached server-side; every `get_skill` reads through to GitHub.
 
-The CLI (`skills-registry list`, `get`, …) is separate — it makes GitHub calls via the user's local `gh`. The hosted MCP and the CLI are two independent paths to the same GitHub data, optimized for different environments (browser-OAuth on remote compute vs. local `gh`).
+The CLI (`skills-registry list`, `skills-registry search`, `get`, …) is separate — it makes GitHub calls via the user's local `gh`. The hosted MCP and the CLI are two independent paths to the same GitHub data, optimized for different environments (browser-OAuth on remote compute vs. local `gh`).
 
 ---
 
@@ -143,10 +143,12 @@ The hosted MCP is **read-only**. It runs in a Docker container on Railway with n
 
 - `PATH` contains only what the image declares; `gh` is not on it.
 - `SSH_AUTH_SOCK` is unset.
-- `git config user.name` / `user.email` are blank.
+- `git config user.name` / `git config user.email` are blank.
 - The only credential is an installation-scoped GitHub App token, fetched per request via `GitHubAppClient`.
 
-`list_skills` and `get_skill` route through the GitHub Contents API using that token — no `git`, no `gh`, no working tree. The server has no write tool by design: every mutation (publish, sync, add, remove) lives in the Go CLI, which talks to GitHub from the user's machine where credentials and tooling are richer.
+`search_skills` and `get_skill` route through the GitHub Contents API using that token — no `git`, no `gh`, no working tree. The server has no write tool by design: every mutation (publish, sync, add, remove) lives in the Go CLI, which talks to GitHub from the user's machine where credentials and tooling are richer.
+
+**Search contract.** `search_skills` requires a non-empty `query` and returns the top 10 ranked matches via an fzf V1-style fuzzy scorer (greedy forward pass + backward tighten, plus word-boundary / camelCase / consecutive / case-match bonuses) with field weighting (name 2x, slug 1x, description 1x). An empty / whitespace-only query returns a "search requires a term" message rather than dumping the registry — callers wanting to enumerate every slug use the CLI's `list` subcommand instead. The Go CLI's `search` subcommand ships the **same scorer constants, alignment algorithm, and field weighting**; both surfaces have a paired cross-language corpus test that fails if either side drifts.
 
 The CLI has two upload paths.
 
@@ -223,7 +225,7 @@ The hosted server captures a small, fixed set of product-usage events to PostHog
 
 | Event | Where | Properties | Question it answers |
 |---|---|---|---|
-| `list_skills_called` | `remote_server.list_skills` | `skill_count` | List vs. get ratio; registry sizes |
+| `search_skills_called` | `remote_server.search_skills` | `query`, `skill_count` | Query terms; search vs. get ratio; registry sizes |
 | `get_skill_called` | `remote_server.get_skill` | `slug`, `found` (bool) | Hot skills; "not found" rate (data-quality signal) |
 | `user_not_linked` | `remote_server._track_not_linked` | `tool_name` | Activation funnel: authenticated but no GitHub App install |
 | `repo_linked` | `webhooks._adopt_best_repo` | `installation_id`, `repo_name` | Funnel completion |
@@ -272,7 +274,7 @@ description: |
 
 …and a body documenting both paths:
 
-1. **MCP-first (preferred when available).** Use `list_skills` / `get_skill` when the agent's client is wired to the hosted server.
+1. **MCP-first (preferred when available).** Use `search_skills` / `get_skill` when the agent's client is wired to the hosted server.
 2. **CLI fallback / write side.** The `skills-registry` binary covers everything the MCP doesn't and is always available for `publish` / `sync` / `remove` (the read-only MCP set may grow over time, but the CLI stays the primary write surface).
 3. **`--json` table.** Payload shape for every CLI subcommand, so agents can drive the CLI programmatically without scraping source.
 
@@ -315,7 +317,7 @@ The hosted MCP does not carry this catalogue; it lives only in the Go CLI.
 ## 9. Future-proofing notes
 
 - **Multiple registries**: config is single-registry today. A `connect <owner/repo>` command + a `[registries]` array in the TOML would let an agent see several side-by-side.
-- **Browsing public registries** without owning one — the read tools (`list_skills`, `get_skill`) don't require write access.
+- **Browsing public registries** without owning one — the read tools (`search_skills`, `get_skill`) don't require write access.
 - **`update`** would round out the destructive surface. `remove` shipped in F4.1; an explicit `update` would surface "what changed" diffs that "publish from a folder" doesn't.
 - **Windows installer.** `install.sh` is POSIX-only. A `install.ps1` (and `gh.exe` lookup in `FindGH`) would close the gap.
 - **PR-based contribution flow** to upstream registries: `skills-registry contribute <owner/repo> <slug>` could lean on `gh api` for the fork+PR dance.

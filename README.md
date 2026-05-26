@@ -79,7 +79,7 @@ Paste the printed JSON into your MCP client config, reload, and ask:
 > *"What skills do I have available?"*
 > *"Get the `code-review` skill and use it on this PR."*
 
-The agent calls `list_skills` and `get_skill` automatically — you never touch the MCP tools directly.
+The agent calls `search_skills` and `get_skill` automatically — you never touch the MCP tools directly.
 
 ---
 
@@ -90,7 +90,8 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | What you want | Command |
 |---|---|
 | Open the dashboard | `skills-registry` |
-| Browse what's in your registry | `skills-registry list` |
+| Browse what's in your registry as an interactive list | `skills-registry list` |
+| Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
 | Pull one skill into the current folder | `skills-registry get <slug>` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync` |
 | Pull a skill from someone else's repo into yours | `skills-registry add <owner/repo>` |
@@ -124,6 +125,7 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 | Command | Payload shape |
 |---|---|
 | `skills-registry list --json` | `[{"slug", "name", "description"}, …]` |
+| `skills-registry search [QUERY] --json` | `[{"slug", "name", "description"}, …]` |
 | `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
 | `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
 | `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
@@ -210,7 +212,7 @@ The wizard prints this JSON; if you prefer wiring it up by hand:
 }
 ```
 
-Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `list_skills` / `get_skill` call goes through the hosted server — no local binary required.
+Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `search_skills` / `get_skill` call goes through the hosted server — no local binary required.
 
 > **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the CLI directly (`skills-registry list`, `skills-registry get <slug>`).
 
@@ -218,7 +220,7 @@ Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS C
 
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The hosted MCP read tools (`list_skills`, `get_skill`) and the CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The hosted MCP read tools (`search_skills`, `get_skill`) and the CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

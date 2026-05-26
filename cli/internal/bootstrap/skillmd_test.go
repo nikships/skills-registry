@@ -40,6 +40,7 @@ func TestSkillMdDocumentsJSONFlag(t *testing.T) {
 	}
 	for _, cmd := range []string{
 		"skills-registry list --json",
+		"skills-registry search <query> --json",
 		"skills-registry get <slug> --json",
 		"skills-registry publish <path> --json",
 		"skills-registry sync --json",

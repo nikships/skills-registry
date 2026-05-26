@@ -6,27 +6,27 @@ import "github.com/charmbracelet/lipgloss"
 // Legacy plain colors — kept for backwards compatibility with the other
 // TUI prompts (confirm/input/multiselect) that already reference them.
 var (
-	Primary = lipgloss.Color("#7D56F4")
-	Accent  = lipgloss.Color("#43BF6D")
+	Primary = lipgloss.Color("#E10600")
+	Accent  = lipgloss.Color("#B00020")
 	Muted   = lipgloss.Color("241")
 	Danger  = lipgloss.Color("196")
 )
 
-// Adaptive palette. Each color renders well on both light and dark
+// Adaptive red/black palette. Each color renders well on both light and dark
 // terminals — Charm's AdaptiveColor picks the right side at render time.
 var (
-	ColPrimary  = lipgloss.AdaptiveColor{Light: "#5A2EE5", Dark: "#B8A6FF"}
-	ColAccent   = lipgloss.AdaptiveColor{Light: "#0F8F5A", Dark: "#7CFFB0"}
-	ColPink     = lipgloss.AdaptiveColor{Light: "#D6336C", Dark: "#FF6FB5"}
-	ColPeach    = lipgloss.AdaptiveColor{Light: "#C44A1A", Dark: "#FFB57A"}
-	ColCyan     = lipgloss.AdaptiveColor{Light: "#0E7C9E", Dark: "#7FE7FF"}
-	ColYellow   = lipgloss.AdaptiveColor{Light: "#B58300", Dark: "#FFE066"}
+	ColPrimary  = lipgloss.AdaptiveColor{Light: "#C1121F", Dark: "#FF4D4D"}
+	ColAccent   = lipgloss.AdaptiveColor{Light: "#780000", Dark: "#FF1E1E"}
+	ColPink     = lipgloss.AdaptiveColor{Light: "#A4161A", Dark: "#FF6B6B"}
+	ColPeach    = lipgloss.AdaptiveColor{Light: "#660708", Dark: "#D90429"}
+	ColCyan     = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#8D0801"}
+	ColYellow   = lipgloss.AdaptiveColor{Light: "#2B2B2B", Dark: "#FF8A80"}
 	ColMuted    = lipgloss.AdaptiveColor{Light: "240", Dark: "245"}
 	ColFaint    = lipgloss.AdaptiveColor{Light: "245", Dark: "240"}
-	ColBorder   = lipgloss.AdaptiveColor{Light: "#C6B8FF", Dark: "#5C3FAA"}
-	ColBorderHi = lipgloss.AdaptiveColor{Light: "#7D56F4", Dark: "#B8A6FF"}
-	ColDanger   = lipgloss.AdaptiveColor{Light: "#C92A2A", Dark: "#FF6B6B"}
-	ColInk      = lipgloss.AdaptiveColor{Light: "#1E1B30", Dark: "#F5F1FF"}
+	ColBorder   = lipgloss.AdaptiveColor{Light: "#161A1D", Dark: "#660708"}
+	ColBorderHi = lipgloss.AdaptiveColor{Light: "#E10600", Dark: "#FF4D4D"}
+	ColDanger   = lipgloss.AdaptiveColor{Light: "#BA181B", Dark: "#FF6B6B"}
+	ColInk      = lipgloss.AdaptiveColor{Light: "#0B090A", Dark: "#F5F3F4"}
 )
 
 // Shared lip-gloss styles. Defined once so the whole CLI feels coherent.
@@ -66,18 +66,18 @@ var (
 
 	ChipPrimary = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFDF5")).
+			Foreground(lipgloss.Color("#0B090A")).
 			Background(ColPrimary).
 			Padding(0, 1)
 
 	ChipAccent = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#0A1F12")).
+			Foreground(lipgloss.Color("#0B090A")).
 			Background(ColAccent).
 			Padding(0, 1)
 
 	ChipPeach = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#1E120A")).
+			Foreground(lipgloss.Color("#0B090A")).
 			Background(ColPeach).
 			Padding(0, 1)
 
@@ -141,7 +141,7 @@ var (
 	// terminals without screaming for attention.
 	DownloadChip = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFDF5")).
+			Foreground(lipgloss.Color("#0B090A")).
 			Background(ColPrimary).
 			Padding(0, 1)
 )
