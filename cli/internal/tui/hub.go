@@ -33,6 +33,7 @@ const (
 	HubActionSync     = "sync"
 	HubActionAdd      = "add"
 	HubActionPublish  = "publish"
+	HubActionPurge    = "purge"
 	HubActionSettings = "settings"
 
 	// Deprecated action IDs kept so older tests / integrations that
@@ -42,7 +43,7 @@ const (
 	HubActionRemove = "remove"
 )
 
-// DefaultHubCards returns the five tiles the dashboard ships with.
+// DefaultHubCards returns the six tiles the dashboard ships with.
 // Exposed so the launcher can render the same labels in non-TUI fallback
 // paths and tests can reference the same data the production view does.
 func DefaultHubCards() []HubCard {
@@ -70,6 +71,12 @@ func DefaultHubCards() []HubCard {
 			Icon:        "📤",
 			Title:       "Publish",
 			Description: "Upload a single local skill folder to the registry.",
+		},
+		{
+			ID:          HubActionPurge,
+			Icon:        "🧹",
+			Title:       "Purge local",
+			Description: "Delete every local skill folder under your known dot-folders — registry untouched.",
 		},
 		{
 			ID:          HubActionSettings,

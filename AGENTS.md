@@ -117,7 +117,7 @@ website/                 # Next.js landing page (skills-registry.dev). Static; d
             │     8. summary + "all done" caption
             │
             └─ Hub (returning user, alt-screen card grid):
-                  Browse / Sync / Add / Publish / Remove / Settings
+                  Manage / Sync / Add / Publish / Purge / Settings
                   Each card launches the same code path the standalone subcommand
                   uses; the result is captured as a toast and seeded into the
                   next hub frame. Quit = q / esc / ctrl+c.
@@ -246,7 +246,9 @@ Two additional safeguards run outside the middleware chain:
 | `FindGH` | `cli/internal/registry/registry.go` | PATH + fallback lookup for the `gh` CLI. CLI-side only — the hosted server doesn't shell out to anything. |
 | `MultiSelectModel` | `cli/internal/tui/multiselect.go` | Fuzzy-searchable multi-select with locked-universal section. |
 | `SkillMd` | `cli/internal/bootstrap/skillmd.go` | Sole source of the generated `skills-registry/SKILL.md` template (CLI-only; written into each agent dot-folder by Go bootstrap). Documents both the hosted MCP (preferred for reads) and the CLI (writes + fallback reads). |
-| `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`. |
+| `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`, and the Purge hub action. |
+| `PurgeFlowModel` / `PurgeFlowDeps` | `cli/internal/tui/flow_purge.go` | The "Purge local" hub flow: scan → confirm → `os.RemoveAll` per discovered skill folder. Deletes only local copies; the registry repo is never touched. |
+| `purgeLocalSkills` / `pathUnderAnyRoot` / `filterMetaSkill` | `cli/cmd/skills-registry/hub_flow_deps.go` | Safety-checked delete helper for the Purge flow. Cross-checks every candidate folder against the `scan.DiscoverSources` allow-list before calling `os.RemoveAll` so a tampered `scan.Skill` value can't redirect deletes at an arbitrary path. `filterMetaSkill` (used by the Discover side) and an `isMetaSkill` guard inside the delete loop together preserve the bootstrapped `skills-registry/` meta-skill folder — Purge would otherwise wipe the agent's gateway back into the registry, matching the same carve-out `scan.EntriesForCleanup` makes for the wizard's post-publish cleanup. |
 | `skillDelegate` / `wrapToLines` / `clampPreviewDesc` | `cli/internal/tui/listmodel.go` | Bubbles list delegate for the `list` TUI. `Height(): 3` so every row is `title + 2 wrapped description lines` (issue #28 — single-line descriptions silently `…`-truncated past ~70 cells). `wrapToLines` is the rune-/width-aware soft-wrap helper feeding the delegate; `clampPreviewDesc` ellipsizes inside the preview pane's description block so the gradient / meta / hint footer never disappears when the description overruns the panel. |
 | `performUpdate` / `latestReleaseTag` / `downloadUpdateAsset` | `cli/cmd/skills-registry/update.go` | Self-updater. Resolves the latest tag via GitHub's REST API, downloads the matching release tarball straight from `github.com/<owner>/<repo>/releases/...` (no `gh` dependency — mirrors `install.sh`), extracts, and `os.Rename`s the binary in place. `--version`, `--bin`, `--force`, `--dry-run` flags. `runAutoUpdate` opportunistically invokes it before the hub when `SKILLS_REGISTRY_AUTO_UPDATE=1`. |
 
