@@ -8,25 +8,42 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/anand-92/skills-registry/cli/internal/jsonout"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
 	"github.com/anand-92/skills-registry/cli/internal/tui"
 )
 
-const defaultUpdateRepo = "anand-92/skills-registry"
+// Defaults mirror install.sh so the in-binary updater and the curl|sh
+// installer always pull from the same release surface.
+const (
+	defaultUpdateRepo       = "anand-92/skills-registry"
+	defaultGitHubAPIBaseURL = "https://api.github.com"
+	defaultReleaseBaseURL   = "https://github.com"
+	updateHTTPTimeout       = 60 * time.Second
+	updateUserAgent         = "skills-registry-update"
+)
 
 type updateRunnerFunc func(context.Context, updateOpts) (updateResult, error)
 
+// updateRunner is the indirection autoUpdate uses; tests swap it out.
 var updateRunner updateRunnerFunc = performUpdate
 
+// updateOpts is the input to performUpdate.
+//
+// The first six fields are bound to user-visible cobra flags. The trio
+// at the bottom (apiBaseURL / releaseBaseURL / httpClient) are pure
+// test-injection seams — they are deliberately *not* bound to flags so
+// the public CLI surface keeps mirroring install.sh exactly. Tests
+// override them to swap api.github.com / github.com for an httptest
+// server.
 type updateOpts struct {
 	repo    string
 	version string
@@ -34,8 +51,13 @@ type updateOpts struct {
 	force   bool
 	dryRun  bool
 	tarball string
+
+	apiBaseURL     string
+	releaseBaseURL string
+	httpClient     *http.Client
 }
 
+// updateResult is what performUpdate returns and what `--json` emits.
 type updateResult struct {
 	Updated bool   `json:"updated"`
 	Version string `json:"version"`
@@ -49,11 +71,14 @@ func newUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Update the skills-registry CLI to the latest release",
-		Long: `Downloads the matching skills-registry release asset and replaces the current binary.
+		Long: `Downloads the matching skills-registry release tarball from GitHub Releases
+and replaces the current binary in place. Mirrors install.sh — no gh
+dependency, just a straight HTTPS GET against the public release URL.
 
-By default this installs the latest GitHub Release from anand-92/skills-registry.
-Use --version to pin a tag (for example v0.5.1), or --bin to update a specific binary path.
-Set SKILLS_REGISTRY_AUTO_UPDATE=1 to update automatically before opening the hub.`,
+By default this installs the latest release from anand-92/skills-registry.
+Use --version to pin a tag (for example v0.5.1), or --bin to update a
+specific binary path. Set SKILLS_REGISTRY_AUTO_UPDATE=1 to opportunistically
+update right before opening the hub.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUpdate(cmd.Context(), opts)
@@ -86,6 +111,8 @@ func runUpdate(ctx context.Context, opts updateOpts) error {
 	return nil
 }
 
+// performUpdate is the headless entry point. It is exercised directly
+// by unit tests and indirectly by runUpdate / runAutoUpdate.
 func performUpdate(ctx context.Context, opts updateOpts) (updateResult, error) {
 	if opts.repo == "" {
 		opts.repo = defaultUpdateRepo
@@ -101,40 +128,41 @@ func performUpdate(ctx context.Context, opts updateOpts) (updateResult, error) {
 	if err != nil {
 		return updateResult{}, err
 	}
-	gh, err := registry.FindGH()
-	if err != nil && opts.tarball == "" {
-		return updateResult{}, err
+	client := opts.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: updateHTTPTimeout}
 	}
-	targetVersion := opts.version
-	if targetVersion == "latest" && gh != "" {
-		tag, tagErr := latestReleaseTag(ctx, gh, opts.repo)
-		if tagErr != nil {
-			return updateResult{}, tagErr
+	if opts.version == "latest" && opts.tarball == "" {
+		tag, err := latestReleaseTag(ctx, client, updateAPIBase(opts), opts.repo)
+		if err != nil {
+			return updateResult{}, err
 		}
-		targetVersion = tag
-		opts.version = targetVersion
+		opts.version = tag
 	}
 	res := updateResult{
-		Version: targetVersion,
+		Version: opts.version,
 		Asset:   asset,
 		Path:    binPath,
 	}
-	if !opts.force && versionMatches(version, targetVersion) {
-		res.Message = fmt.Sprintf("already on %s", targetVersion)
+	if !opts.force && versionMatches(version, opts.version) {
+		res.Message = fmt.Sprintf("already on %s", opts.version)
 		return res, nil
 	}
 	if opts.dryRun {
-		res.Message = fmt.Sprintf("would install %s from %s to %s", targetVersion, opts.repo, binPath)
+		res.Message = fmt.Sprintf("would install %s from %s to %s", opts.version, opts.repo, binPath)
 		return res, nil
 	}
-	if err := installUpdate(ctx, gh, opts, asset, binPath); err != nil {
+	if err := installUpdate(ctx, client, opts, asset, binPath); err != nil {
 		return updateResult{}, err
 	}
 	res.Updated = true
-	res.Message = fmt.Sprintf("updated skills-registry to %s → %s", targetVersion, binPath)
+	res.Message = fmt.Sprintf("updated skills-registry to %s → %s", opts.version, binPath)
 	return res, nil
 }
 
+// updateAssetName mirrors install.sh's detect_os/detect_arch +
+// asset-name composition. Only the four combinations the release
+// workflow actually publishes for are accepted.
 func updateAssetName(goos, goarch string) (string, error) {
 	switch goos {
 	case "darwin", "linux":
@@ -149,6 +177,10 @@ func updateAssetName(goos, goarch string) (string, error) {
 	return fmt.Sprintf("skills-registry_%s_%s.tar.gz", goos, goarch), nil
 }
 
+// updateTargetPath resolves the file we're going to replace. Defaults
+// to the current executable. Symlinks are followed so we replace the
+// real binary, not the link — that way `brew`/`asdf`-style symlinked
+// installs keep working.
 func updateTargetPath(binPath string) (string, error) {
 	if binPath == "" {
 		exe, err := os.Executable()
@@ -178,20 +210,43 @@ func updateTargetPath(binPath string) (string, error) {
 	return target, nil
 }
 
-func latestReleaseTag(ctx context.Context, gh, repo string) (string, error) {
-	cmd := exec.CommandContext(ctx, gh, "release", "view", "--repo", repo, "--json", "tagName")
-	out, err := cmd.CombinedOutput()
+func updateAPIBase(opts updateOpts) string {
+	if opts.apiBaseURL != "" {
+		return opts.apiBaseURL
+	}
+	return defaultGitHubAPIBaseURL
+}
+
+func updateReleaseBase(opts updateOpts) string {
+	if opts.releaseBaseURL != "" {
+		return opts.releaseBaseURL
+	}
+	return defaultReleaseBaseURL
+}
+
+// latestReleaseTag hits the GitHub REST API to discover the tag of the
+// newest published release for repo. Returns the tag (e.g. "v0.7.0").
+func latestReleaseTag(ctx context.Context, client *http.Client, apiBase, repo string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/releases/latest", strings.TrimRight(apiBase, "/"), repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		detail := strings.TrimSpace(string(out))
-		if detail != "" {
-			return "", fmt.Errorf("resolve latest release: %w: %s", err, detail)
-		}
+		return "", fmt.Errorf("build latest release request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", updateUserAgent)
+	resp, err := client.Do(req)
+	if err != nil {
 		return "", fmt.Errorf("resolve latest release: %w", err)
 	}
-	var payload struct {
-		TagName string `json:"tagName"`
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("resolve latest release: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
-	if err := json.Unmarshal(out, &payload); err != nil {
+	var payload struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return "", fmt.Errorf("parse latest release: %w", err)
 	}
 	if payload.TagName == "" {
@@ -200,6 +255,10 @@ func latestReleaseTag(ctx context.Context, gh, repo string) (string, error) {
 	return payload.TagName, nil
 }
 
+// versionMatches is the "should we skip this update" comparator.
+// "dev" never matches (those are local builds), "latest" never matches
+// (we only get here after resolving it to a real tag, but defend
+// anyway), and "v" prefixes are normalized.
 func versionMatches(current, target string) bool {
 	if current == "" || current == "dev" || target == "" || target == "latest" {
 		return false
@@ -207,9 +266,14 @@ func versionMatches(current, target string) bool {
 	return strings.TrimPrefix(current, "v") == strings.TrimPrefix(target, "v")
 }
 
-func installUpdate(ctx context.Context, gh string, opts updateOpts, asset, binPath string) error {
-	dir := filepath.Dir(binPath)
-	tmpDir, err := os.MkdirTemp(dir, ".skills-registry-update-")
+// installUpdate downloads (or copies, if opts.tarball is set), extracts
+// the binary, and atomically swaps it in via os.Rename.
+//
+// The temp dir lives next to binPath so the final Rename stays on the
+// same filesystem — cross-FS renames fail on Linux, and a Rename to a
+// running binary is the one POSIX-portable way to replace a live exe.
+func installUpdate(ctx context.Context, client *http.Client, opts updateOpts, asset, binPath string) error {
+	tmpDir, err := os.MkdirTemp(filepath.Dir(binPath), ".skills-registry-update-")
 	if err != nil {
 		return fmt.Errorf("create update temp dir: %w", err)
 	}
@@ -217,10 +281,11 @@ func installUpdate(ctx context.Context, gh string, opts updateOpts, asset, binPa
 
 	tarball := filepath.Join(tmpDir, asset)
 	if opts.tarball != "" {
-		if err := copyFile(opts.tarball, tarball, 0o644); err != nil {
-			return err
-		}
-	} else if err := downloadUpdateAsset(ctx, gh, opts.repo, opts.version, asset, tmpDir); err != nil {
+		err = copyFile(opts.tarball, tarball)
+	} else {
+		err = downloadUpdateAsset(ctx, client, updateReleaseBase(opts), opts.repo, opts.version, asset, tarball)
+	}
+	if err != nil {
 		return err
 	}
 
@@ -237,19 +302,57 @@ func installUpdate(ctx context.Context, gh string, opts updateOpts, asset, binPa
 	return nil
 }
 
-func downloadUpdateAsset(ctx context.Context, gh, repo, version, asset, dir string) error {
-	args := []string{"release", "download"}
-	if version != "latest" {
-		args = append(args, version)
+// downloadUpdateAsset writes the release tarball at the given URL to
+// dest. URL composition mirrors install.sh:build_url exactly so the
+// two paths stay in lockstep.
+func downloadUpdateAsset(ctx context.Context, client *http.Client, releaseBase, repo, version, asset, dest string) error {
+	base := strings.TrimRight(releaseBase, "/")
+	var url string
+	if version == "" || version == "latest" {
+		url = fmt.Sprintf("%s/%s/releases/latest/download/%s", base, repo, asset)
+	} else {
+		url = fmt.Sprintf("%s/%s/releases/download/%s/%s", base, repo, version, asset)
 	}
-	args = append(args, "--repo", repo, "--pattern", asset, "--dir", dir, "--clobber")
-	cmd := exec.CommandContext(ctx, gh, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("download release asset %s: %s", asset, strings.TrimSpace(string(out)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("build download request: %w", err)
+	}
+	req.Header.Set("User-Agent", updateUserAgent)
+	// Identity encoding keeps the on-the-wire bytes equal to the file
+	// bytes — we don't want net/http to transparently gunzip the .tar.gz.
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", asset, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("download %s: %s: %s", asset, resp.Status, strings.TrimSpace(string(body)))
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dest, err)
+	}
+	// `defer out.Close()` is the safety net: if any future return path is
+	// added before the explicit Close below, the descriptor still gets
+	// released. A double-close on an already-closed *os.File returns an
+	// error which we drop, since the explicit close above has already
+	// surfaced any flush failure to the caller.
+	defer out.Close()
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return fmt.Errorf("write %s: %w", dest, err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", dest, err)
 	}
 	return nil
 }
 
+// extractUpdateBinary walks a gzipped tarball looking for an entry
+// named "skills-registry" (matches install.sh's `tar -xzf … skills-registry`).
+// The first matching regular file wins; everything else is skipped.
 func extractUpdateBinary(tarball, dest string) error {
 	f, err := os.Open(tarball)
 	if err != nil {
@@ -290,13 +393,13 @@ func extractUpdateBinary(tarball, dest string) error {
 	return fmt.Errorf("binary skills-registry not found in update archive")
 }
 
-func copyFile(src, dst string, perm os.FileMode) error {
+func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", dst, err)
 	}

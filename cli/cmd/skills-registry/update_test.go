@@ -6,9 +6,15 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -91,6 +97,12 @@ func TestVersionMatches(t *testing.T) {
 	if versionMatches("dev", "v0.5.1") {
 		t.Fatal("dev should never be treated as up to date")
 	}
+	if versionMatches("v0.5.1", "latest") {
+		t.Fatal("'latest' is unresolved and must never match")
+	}
+	if versionMatches("", "v0.5.1") {
+		t.Fatal("empty current version must never match")
+	}
 }
 
 func TestPerformUpdateDryRunPinnedVersion(t *testing.T) {
@@ -144,18 +156,390 @@ func TestPerformUpdateFromLocalTarball(t *testing.T) {
 	}
 }
 
+// TestLatestReleaseTagViaHTTP exercises the GitHub API JSON path.
+func TestLatestReleaseTagViaHTTP(t *testing.T) {
+	wantTag := "v1.2.3"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/anand-92/skills-registry/releases/latest" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if ua := r.Header.Get("User-Agent"); ua != updateUserAgent {
+			t.Errorf("missing User-Agent: %q", ua)
+		}
+		if ac := r.Header.Get("Accept"); !strings.Contains(ac, "github") {
+			t.Errorf("expected GitHub Accept header, got %q", ac)
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"tag_name":%q}`, wantTag))
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	if err != nil {
+		t.Fatalf("latestReleaseTag: %v", err)
+	}
+	if got != wantTag {
+		t.Fatalf("tag = %q, want %q", got, wantTag)
+	}
+}
+
+func TestLatestReleaseTagHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "rate limit exceeded", http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	if err == nil {
+		t.Fatal("expected error on non-200 response")
+	}
+	if !strings.Contains(err.Error(), "resolve latest release") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLatestReleaseTagEmptyTag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"tag_name":""}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	if err == nil {
+		t.Fatal("expected error when tag_name is empty")
+	}
+	if !strings.Contains(err.Error(), "did not include a tag") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLatestReleaseTagInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "{not-json")
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	if err == nil {
+		t.Fatal("expected JSON decode error")
+	}
+	if !strings.Contains(err.Error(), "parse latest release") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestDownloadUpdateAssetPinnedVersion verifies the URL path matches
+// the format install.sh uses for pinned releases.
+func TestDownloadUpdateAssetPinnedVersion(t *testing.T) {
+	body := []byte("tarball-bytes")
+	wantPath := "/anand-92/skills-registry/releases/download/v1.2.3/skills-registry_darwin_arm64.tar.gz"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != wantPath {
+			t.Errorf("unexpected path %q (want %q)", r.URL.Path, wantPath)
+		}
+		if r.Header.Get("Accept-Encoding") != "identity" {
+			t.Errorf("Accept-Encoding = %q, want identity", r.Header.Get("Accept-Encoding"))
+		}
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "skills-registry_darwin_arm64.tar.gz")
+	if err := downloadUpdateAsset(
+		context.Background(), srv.Client(), srv.URL,
+		"anand-92/skills-registry", "v1.2.3",
+		"skills-registry_darwin_arm64.tar.gz", dest,
+	); err != nil {
+		t.Fatalf("downloadUpdateAsset: %v", err)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("downloaded body = %q, want %q", got, body)
+	}
+}
+
+// TestDownloadUpdateAssetLatestPath verifies the latest-release URL
+// uses /releases/latest/download/<asset> (matches install.sh).
+func TestDownloadUpdateAssetLatestPath(t *testing.T) {
+	wantPath := "/anand-92/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz"
+	hit := atomic.Bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit.Store(true)
+		if r.URL.Path != wantPath {
+			t.Errorf("unexpected path %q (want %q)", r.URL.Path, wantPath)
+		}
+		_, _ = w.Write([]byte("payload"))
+	}))
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "asset.tar.gz")
+	if err := downloadUpdateAsset(
+		context.Background(), srv.Client(), srv.URL,
+		"anand-92/skills-registry", "latest",
+		"skills-registry_linux_amd64.tar.gz", dest,
+	); err != nil {
+		t.Fatalf("downloadUpdateAsset: %v", err)
+	}
+	if !hit.Load() {
+		t.Fatal("expected the server to be hit")
+	}
+}
+
+func TestDownloadUpdateAssetNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Not Found", http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "asset.tar.gz")
+	err := downloadUpdateAsset(
+		context.Background(), srv.Client(), srv.URL,
+		"anand-92/skills-registry", "v9.9.9",
+		"skills-registry_linux_amd64.tar.gz", dest,
+	)
+	if err == nil {
+		t.Fatal("expected 404 error")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Failed downloads must not leave a partial file behind. (We never
+	// open dest on the error path.)
+	if _, statErr := os.Stat(dest); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected dest to be absent on error, stat err = %v", statErr)
+	}
+}
+
+// TestPerformUpdateEndToEndViaHTTP wires up both endpoints behind an
+// httptest server and exercises performUpdate the way the real CLI
+// would: API call → tag resolve → tarball download → in-place swap.
+func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skipf("update only supports darwin/linux, running on %s", runtime.GOOS)
+	}
+	// updateAssetName only knows amd64/arm64; on a non-release GOARCH
+	// (e.g. 386, ppc64le, riscv64) it returns an error and the test
+	// would fail through no fault of the updater. Skip those builds so
+	// `go test ./...` stays green on any host architecture.
+	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		t.Skipf("update only supports amd64/arm64, running on %s", runtime.GOARCH)
+	}
+	asset, err := updateAssetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatalf("updateAssetName: %v", err)
+	}
+	wantTag := "v0.99.0"
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "skills-registry")
+	if err := os.WriteFile(bin, []byte("old binary"), 0o755); err != nil {
+		t.Fatalf("seed old bin: %v", err)
+	}
+
+	apiCalls := atomic.Int32{}
+	dlCalls := atomic.Int32{}
+	var apiSrv, releaseSrv *httptest.Server
+
+	apiSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalls.Add(1)
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"tag_name":%q}`, wantTag))
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	releaseSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dlCalls.Add(1)
+		wantPath := "/anand-92/skills-registry/releases/download/" + wantTag + "/" + asset
+		if r.URL.Path != wantPath {
+			t.Errorf("download path = %q, want %q", r.URL.Path, wantPath)
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		writeTarballToWriter(t, w, "fresh binary contents")
+	}))
+	t.Cleanup(releaseSrv.Close)
+
+	res, err := performUpdate(context.Background(), updateOpts{
+		repo:           "anand-92/skills-registry",
+		version:        "latest",
+		binPath:        bin,
+		force:          true,
+		apiBaseURL:     apiSrv.URL,
+		releaseBaseURL: releaseSrv.URL,
+		httpClient:     apiSrv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("performUpdate: %v", err)
+	}
+	if !res.Updated {
+		t.Fatalf("expected Updated=true, got %+v", res)
+	}
+	if res.Version != wantTag {
+		t.Fatalf("Version = %q, want %q", res.Version, wantTag)
+	}
+	if res.Asset != asset {
+		t.Fatalf("Asset = %q, want %q", res.Asset, asset)
+	}
+	if res.Path != bin {
+		t.Fatalf("Path = %q, want %q", res.Path, bin)
+	}
+	if apiCalls.Load() != 1 {
+		t.Fatalf("API hit count = %d, want 1", apiCalls.Load())
+	}
+	if dlCalls.Load() != 1 {
+		t.Fatalf("download hit count = %d, want 1", dlCalls.Load())
+	}
+	body, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatalf("read updated bin: %v", err)
+	}
+	if string(body) != "fresh binary contents" {
+		t.Fatalf("binary body = %q, want %q", body, "fresh binary contents")
+	}
+	info, err := os.Stat(bin)
+	if err != nil {
+		t.Fatalf("stat updated bin: %v", err)
+	}
+	if info.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("updated binary is not executable: mode=%v", info.Mode())
+	}
+}
+
+// TestPerformUpdateSkipsWhenAlreadyLatest pins the no-op path: when the
+// resolved tag matches the linked-in version and --force is not set,
+// performUpdate must return Updated=false without writing anything.
+func TestPerformUpdateSkipsWhenAlreadyLatest(t *testing.T) {
+	origVersion := version
+	version = "v9.9.9"
+	t.Cleanup(func() { version = origVersion })
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "skills-registry")
+	body := []byte("untouched")
+	if err := os.WriteFile(bin, body, 0o755); err != nil {
+		t.Fatalf("seed bin: %v", err)
+	}
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"tag_name":"v9.9.9"}`)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	releaseHits := atomic.Int32{}
+	releaseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releaseHits.Add(1)
+	}))
+	t.Cleanup(releaseSrv.Close)
+
+	res, err := performUpdate(context.Background(), updateOpts{
+		version:        "latest",
+		binPath:        bin,
+		apiBaseURL:     apiSrv.URL,
+		releaseBaseURL: releaseSrv.URL,
+		httpClient:     apiSrv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("performUpdate: %v", err)
+	}
+	if res.Updated {
+		t.Fatal("expected Updated=false when versions match")
+	}
+	if !strings.Contains(res.Message, "already on") {
+		t.Fatalf("message = %q", res.Message)
+	}
+	if releaseHits.Load() != 0 {
+		t.Fatalf("release endpoint hit %d times, want 0", releaseHits.Load())
+	}
+	got, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatalf("read bin: %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("binary mutated: got %q, want %q", got, body)
+	}
+}
+
+// TestPerformUpdateDryRunResolvesLatest verifies dry-run still resolves
+// the latest tag (so the printed message names a real version) but
+// never touches the release endpoint.
+func TestPerformUpdateDryRunResolvesLatest(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "skills-registry")
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"tag_name":"v1.0.0"}`)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	releaseHits := atomic.Int32{}
+	releaseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releaseHits.Add(1)
+	}))
+	t.Cleanup(releaseSrv.Close)
+
+	res, err := performUpdate(context.Background(), updateOpts{
+		version:        "latest",
+		binPath:        bin,
+		dryRun:         true,
+		force:          true,
+		apiBaseURL:     apiSrv.URL,
+		releaseBaseURL: releaseSrv.URL,
+		httpClient:     apiSrv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("performUpdate: %v", err)
+	}
+	if res.Updated {
+		t.Fatal("dry run must not report Updated=true")
+	}
+	if res.Version != "v1.0.0" {
+		t.Fatalf("Version = %q, want v1.0.0", res.Version)
+	}
+	if !strings.Contains(res.Message, "would install v1.0.0") {
+		t.Fatalf("message = %q", res.Message)
+	}
+	if releaseHits.Load() != 0 {
+		t.Fatalf("dry run hit release endpoint %d times, want 0", releaseHits.Load())
+	}
+}
+
+func TestNewUpdateCmdFlagWiring(t *testing.T) {
+	cmd := newUpdateCmd()
+	if cmd.Use != "update" {
+		t.Fatalf("Use = %q", cmd.Use)
+	}
+	for _, name := range []string{"repo", "version", "bin", "force", "dry-run"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("missing flag --%s", name)
+		}
+	}
+}
+
+// writeUpdateTarball writes a single-file gzipped tarball at path with
+// the given binary body. Used by the local-tarball tests.
 func writeUpdateTarball(t *testing.T, path, body string) {
 	t.Helper()
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create tarball: %v", err)
 	}
-	gz := gzip.NewWriter(f)
+	defer f.Close()
+	writeTarballToWriter(t, f, body)
+}
+
+// writeTarballToWriter is the shared helper backing both
+// writeUpdateTarball (file-on-disk path) and the httptest handlers
+// that need to stream a fixture tarball as their response body.
+func writeTarballToWriter(t *testing.T, w io.Writer, body string) {
+	t.Helper()
+	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 	if err := tw.WriteHeader(&tar.Header{
-		Name: "skills-registry",
-		Mode: 0o755,
-		Size: int64(len(body)),
+		Name:     "skills-registry",
+		Mode:     0o755,
+		Size:     int64(len(body)),
+		Typeflag: tar.TypeReg,
 	}); err != nil {
 		t.Fatalf("write tar header: %v", err)
 	}
@@ -167,8 +551,5 @@ func writeUpdateTarball(t *testing.T, path, body string) {
 	}
 	if err := gz.Close(); err != nil {
 		t.Fatalf("close gzip: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("close tarball: %v", err)
 	}
 }

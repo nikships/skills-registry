@@ -97,6 +97,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Pull a skill from someone else's repo into yours | `skills-registry add <owner/repo>` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |
 | Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
+| Update the installed binary to the latest release | `skills-registry update` |
 | Re-run the wizard / bootstrap (idempotent) | `skills-registry bootstrap` |
 
 <!-- TODO(maintainer): drop a short GIF of `skills-registry sync` here — the multi-select TUI sells the experience. -->
@@ -118,6 +119,17 @@ skills-registry remove code-review
 
 Interactive runs prompt for confirmation first. Pass `--yes` to skip it, or `--json` (which implies `--yes`) for machine-readable output. Removing a slug that isn't in the registry exits 1 cleanly — nothing destructive runs.
 
+### `update`: self-update the installed binary
+
+```bash
+skills-registry update                  # pull the newest GitHub release
+skills-registry update --dry-run        # show what would change, write nothing
+skills-registry update --version v0.6.0 # pin a specific tag
+skills-registry update --force          # reinstall even if you're already current
+```
+
+`update` mirrors `install.sh` — it hits `api.github.com` to resolve the latest tag, downloads `skills-registry_<os>_<arch>.tar.gz` directly from GitHub Releases, and atomically swaps the binary in place. No `gh` required, no auth, no shell state. Supports `darwin/linux × amd64/arm64`; Windows users still use `install.sh` via WSL. Set `SKILLS_REGISTRY_AUTO_UPDATE=1` in your shell to check for updates automatically right before the hub opens.
+
 ### Programmatic use — `--json`
 
 Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses TUIs and prompts and emits a single JSON payload to stdout. Errors land as `{"error": "..."}` with a non-zero exit. Use this when an agent or script drives the binary.
@@ -130,6 +142,7 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 | `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
 | `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
 | `skills-registry remove <slug> --json` | `{"slug", "repo", "sha", "removed_from": [...]}` |
+| `skills-registry update --json` | `{"updated", "version", "asset", "path", "message"}` |
 
 Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set, so piped invocations never hang on a Bubble Tea prompt that can't render.
 
@@ -158,6 +171,7 @@ The wizard sets sensible defaults. Override via shell env when needed:
 | `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` when debugging. |
 | `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a release tag (`v0.7.0`, etc.). |
 | `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the `skills-registry` binary. |
+| `SKILLS_REGISTRY_AUTO_UPDATE` | unset | Set to `1`/`true`/`yes` to opportunistically run `skills-registry update` before opening the hub. Errors are warning-logged, never fatal. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
 The registry repo URL itself lives in `~/.config/skills-mcp/registry.toml`.

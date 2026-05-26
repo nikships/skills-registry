@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,6 +11,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ansiSeq matches the standard CSI escape sequences lipgloss emits when
+// rendering with a color-capable profile (foreground/background colors,
+// bold/italic toggles, and the `\x1b[0m` reset). Test assertions on the
+// rendered output need to ignore these so they don't trip on terminal
+// styling that wraps the visible glyphs.
+var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// stripANSI removes ANSI CSI escape sequences from s. Used by delegate /
+// preview tests so suffix / content assertions are deterministic across
+// `go test` environments where lipgloss may or may not emit ANSI codes.
+func stripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
 
 // testDownloadDest is the canonical stub dest used by the download-flow
 // tests. The literal value is opaque — tests only verify the model echoes
@@ -557,4 +570,230 @@ func buildListWithRow(row SkillRow) ListModel {
 	m = gm.(ListModel)
 	gm, _ = m.Update(rowsLoadedMsg{rows: []SkillRow{row}})
 	return gm.(ListModel)
+}
+
+// TestWrapToLinesShortFits pins the no-wrap path: when the source fits
+// the width budget, wrapToLines returns it unchanged with no ellipsis
+// suffix and no embedded newlines.
+func TestWrapToLinesShortFits(t *testing.T) {
+	got := wrapToLines("short skill description.", 80, 2)
+	if got != "short skill description." {
+		t.Fatalf("short input mutated: %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Fatalf("short input gained a newline: %q", got)
+	}
+	if strings.HasSuffix(got, "…") {
+		t.Fatalf("short input gained an ellipsis: %q", got)
+	}
+}
+
+// TestWrapToLinesFlattensInternalNewlines confirms that embedded "\n"s
+// in the source become spaces — SKILL.md descriptions are by
+// convention a single paragraph, and preserving newlines would push
+// the rendered row out of its fixed Height() budget.
+func TestWrapToLinesFlattensInternalNewlines(t *testing.T) {
+	got := wrapToLines("first line\nsecond line", 80, 2)
+	if strings.Contains(got, "\n") {
+		t.Fatalf("internal newline not flattened: %q", got)
+	}
+	if got != "first line second line" {
+		t.Fatalf("unexpected flatten output: %q", got)
+	}
+}
+
+// TestWrapToLinesUsesTwoLinesBeforeEllipsizing exercises the wrap path
+// for content that fits inside `maxLines` after soft-wrap: the output
+// has exactly one newline and no ellipsis.
+func TestWrapToLinesUsesTwoLinesBeforeEllipsizing(t *testing.T) {
+	// "abc abc abc abc abc abc" is 23 cells; with width 12 it wraps to
+	// two ~12-cell lines.
+	in := strings.TrimSpace(strings.Repeat("abc ", 6))
+	got := wrapToLines(in, 12, 2)
+	if got == in {
+		t.Fatalf("expected wrap, got identity: %q", got)
+	}
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("expected exactly one newline, got %d: %q",
+			strings.Count(got, "\n"), got)
+	}
+	if strings.HasSuffix(got, "…") {
+		t.Fatalf("unexpected ellipsis on in-budget wrap: %q", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if w := lipgloss.Width(line); w > 12 {
+			t.Errorf("wrapped line exceeds width 12: %d cells: %q", w, line)
+		}
+	}
+}
+
+// TestWrapToLinesOverflowEllipsizesLastLine drives wrapToLines past
+// `maxLines`: the result has exactly maxLines lines (no more, no
+// fewer), each ≤ width, and the last line ends with "…" to flag the
+// dropped content.
+func TestWrapToLinesOverflowEllipsizesLastLine(t *testing.T) {
+	in := strings.Repeat("alpha bravo ", 30)
+	got := wrapToLines(in, 20, 2)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected exactly 2 lines, got %d: %q", len(lines), got)
+	}
+	for _, l := range lines {
+		if w := lipgloss.Width(l); w > 20 {
+			t.Errorf("line exceeds budget: %d cells: %q", w, l)
+		}
+	}
+	if !strings.HasSuffix(lines[1], "…") {
+		t.Errorf("overflow line missing ellipsis: %q", lines[1])
+	}
+}
+
+// TestWrapToLinesEdgeCases pins the defensive zero/negative returns so
+// callers can pass user-supplied widths without crashing the TUI.
+func TestWrapToLinesEdgeCases(t *testing.T) {
+	if got := wrapToLines("anything", 0, 2); got != "" {
+		t.Errorf("width=0 returned %q, want \"\"", got)
+	}
+	if got := wrapToLines("anything", 80, 0); got != "" {
+		t.Errorf("maxLines=0 returned %q, want \"\"", got)
+	}
+}
+
+// TestSkillDelegateHeightIsThree pins the contract for the bubbles
+// list delegate: one title row + two description rows. Going back to
+// Height(): 2 would silently reintroduce the issue #28 truncation
+// because the second description line would simply not be drawn.
+func TestSkillDelegateHeightIsThree(t *testing.T) {
+	d := newSkillDelegate(func(string) RowStatus { return StatusIdle })
+	if got := d.Height(); got != 3 {
+		t.Fatalf("skillDelegate.Height() = %d, want 3", got)
+	}
+}
+
+// TestSkillDelegateEmitsExactlyHeightRows asserts the delegate writes
+// Height() lines for every row, regardless of how long the
+// description is. The bubbles list assumes a constant per-item row
+// count; a short description must pad, not collapse.
+func TestSkillDelegateEmitsExactlyHeightRows(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		row  SkillRow
+	}{
+		{"empty_desc", SkillRow{Slug: "s", Name: "Short", Desc: ""}},
+		{"short_desc", SkillRow{Slug: "s", Name: "Short", Desc: "tiny"}},
+		{"long_desc", SkillRow{Slug: "s", Name: "Long", Desc: strings.Repeat("alpha bravo ", 40)}},
+		{"multibyte_desc", SkillRow{Slug: "s", Name: "Multi", Desc: strings.Repeat("世界 ", 80)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered := renderSingleDelegate(t, tc.row, 80)
+			lines := strings.Split(rendered, "\n")
+			if len(lines) != 3 {
+				t.Fatalf("expected 3 lines, got %d:\n%s", len(lines), rendered)
+			}
+		})
+	}
+}
+
+// TestSkillDelegateRendersTwoDescLines is the issue #28 regression
+// test: a description long enough to wrap (but short enough to fit in
+// the 2-line budget) must show *both* lines, not just an ellipsized
+// first line. We assert by counting how many of the rendered rows
+// carry visible description text (i.e. non-whitespace after the
+// cursor bar).
+func TestSkillDelegateRendersTwoDescLines(t *testing.T) {
+	// 140 cells of ASCII description; at delegate budget width-6 = 74
+	// cells this wraps to roughly two ~70-cell lines, fitting in the
+	// 2-line budget without overflow.
+	desc := strings.TrimSpace(strings.Repeat("alpha bravo charlie ", 7))
+	row := SkillRow{Slug: "wrap_me", Name: "Wrap Me", Desc: desc}
+	rendered := renderSingleDelegate(t, row, 80)
+	// Strip ANSI before measuring "visible content" so the per-row check
+	// counts real glyphs rather than styling residue.
+	lines := strings.Split(stripANSI(rendered), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d:\n%s", len(lines), rendered)
+	}
+	// Both description rows (index 1 and 2) must carry visible content
+	// from the description, beyond the cursor-bar glyph.
+	for i := 1; i <= 2; i++ {
+		stripped := strings.TrimSpace(lines[i])
+		if len(stripped) <= 3 { // "· " bar is 3 cells; require real text past it
+			t.Errorf("description row %d is empty/whitespace: %q", i, lines[i])
+		}
+	}
+}
+
+// TestSkillDelegateLongDescriptionEllipsizes asserts that when the
+// description exceeds the 2-line budget the final visible line ends
+// with "…" — the user gets a clear "see the preview pane for the
+// rest" signal instead of silent loss.
+func TestSkillDelegateLongDescriptionEllipsizes(t *testing.T) {
+	desc := strings.Repeat("alpha bravo charlie delta echo foxtrot ", 8)
+	row := SkillRow{Slug: "ellipsize", Name: "Ellipsize", Desc: desc}
+	rendered := renderSingleDelegate(t, row, 80)
+	// Strip ANSI before splitting so the suffix / width assertions are
+	// deterministic regardless of the test environment's color profile.
+	plain := stripANSI(rendered)
+	lines := strings.Split(plain, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d:\n%s", len(lines), rendered)
+	}
+	// Width budget is enforced on every line (lipgloss.Width is
+	// ANSI-aware, so it can operate on the original rendered output).
+	for _, line := range strings.Split(rendered, "\n") {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Errorf("delegate line exceeds width 80: %d cells: %q", w, line)
+		}
+	}
+	if !strings.HasSuffix(strings.TrimRight(lines[2], " "), "…") {
+		t.Errorf("expected ellipsis on the last description line: %q", lines[2])
+	}
+}
+
+// TestPreviewPanelKeepsHintWithLongDescription is the issue #28
+// preview-pane regression test: when the description would wrap past
+// the available panel height, the gradient / meta / hint rows must
+// still be drawn. Previously, the trailing
+// `.Height(m.preview.Height).Render(body)` clamp silently chopped
+// the bottom of `body`, so the hint chip disappeared.
+func TestPreviewPanelKeepsHintWithLongDescription(t *testing.T) {
+	m := buildListWithRow(SkillRow{
+		Slug: "very_long_skill",
+		Name: "Very Long",
+		Desc: strings.Repeat("alpha bravo charlie delta ", 80),
+	})
+	rendered := m.renderPreviewPanel()
+	// The download CTA chip is the canonical "fixed footer" element of
+	// the preview pane. If it's still in the output, the clamp didn't
+	// chop the bottom.
+	if !strings.Contains(rendered, "download") {
+		t.Errorf("preview pane lost download hint with a long description:\n%s",
+			rendered)
+	}
+	if !strings.Contains(rendered, "registry · owner/repo") {
+		t.Errorf("preview pane lost registry meta with a long description:\n%s",
+			rendered)
+	}
+	// Width invariant still holds across every line.
+	for _, line := range strings.Split(rendered, "\n") {
+		max := m.preview.Width + 4
+		if w := lipgloss.Width(line); w > max {
+			t.Errorf("preview line exceeds panel width %d: %d cells: %q",
+				max, w, line)
+		}
+	}
+}
+
+// TestClampPreviewDescPassthrough exercises clampPreviewDesc's no-op
+// path: a raw description that already fits the budget must come back
+// styled with PreviewBody. clampPreviewDesc now owns the rendering, so
+// the expected output is the same `PreviewBody.Width(...).Render(in)`
+// the caller would have produced for the in-budget case.
+func TestClampPreviewDescPassthrough(t *testing.T) {
+	in := "a short description."
+	got := clampPreviewDesc(in, 60, 30, false)
+	want := PreviewBody.Width(60).Render(in)
+	if got != want {
+		t.Errorf("clampPreviewDesc mutated an in-budget block:\nwant: %q\ngot:  %q", want, got)
+	}
 }
