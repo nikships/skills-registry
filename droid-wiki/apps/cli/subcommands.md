@@ -12,7 +12,7 @@ Active contributors: Nik Anand
 | --- | --- | --- | --- |
 | `bootstrap` | Headless onboarding — create repo, push every local skill, install agent docs. Useful in CI; the wizard supersedes it interactively. | `--repo`, `--visibility`, `--no-agents`, `--yes` | (not yet structured; legacy human output) |
 | `list` | Browse the registry as a list. With `--plain` or no TTY, prints a fixed-width table. | `--query`/`-q`, `--plain` | `[{slug, name, description}, …]` |
-| `get <slug>` | Download one skill into a local folder. Default destination is `./.agents/skills/<slug>/`. | `--dest` | `{slug, path}` |
+| `get <slug>` | Download one skill into a local folder. Default destination is `~/.cache/skills-mcp/skills/<slug>/` (the global cache; honors `XDG_CACHE_HOME`). | `--dest` | `{slug, path}` |
 | `sync` | Push local dot-folder skills missing from the registry. Interactive multi-select unless `--all`. | `--yes`/`-y`, `--all` | `{pushed: [...], skipped: [...]}` |
 | `add <source>` | Clone an external source (`./path`, `owner/repo`, or full URL), multi-select skills, publish to your registry. | `--yes`/`-y`, `--all` | `{pushed: [...], skipped: [...]}` |
 | `publish <path>` | Upload one local folder as one skill. | `--name` | `{slug, sha, url}` |
@@ -54,7 +54,7 @@ When `--json` is set AND stdin is not a TTY, every destructive subcommand promot
 
 ### `get`
 
-`DownloadSkill` is the shared core (used by `get`, the `list` TUI's enter handler, and the hub's Manage card). Destination resolution: empty `--dest` → `<cwd>/.agents/skills/<canonSlug>`; explicit `--dest` whose basename slugifies to the canon → use as-is; otherwise treat `--dest` as a parent dir and append `<canonSlug>`. The parent dir is then scanned for an existing sibling that slugifies to the same canonical form so the "agp-9-upgrade vs agp_9_upgrade" duplicate-folder case stays consistent.
+`DownloadSkill` is the shared core (used by `get`, the `list` TUI's enter handler, and the hub's Manage card). Destination resolution: empty `--dest` → `<cacheRoot>/<canonSlug>` where `<cacheRoot>` comes from `cache.CacheRoot()` (i.e. `~/.cache/skills-mcp/skills`, or `$XDG_CACHE_HOME/skills-mcp/skills` when set — fix for issue #29, previously this dropped a `.agents/skills/` tree in the cwd); explicit `--dest` whose basename slugifies to the canon → use as-is; otherwise treat `--dest` as a parent dir and append `<canonSlug>`. The parent dir is then scanned for an existing sibling that slugifies to the same canonical form so the "agp-9-upgrade vs agp_9_upgrade" duplicate-folder case stays consistent.
 
 ### `sync` and `add`
 

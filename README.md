@@ -92,7 +92,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Open the dashboard | `skills-registry` |
 | Browse what's in your registry as an interactive list | `skills-registry list` |
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
-| Pull one skill into the current folder | `skills-registry get <slug>` |
+| Pull one skill into the global cache (`~/.cache/skills-mcp/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug>` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync` |
 | Pull a skill from someone else's repo into yours | `skills-registry add <owner/repo>` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |

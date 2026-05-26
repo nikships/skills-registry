@@ -153,6 +153,11 @@ func TestRunGetJSONEmitsSlugAndPath(t *testing.T) {
 	homeDir := t.TempDir()
 	cwd := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Clear XDG_CACHE_HOME so cache.CacheRoot() falls back to $HOME/.cache
+	// (i.e. inside the temp homeDir above) regardless of the runner's env.
+	// Without this the JSON-002 test would flake on hosts that export an
+	// XDG_CACHE_HOME pointing outside the test tempdir.
+	t.Setenv("XDG_CACHE_HOME", "")
 	if err := os.Chdir(cwd); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
@@ -192,6 +197,16 @@ func TestRunGetJSONEmitsSlugAndPath(t *testing.T) {
 	}
 	if payload.Path == "" {
 		t.Error("path should not be empty")
+	}
+	// Issue #29: the default destination must live under the global cache
+	// (~/.cache/skills-mcp/skills/<slug>/), not the cwd-relative .agents/
+	// tree the original code produced.
+	wantPrefix := filepath.Join(homeDir, ".cache", "skills-mcp", "skills")
+	if !strings.HasPrefix(payload.Path, wantPrefix) {
+		t.Errorf("path = %q, want prefix %q (default must use the global cache, not cwd/.agents)", payload.Path, wantPrefix)
+	}
+	if strings.Contains(payload.Path, filepath.Join(cwd, ".agents")) {
+		t.Errorf("path %q must not live under %s/.agents", payload.Path, cwd)
 	}
 	// The downloaded SKILL.md must live at the reported path so a
 	// consumer can immediately read it.

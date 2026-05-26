@@ -63,11 +63,7 @@ func manageDownloader(cfg config.Config) tui.Downloader {
 		if err != nil {
 			return "", "", err
 		}
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", "", fmt.Errorf("resolve current working directory: %w", err)
-		}
-		return DownloadSkill(downloadCtx, client, slug, "", cwd)
+		return DownloadSkill(downloadCtx, client, slug, "")
 	}
 }
 

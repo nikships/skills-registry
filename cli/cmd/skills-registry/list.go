@@ -125,9 +125,8 @@ func runList(ctx context.Context, query string, plain bool) error {
 		return rows, nil
 	}
 
-	cwd, _ := os.Getwd()
 	downloader := func(downloadCtx context.Context, slug string) (string, string, error) {
-		return DownloadSkill(downloadCtx, client, slug, "", cwd)
+		return DownloadSkill(downloadCtx, client, slug, "")
 	}
 	deleter := func(deleteCtx context.Context, slug string) (string, error) {
 		report, err := runRemove(deleteCtx, slug, true, true)

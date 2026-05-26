@@ -91,8 +91,9 @@ on disk.
 - Follow local file references in ` + "`SKILL.md`" + ` by reading the already-fetched
   files at the returned path — do not re-fetch individual referenced files.
 
-By default the CLI writes to ` + "`./.agents/skills/<slug>/`" + ` under the
-current working directory (or the path you pass via ` + "`--dest`" + `).
+By default the CLI writes to ` + "`~/.cache/skills-mcp/skills/<slug>/`" + ` (the
+shared global cache; honors ` + "`XDG_CACHE_HOME`" + ` when set) — pass
+` + "`--dest`" + ` to write somewhere else.
 
 **After reading the skill, offer cleanup.** The fetched skill files are now
 in your agent context — the on-disk copy is only needed if you plan to edit

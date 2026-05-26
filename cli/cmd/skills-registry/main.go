@@ -49,7 +49,7 @@ Running "skills-registry" with no subcommand drops you into the right place:
 Day-to-day, use:
   skills-registry list                     fuzzy-filterable list of every skill
   skills-registry search <query>           fuzzy-search your registry (top 10 matches; query is required)
-  skills-registry get <slug>               download a skill to ./.agents/skills/<slug>/
+  skills-registry get <slug>               download a skill to ~/.cache/skills-mcp/skills/<slug>/
   skills-registry sync                     push local skills missing from the registry
   skills-registry add <source>             clone a source, multi-select what to publish
   skills-registry publish <path>           publish a single local skill folder

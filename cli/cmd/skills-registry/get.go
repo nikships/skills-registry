@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/anand-92/skills-registry/cli/internal/cache"
 	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
@@ -37,7 +38,7 @@ func newGetCmd() *cobra.Command {
 			return runGet(cmd.Context(), args[0], destFlag)
 		},
 	}
-	cmd.Flags().StringVar(&destFlag, "dest", "", "Where to write the skill (default ./.agents/skills/<slug>).")
+	cmd.Flags().StringVar(&destFlag, "dest", "", "Where to write the skill (default ~/.cache/skills-mcp/skills/<slug>).")
 	return cmd
 }
 
@@ -55,8 +56,7 @@ func runGetJSON(ctx context.Context, slug, dest string) error {
 		jsonout.PrintError(err)
 		return err
 	}
-	cwd, _ := os.Getwd()
-	finalDest, _, err := DownloadSkill(ctx, client, slug, dest, cwd)
+	finalDest, _, err := DownloadSkill(ctx, client, slug, dest)
 	if err != nil {
 		jsonout.PrintError(err)
 		return err
@@ -76,8 +76,7 @@ func runGet(ctx context.Context, slug, dest string) error {
 	if err != nil {
 		return err
 	}
-	cwd, _ := os.Getwd()
-	finalDest, reused, err := DownloadSkill(ctx, client, slug, dest, cwd)
+	finalDest, reused, err := DownloadSkill(ctx, client, slug, dest)
 	if err != nil {
 		return err
 	}
@@ -93,8 +92,12 @@ func runGet(ctx context.Context, slug, dest string) error {
 // DownloadSkill resolves the destination, downloads the skill, and returns
 // the final on-disk path plus any sibling folder that was reused. Shared by
 // the `get` command and the inline-download path in the `list` TUI.
-func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag, cwd string) (finalDest, reused string, err error) {
-	finalDest, reused = resolveDest(slug, destFlag, cwd)
+func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag string) (finalDest, reused string, err error) {
+	defaultParent := cache.CacheRoot()
+	if defaultParent == "" || !filepath.IsAbs(defaultParent) {
+		return "", "", fmt.Errorf("resolve cache root (set HOME or XDG_CACHE_HOME, or pass --dest)")
+	}
+	finalDest, reused = resolveDest(slug, destFlag, defaultParent)
 	if err := os.MkdirAll(finalDest, 0o755); err != nil {
 		return "", "", err
 	}
@@ -108,7 +111,9 @@ func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag,
 // name stays in lockstep with the registry's canonical slug.
 //
 // Rules:
-//  1. Empty destFlag → "<cwd>/.agents/skills/<canonSlug>".
+//  1. Empty destFlag → "<defaultParent>/<canonSlug>". Production callers
+//     pass cache.CacheRoot() so downloads land in the global cache, not
+//     a stray ./.agents/ tree under cwd (issue #29).
 //  2. destFlag with a basename that slugifies to canonSlug → use as-is.
 //  3. Otherwise destFlag is treated as a parent directory and canonSlug is appended.
 //
@@ -117,11 +122,11 @@ func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag,
 // that path is returned instead (the second return value is the path that's
 // being reused, for user-facing logging). This prevents the
 // "agp-9-upgrade vs agp_9_upgrade" duplicate-folder bug.
-func resolveDest(slug, destFlag, cwd string) (finalDest, reused string) {
+func resolveDest(slug, destFlag, defaultParent string) (finalDest, reused string) {
 	canonSlug := scan.Slugify(slug)
 	switch {
 	case destFlag == "":
-		finalDest = filepath.Join(cwd, ".agents", "skills", canonSlug)
+		finalDest = filepath.Join(defaultParent, canonSlug)
 	case scan.Slugify(filepath.Base(destFlag)) == canonSlug:
 		finalDest = destFlag
 	default:

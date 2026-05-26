@@ -3,19 +3,43 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/anand-92/skills-registry/cli/internal/cache"
 )
 
 func TestResolveDest(t *testing.T) {
-	t.Run("empty dest uses cwd default", func(t *testing.T) {
-		cwd := t.TempDir()
-		got, reused := resolveDest("agp-9-upgrade", "", cwd)
-		want := filepath.Join(cwd, ".agents", "skills", "agp_9_upgrade")
+	t.Run("empty dest uses default parent", func(t *testing.T) {
+		// Unit test for the empty-destFlag rule: result must be
+		// "<defaultParent>/<canonSlug>" with no reuse signal.
+		parent := t.TempDir()
+		got, reused := resolveDest("agp-9-upgrade", "", parent)
+		want := filepath.Join(parent, "agp_9_upgrade")
 		if got != want {
 			t.Fatalf("dest = %q, want %q", got, want)
 		}
 		if reused != "" {
 			t.Fatalf("reused = %q, want empty", reused)
+		}
+	})
+
+	t.Run("empty dest in production uses cache.CacheRoot()", func(t *testing.T) {
+		// Regression guard for issue #29: DownloadSkill passes
+		// cache.CacheRoot() as the default parent, so an empty --dest
+		// must land under the global cache — never cwd/.agents/.
+		t.Setenv("XDG_CACHE_HOME", "")
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		got, _ := resolveDest("agp-9-upgrade", "", cache.CacheRoot())
+		want := filepath.Join(home, ".cache", "skills-mcp", "skills", "agp_9_upgrade")
+		if got != want {
+			t.Fatalf("dest = %q, want %q", got, want)
+		}
+		cwd, _ := os.Getwd()
+		stray := filepath.Join(cwd, ".agents") + string(filepath.Separator)
+		if strings.HasPrefix(got, stray) {
+			t.Fatalf("dest %q must not live under %q", got, stray)
 		}
 	})
 

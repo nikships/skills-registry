@@ -70,12 +70,12 @@ skills-registry get <slug> [--dest PATH] [--json]
 
 | Flag | Type | Purpose |
 | --- | --- | --- |
-| `--dest` | `path` | Override the destination folder (default `./.agents/skills/<canonSlug>`). |
+| `--dest` | `path` | Override the destination folder (default `~/.cache/skills-mcp/skills/<canonSlug>` — honors `XDG_CACHE_HOME`). |
 
-Destination resolution in `resolveDest`: empty `--dest` → `<cwd>/.agents/skills/<canonSlug>`; explicit `--dest` whose basename slugifies to `canonSlug` → used as-is; otherwise treated as a parent dir with `canonSlug` appended. After resolving, the parent is scanned for an existing sibling whose name slugifies to the same canonical form; if found at a different path, that path is reused (prevents the `agp-9-upgrade` vs `agp_9_upgrade` duplicate-folder bug).
+Destination resolution in `resolveDest`: empty `--dest` → `<cacheRoot>/<canonSlug>` where `<cacheRoot>` is `cache.CacheRoot()` (i.e. `~/.cache/skills-mcp/skills`, or `$XDG_CACHE_HOME/skills-mcp/skills` when set); explicit `--dest` whose basename slugifies to `canonSlug` → used as-is; otherwise treated as a parent dir with `canonSlug` appended. After resolving, the parent is scanned for an existing sibling whose name slugifies to the same canonical form; if found at a different path, that path is reused (prevents the `agp-9-upgrade` vs `agp_9_upgrade` duplicate-folder bug).
 
 ```json
-{"slug": "auth-skill", "path": "/home/u/proj/.agents/skills/auth-skill"}
+{"slug": "auth-skill", "path": "/home/u/.cache/skills-mcp/skills/auth-skill"}
 ```
 
 ## `sync`
