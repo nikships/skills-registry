@@ -67,7 +67,7 @@ skills-registry
 The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
 - **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → pick agents to wire up → optionally delete the now-redundant local copies → print the hosted-MCP JSON snippet.
-- **Returning users** → **dashboard hub** with cards for Browse / Sync / Add / Publish / Remove / Settings.
+- **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Publish / Purge / Settings.
 - **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 
 The wizard ends with a JSON snippet for your MCP client config, pointing at `https://mcp.skills-registry.dev/mcp`. Your client handles the GitHub OAuth on first connect; the server can then read and (with permission) write to your registry repo.

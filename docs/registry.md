@@ -105,17 +105,19 @@ flowchart LR
   Load --> Model[build tui.HubModel + skill-count loader]
   Model --> Run[tea.NewProgram alt-screen]
   Run --> Sel{Selection?}
-  Sel -- Browse --> AB[runBrowseFromHub → runList]
-  Sel -- Sync --> AS[runSyncFromHub → runSync]
-  Sel -- Add --> AA[runAddFromHub → prompt + runAdd]
-  Sel -- Publish --> AP[runPublishFromHub → prompt + runPublish]
-  Sel -- Remove --> AR[runRemoveFromHub → prompt + runRemove]
-  Sel -- Settings --> AT[runSettingsFromHub → tui.NewSettings]
-  AB & AS & AA & AP & AR & AT --> Toast[hubToast text + ok]
+  Sel -- Manage --> AM[ListModel · download + delete]
+  Sel -- Sync --> AS[SyncFlowModel → registry.Client.Publish]
+  Sel -- Add --> AA[AddFlowModel → resolve + Publish]
+  Sel -- Publish --> AP[PublishFlowModel → doPublish]
+  Sel -- Purge --> AX[PurgeFlowModel → os.RemoveAll]
+  Sel -- Settings --> AT[SettingsModel → config.Save]
+  AM & AS & AA & AP & AX & AT --> Toast[flowExitMsg text + ok]
   Toast --> Loop
 ```
 
-Each per-action helper returns a `hubToast`. The next loop iteration seeds that toast into the freshly-built `tui.HubModel`, so the user sees "✓ added from owner/repo" / "✗ remove: slug not found" / etc. Per-action errors land as red toasts and the user can retry; only a launcher-level failure (e.g. `config.Load` failing mid-session) escapes the loop. The hub terminates on quit (`q` / `esc` / `ctrl+c`) or empty selection.
+Each embedded flow ends in a `flowExitMsg` carrying the toast text + ok flag. `HubProgram` swaps back to the hub model, seeds the toast for the next frame, and re-runs the count loader, so the user sees "✓ added from owner/repo" / "✗ remove: slug not found" / "✓ purged 12 local skill folder(s)" / etc. Per-action errors land as red toasts and the user can retry; only a launcher-level failure (e.g. `config.Load` failing mid-session) escapes the loop. The hub terminates on quit (`q` / `esc` / `ctrl+c`) or empty selection.
+
+**Purge Local Skills.** The Purge card is the only flow that mutates the user's local filesystem — every other write target is the registry repo. `tui.PurgeFlowModel` (see `cli/internal/tui/flow_purge.go`) walks three phases: scan (`scan.Discover` over the known dot-folders), confirm (a `ChoiceModel` listing the per-source breakdown), then delete. The deleter (`cli/cmd/skills-registry/hub_flow_deps.go:purgeLocalSkills`) cross-checks every candidate folder against the allow-list returned by `scan.DiscoverSources` before calling `os.RemoveAll`, so even a tampered `scan.Skill` value can't redirect the delete at an arbitrary path. Failures are tallied per-folder and surfaced in the exit toast; the registry repo is never touched.
 
 ### 2.4 MCP wire-up
 

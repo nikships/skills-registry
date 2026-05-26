@@ -117,7 +117,7 @@ website/                 # Next.js landing page (skills-registry.dev). Static; d
             │     8. summary + "all done" caption
             │
             └─ Hub (returning user, alt-screen card grid):
-                  Browse / Sync / Add / Publish / Remove / Settings
+                  Manage / Sync / Add / Publish / Purge / Settings
                   Each card launches the same code path the standalone subcommand
                   uses; the result is captured as a toast and seeded into the
                   next hub frame. Quit = q / esc / ctrl+c.
@@ -246,7 +246,9 @@ Two additional safeguards run outside the middleware chain:
 | `FindGH` | `cli/internal/registry/registry.go` | PATH + fallback lookup for the `gh` CLI. CLI-side only — the hosted server doesn't shell out to anything. |
 | `MultiSelectModel` | `cli/internal/tui/multiselect.go` | Fuzzy-searchable multi-select with locked-universal section. |
 | `SkillMd` | `cli/internal/bootstrap/skillmd.go` | Sole source of the generated `skills-registry/SKILL.md` template (CLI-only; written into each agent dot-folder by Go bootstrap). Documents both the hosted MCP (preferred for reads) and the CLI (writes + fallback reads). |
-| `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`. |
+| `scan.Discover` | `cli/internal/scan/scan.go` | Local skill discovery + frontmatter parsing. Used by `sync`, `add`, `bootstrap`, and the Purge hub action. |
+| `PurgeFlowModel` / `PurgeFlowDeps` | `cli/internal/tui/flow_purge.go` | The "Purge local" hub flow: scan → confirm → `os.RemoveAll` per discovered skill folder. Deletes only local copies; the registry repo is never touched. |
+| `purgeLocalSkills` / `pathUnderAnyRoot` | `cli/cmd/skills-registry/hub_flow_deps.go` | Safety-checked delete helper for the Purge flow. Cross-checks every candidate folder against the `scan.DiscoverSources` allow-list before calling `os.RemoveAll` so a tampered `scan.Skill` value can't redirect deletes at an arbitrary path. |
 
 ---
 

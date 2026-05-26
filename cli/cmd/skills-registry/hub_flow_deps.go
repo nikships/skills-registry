@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/anand-92/skills-registry/cli/internal/bootstrap"
 	"github.com/anand-92/skills-registry/cli/internal/cache"
@@ -26,6 +28,7 @@ func buildHubDeps(ctx context.Context, cfg config.Config) tui.HubDeps {
 		Add:      buildAddFlowDeps(cfg),
 		Publish:  buildPublishFlowDeps(),
 		Sync:     buildSyncFlowDeps(cfg),
+		Purge:    buildPurgeFlowDeps(),
 	}
 }
 
@@ -148,6 +151,15 @@ func buildSyncFlowDeps(cfg config.Config) tui.SyncFlowDeps {
 	}
 }
 
+func buildPurgeFlowDeps() tui.PurgeFlowDeps {
+	return tui.PurgeFlowDeps{
+		Discover: func(context.Context) ([]scan.Skill, error) {
+			return discoverLocalSkills()
+		},
+		Delete: purgeLocalSkills,
+	}
+}
+
 func discoverLocalSkills() ([]scan.Skill, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -158,6 +170,76 @@ func discoverLocalSkills() ([]scan.Skill, error) {
 		return nil, fmt.Errorf("resolve current working directory: %w", err)
 	}
 	return scan.Discover(scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents()))
+}
+
+// purgeLocalSkills removes each supplied skill folder with os.RemoveAll.
+// Best-effort: a single failure does not abort the loop; the returned
+// (deleted, failed) counts let the caller toast a partial-failure
+// summary. We require the folder to sit inside a known dot-folder
+// (resolved via DiscoverSources) before touching it so a bad caller
+// can't pass an arbitrary path.
+func purgeLocalSkills(_ context.Context, skills []scan.Skill) (int, int, error) {
+	if len(skills) == 0 {
+		return 0, 0, nil
+	}
+	allowed, err := purgeAllowedRoots()
+	if err != nil {
+		return 0, 0, err
+	}
+	var deleted, failed int
+	for _, sk := range skills {
+		if !pathUnderAnyRoot(sk.Folder, allowed) {
+			failed++
+			continue
+		}
+		if err := os.RemoveAll(sk.Folder); err != nil {
+			failed++
+			continue
+		}
+		deleted++
+	}
+	return deleted, failed, nil
+}
+
+// purgeAllowedRoots returns the absolute paths of every known dot-folder
+// `<dot>/skills` directory under $HOME and $CWD. Skill folders outside
+// these roots are refused — the purge action is intentionally scoped to
+// what discoverLocalSkills surfaces.
+func purgeAllowedRoots() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve home directory: %w", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve current working directory: %w", err)
+	}
+	sources := scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents())
+	roots := make([]string, 0, len(sources))
+	for _, s := range sources {
+		roots = append(roots, s.Path)
+	}
+	return roots, nil
+}
+
+// pathUnderAnyRoot reports whether folder is contained in any of the
+// supplied root directories. Uses filepath.Rel so the comparison is
+// performed on cleaned paths and rejects ".." traversals.
+func pathUnderAnyRoot(folder string, roots []string) bool {
+	abs, err := filepath.Abs(folder)
+	if err != nil {
+		return false
+	}
+	for _, root := range roots {
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)) {
+			return true
+		}
+	}
+	return false
 }
 
 func filesForSkill(sk scan.Skill) (map[string][]byte, error) {

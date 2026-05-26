@@ -30,15 +30,15 @@ func TestNewHubInitialState(t *testing.T) {
 	if m.Quit() {
 		t.Error("fresh hub Quit() = true")
 	}
-	if len(m.grid.Cards) != 5 {
-		t.Fatalf("default hub has %d cards, want 5", len(m.grid.Cards))
+	if len(m.grid.Cards) != 6 {
+		t.Fatalf("default hub has %d cards, want 6", len(m.grid.Cards))
 	}
 	if m.grid.Focused != 0 {
 		t.Errorf("fresh hub Focused = %d, want 0", m.grid.Focused)
 	}
 }
 
-// TestDefaultHubCardsCoverAllActions enumerates the five action constants
+// TestDefaultHubCardsCoverAllActions enumerates the six action constants
 // and asserts each appears exactly once in the default card list. A
 // regression here would mean the launcher's switch statement loses a
 // branch.
@@ -49,6 +49,7 @@ func TestDefaultHubCardsCoverAllActions(t *testing.T) {
 		HubActionSync:     false,
 		HubActionAdd:      false,
 		HubActionPublish:  false,
+		HubActionPurge:    false,
 		HubActionSettings: false,
 	}
 	for _, c := range cards {
