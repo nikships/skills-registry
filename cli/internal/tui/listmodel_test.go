@@ -23,6 +23,7 @@ var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 // preview tests so suffix / content assertions are deterministic across
 // `go test` environments where lipgloss may or may not emit ANSI codes.
 func stripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
+
 // testDownloadDest is the canonical stub dest used by the download-flow
 // tests. The literal value is opaque — tests only verify the model echoes
 // it back unchanged — but anchoring it on a single const keeps the
