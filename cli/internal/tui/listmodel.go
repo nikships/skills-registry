@@ -153,10 +153,10 @@ type ListModel struct {
 	removingSlug   string
 
 	// install picker — opened when the user presses Enter on a row.
-	pickInstall  bool
-	pickModel    InstallPickerModel
-	pickingSlug  string
-	pickingName  string
+	pickInstall bool
+	pickModel   InstallPickerModel
+	pickingSlug string
+	pickingName string
 
 	// per-slug install state.
 	rowState map[string]RowStatus
