@@ -8,9 +8,10 @@
 # from the GitHub Releases of anand-92/skills-registry, drops the
 # skills-registry binary into ~/.local/bin/, and marks it executable.
 #
-# Supported platforms:
+# Supported platforms (POSIX — macOS & Linux):
 #   darwin/amd64, darwin/arm64, linux/amd64, linux/arm64
 #
+# Windows users should use install.ps1 for a native PowerShell install.
 # Anything else exits cleanly with a clear error message and code 2 —
 # never silently downloads the wrong asset.
 #

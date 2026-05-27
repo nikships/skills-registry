@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -49,17 +50,27 @@ func TestRunAutoUpdateUsesRunnerAndSwallowsErrors(t *testing.T) {
 }
 
 func TestUpdateAssetNameSupported(t *testing.T) {
-	got, err := updateAssetName("darwin", "arm64")
-	if err != nil {
-		t.Fatalf("updateAssetName returned err: %v", err)
+	cases := []struct {
+		goos, goarch, want string
+	}{
+		{"darwin", "arm64", "skills-registry_darwin_arm64.tar.gz"},
+		{"linux", "amd64", "skills-registry_linux_amd64.tar.gz"},
+		{"windows", "amd64", "skills-registry_windows_amd64.zip"},
+		{"windows", "arm64", "skills-registry_windows_arm64.zip"},
 	}
-	if got != "skills-registry_darwin_arm64.tar.gz" {
-		t.Fatalf("asset = %q", got)
+	for _, c := range cases {
+		got, err := updateAssetName(c.goos, c.goarch)
+		if err != nil {
+			t.Fatalf("updateAssetName(%q,%q) returned err: %v", c.goos, c.goarch, err)
+		}
+		if got != c.want {
+			t.Fatalf("updateAssetName(%q,%q) = %q, want %q", c.goos, c.goarch, got, c.want)
+		}
 	}
 }
 
 func TestUpdateAssetNameRejectsUnsupported(t *testing.T) {
-	if _, err := updateAssetName("windows", "amd64"); err == nil {
+	if _, err := updateAssetName("freebsd", "amd64"); err == nil {
 		t.Fatal("expected unsupported OS error")
 	}
 	if _, err := updateAssetName("linux", "386"); err == nil {
@@ -317,13 +328,13 @@ func TestDownloadUpdateAssetNotFound(t *testing.T) {
 // httptest server and exercises performUpdate the way the real CLI
 // would: API call → tag resolve → tarball download → in-place swap.
 func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skipf("update only supports darwin/linux, running on %s", runtime.GOOS)
+	// updateAssetName only knows darwin/linux/windows × amd64/arm64;
+	// on a non-release GOOS/GOARCH (e.g. freebsd, 386) it returns an error
+	// and the test would fail through no fault of the updater. Skip those
+	// builds so `go test ./...` stays green on any host architecture.
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skipf("update only supports darwin/linux/windows, running on %s", runtime.GOOS)
 	}
-	// updateAssetName only knows amd64/arm64; on a non-release GOARCH
-	// (e.g. 386, ppc64le, riscv64) it returns an error and the test
-	// would fail through no fault of the updater. Skip those builds so
-	// `go test ./...` stays green on any host architecture.
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		t.Skipf("update only supports amd64/arm64, running on %s", runtime.GOARCH)
 	}
@@ -356,7 +367,11 @@ func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
 			t.Errorf("download path = %q, want %q", r.URL.Path, wantPath)
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		writeTarballToWriter(t, w, "fresh binary contents")
+		if strings.HasSuffix(asset, ".zip") {
+			writeZipToWriter(t, w, "skills-registry.exe", "fresh binary contents")
+		} else {
+			writeTarballToWriter(t, w, "fresh binary contents")
+		}
 	}))
 	t.Cleanup(releaseSrv.Close)
 
@@ -551,5 +566,90 @@ func writeTarballToWriter(t *testing.T, w io.Writer, body string) {
 	}
 	if err := gz.Close(); err != nil {
 		t.Fatalf("close gzip: %v", err)
+	}
+}
+
+// writeUpdateZip writes a single-file zip at path with the given binary body.
+func writeUpdateZip(t *testing.T, path, entryName, body string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create zip: %v", err)
+	}
+	defer f.Close()
+	writeZipToWriter(t, f, entryName, body)
+}
+
+// writeZipToWriter streams a fixture zip for httptest handlers.
+func writeZipToWriter(t *testing.T, w io.Writer, entryName, body string) {
+	t.Helper()
+	zw := zip.NewWriter(w)
+	h := &zip.FileHeader{
+		Name:   entryName,
+		Method: zip.Deflate,
+	}
+	h.SetMode(0o755)
+	fw, err := zw.CreateHeader(h)
+	if err != nil {
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := fw.Write([]byte(body)); err != nil {
+		t.Fatalf("write zip body: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+}
+
+func TestExtractUpdateBinaryZip(t *testing.T) {
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "update.zip")
+	writeUpdateZip(t, zipPath, "skills-registry.exe", "win binary")
+
+	dest := filepath.Join(dir, "skills-registry.exe")
+	if err := extractUpdateBinary(zipPath, dest); err != nil {
+		t.Fatalf("extractUpdateBinary(zip): %v", err)
+	}
+	body, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read extracted binary: %v", err)
+	}
+	if string(body) != "win binary" {
+		t.Fatalf("extracted body = %q, want %q", body, "win binary")
+	}
+}
+
+func TestExtractUpdateBinaryZipSkipsDirs(t *testing.T) {
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "update.zip")
+
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("create zip: %v", err)
+	}
+	zw := zip.NewWriter(f)
+	// add a directory entry
+	_, err = zw.Create("skills-registry.exe/")
+	if err != nil {
+		t.Fatalf("create dir entry: %v", err)
+	}
+	// add the real binary
+	h := &zip.FileHeader{Name: "skills-registry.exe", Method: zip.Deflate}
+	h.SetMode(0o755)
+	fw, err := zw.CreateHeader(h)
+	if err != nil {
+		t.Fatalf("create real entry: %v", err)
+	}
+	fw.Write([]byte("real"))
+	zw.Close()
+	f.Close()
+
+	dest := filepath.Join(dir, "out.exe")
+	if err := extractUpdateBinary(zipPath, dest); err != nil {
+		t.Fatalf("extractUpdateBinary: %v", err)
+	}
+	body, _ := os.ReadFile(dest)
+	if string(body) != "real" {
+		t.Fatalf("got %q, want real", body)
 	}
 }

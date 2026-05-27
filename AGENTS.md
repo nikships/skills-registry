@@ -258,9 +258,8 @@ Two additional safeguards run outside the middleware chain:
 1. **No `update --diff` / skill-content `update`.** `remove` shipped in F4.1 and a binary-level self-update shipped alongside `update.go` (mirrors `install.sh`); an *in-place skill update* command that surfaces "what changed" diffs in registry skills is still missing — today users `publish` from a folder, which works but is opaque.
 2. **No multi-registry support.** Config is one-repo. A `[registries]` array + `connect <owner/repo>` would let an agent see several side-by-side.
 3. **Browsing third-party public registries** isn't a first-class flow. The read tools (`search_skills`, `get_skill`) don't require write access — wiring them to an arbitrary `owner/repo` would be a few lines.
-4. **Windows installer.** `install.sh` is POSIX-only. The Go binary builds for `windows/amd64`, but Windows users need an `install.ps1` (and `gh.exe` lookup in `FindGH`) for the same one-shot experience. `skills-registry update` mirrors this restriction — it accepts only `darwin/linux × amd64/arm64`.
-5. **`get_skill_md` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `search_skills`; a verbose-mode error log in the hosted server would help diagnose user reports.
-6. **No server-side cache.** Every `get_skill` reads through to GitHub. A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
+4. **`get_skill_md` does no schema validation** of the SKILL.md it serves. Malformed skills are silently skipped by `search_skills`; a verbose-mode error log in the hosted server would help diagnose user reports.
+5. **No server-side cache.** Every `get_skill` reads through to GitHub. A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 
 ---
 

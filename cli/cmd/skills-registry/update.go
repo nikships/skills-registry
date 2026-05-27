@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -161,11 +162,11 @@ func performUpdate(ctx context.Context, opts updateOpts) (updateResult, error) {
 }
 
 // updateAssetName mirrors install.sh's detect_os/detect_arch +
-// asset-name composition. Only the four combinations the release
-// workflow actually publishes for are accepted.
+// asset-name composition. All six combinations the release workflow
+// publishes are accepted (darwin/linux/windows × amd64/arm64).
 func updateAssetName(goos, goarch string) (string, error) {
 	switch goos {
-	case "darwin", "linux":
+	case "darwin", "linux", "windows":
 	default:
 		return "", fmt.Errorf("unsupported OS for update: %s", goos)
 	}
@@ -174,7 +175,11 @@ func updateAssetName(goos, goarch string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported architecture for update: %s", goarch)
 	}
-	return fmt.Sprintf("skills-registry_%s_%s.tar.gz", goos, goarch), nil
+	ext := ".tar.gz"
+	if goos == "windows" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("skills-registry_%s_%s%s", goos, goarch, ext), nil
 }
 
 // updateTargetPath resolves the file we're going to replace. Defaults
@@ -350,10 +355,17 @@ func downloadUpdateAsset(ctx context.Context, client *http.Client, releaseBase, 
 	return nil
 }
 
-// extractUpdateBinary walks a gzipped tarball looking for an entry
-// named "skills-registry" (matches install.sh's `tar -xzf … skills-registry`).
+// extractUpdateBinary extracts the binary from an archive (tar.gz or zip).
+// It looks for "skills-registry" (POSIX) or "skills-registry.exe" (Windows).
 // The first matching regular file wins; everything else is skipped.
-func extractUpdateBinary(tarball, dest string) error {
+func extractUpdateBinary(archivePath, dest string) error {
+	if strings.HasSuffix(archivePath, ".zip") {
+		return extractUpdateBinaryZip(archivePath, dest)
+	}
+	return extractUpdateBinaryTarGz(archivePath, dest)
+}
+
+func extractUpdateBinaryTarGz(tarball, dest string) error {
 	f, err := os.Open(tarball)
 	if err != nil {
 		return fmt.Errorf("open update tarball: %w", err)
@@ -387,6 +399,43 @@ func extractUpdateBinary(tarball, dest string) error {
 		}
 		if closeErr != nil {
 			return fmt.Errorf("close update binary: %w", closeErr)
+		}
+		return nil
+	}
+	return fmt.Errorf("binary skills-registry not found in update archive")
+}
+
+func extractUpdateBinaryZip(zipPath, dest string) error {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("open update zip: %w", err)
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		base := filepath.Base(f.Name)
+		if (base != "skills-registry" && base != "skills-registry.exe") || f.FileInfo().IsDir() {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("open zip entry %s: %w", f.Name, err)
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("write extracted binary: %w", err)
+		}
+		_, copyErr := io.Copy(out, rc)
+		closeErr := out.Close()
+		rcCloseErr := rc.Close()
+		if copyErr != nil {
+			return fmt.Errorf("extract update binary: %w", copyErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close update binary: %w", closeErr)
+		}
+		if rcCloseErr != nil {
+			return fmt.Errorf("close zip entry: %w", rcCloseErr)
 		}
 		return nil
 	}

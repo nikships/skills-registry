@@ -56,8 +56,17 @@ One file, plus any reference docs or examples. Most modern AI coding tools alrea
 
 > **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` succeeds), and `git` on `PATH` (only for the first-time bulk push). No Python — the MCP server is hosted.
 
+**macOS / Linux**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+skills-registry
+```
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1 | iex"
 skills-registry
 ```
 
@@ -120,7 +129,7 @@ skills-registry update --version v0.6.0 # pin a specific tag
 skills-registry update --force          # reinstall even if you're already current
 ```
 
-`update` mirrors `install.sh` — it hits `api.github.com` to resolve the latest tag, downloads `skills-registry_<os>_<arch>.tar.gz` directly from GitHub Releases, and atomically swaps the binary in place. No `gh` required, no auth, no shell state. Supports `darwin/linux × amd64/arm64`; Windows users still use `install.sh` via WSL. Set `SKILLS_REGISTRY_AUTO_UPDATE=1` in your shell to check for updates automatically right before the hub opens.
+`update` mirrors the installer — it hits `api.github.com` to resolve the latest tag, downloads `skills-registry_<os>_<arch>.tar.gz` (or `.zip` on Windows) directly from GitHub Releases, and atomically swaps the binary in place. No `gh` required, no auth, no shell state. Supports `darwin/linux/windows × amd64/arm64`. Set `SKILLS_REGISTRY_AUTO_UPDATE=1` in your shell to check for updates automatically right before the hub opens.
 
 ### Programmatic use — `--json`
 
@@ -162,8 +171,8 @@ The wizard sets sensible defaults. Override via shell env when needed:
 |---|---|---|
 | `SKILLS_REGISTRY` | (from config) | Point at a different registry for one command: `owner/repo` or `owner/repo@branch`. Great for browsing a teammate's. |
 | `SKILLS_LOG_LEVEL` | `INFO` | Bump to `DEBUG` when debugging. |
-| `SKILLS_REGISTRY_VERSION` | `latest` | Pin `install.sh` to a release tag (`v0.7.0`, etc.). |
-| `SKILLS_BIN_DIR` | `~/.local/bin` | Where `install.sh` drops the `skills-registry` binary. |
+| `SKILLS_REGISTRY_VERSION` | `latest` | Pin the installer to a release tag (`v0.7.0`, etc.). |
+| `SKILLS_BIN_DIR` | `~/.local/bin` | Where the installer drops the `skills-registry` binary. |
 | `SKILLS_REGISTRY_AUTO_UPDATE` | unset | Set to `1`/`true`/`yes` to opportunistically run `skills-registry update` before opening the hub. Errors are warning-logged, never fatal. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 

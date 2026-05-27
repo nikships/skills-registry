@@ -347,7 +347,7 @@ The hosted MCP does not carry this catalogue; it lives only in the Go CLI.
 - **Multiple registries**: config is single-registry today. A `connect <owner/repo>` command + a `[registries]` array in the TOML would let an agent see several side-by-side.
 - **Browsing public registries** without owning one — the read tools (`search_skills`, `get_skill`) don't require write access.
 - **Skill-content `update` with diff preview.** `remove` shipped in F4.1 and a binary-level `update` ships in this milestone (see §3.4 below); what's still missing is an *in-place skill update* that surfaces "what changed" between the local folder and the registry copy before pushing.
-- **Windows installer + self-update.** `install.sh` is POSIX-only and `skills-registry update` inherits the same `darwin/linux × amd64/arm64` matrix. A `install.ps1` (and `gh.exe` lookup in `FindGH`) plus `windows/amd64` cases in `updateAssetName` would close the gap.
+- **Windows installer + self-update.** Shipped: `install.ps1` provides native PowerShell install for `windows/amd64` and `windows/arm64`, and `skills-registry update` now handles `.zip` extraction on Windows.
 - **PR-based contribution flow** to upstream registries: `skills-registry contribute <owner/repo> <slug>` could lean on `gh api` for the fork+PR dance.
 - **Server-side caching.** A short-TTL in-process cache keyed on tree SHA would cut latency for hot slugs.
 

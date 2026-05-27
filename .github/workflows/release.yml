@@ -11,6 +11,7 @@ on:
     paths:
       - "cli/**"
       - "install.sh"
+      - "install.ps1"
   workflow_dispatch:
     inputs:
       bump:
@@ -131,6 +132,9 @@ jobs:
           - os: windows
             arch: amd64
             runner: ubuntu-latest
+          - os: windows
+            arch: arm64
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -247,9 +251,9 @@ jobs:
           notes=$(printf '%s\n' \
             "Automated release for \`$tag\`." \
             "" \
-            "* Go CLI binaries for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64 are attached." \
+            "* Go CLI binaries for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64, windows/arm64 are attached." \
             "" \
-            "\`install.sh\` downloads the right CLI binary from the *latest* release; this is it.")
+            "\`install.sh\` / \`install.ps1\` download the right CLI binary from the *latest* release; this is it.")
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
           else
