@@ -28,7 +28,7 @@ func newGetCmd() *cobra.Command {
 	var destFlag string
 	cmd := &cobra.Command{
 		Use:   "get <slug>",
-		Short: "Download a registry skill into a local folder",
+		Short: "Temporarily fetch a registry skill into the global cache (use `list` to durably install)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {

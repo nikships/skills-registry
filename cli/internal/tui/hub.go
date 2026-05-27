@@ -52,7 +52,7 @@ func DefaultHubCards() []HubCard {
 			ID:          HubActionManage,
 			Icon:        "📚",
 			Title:       "Manage skills",
-			Description: "Browse, download, and remove registry skills from one searchable list.",
+			Description: "Browse, install, and remove registry skills from one searchable list.",
 		},
 		{
 			ID:          HubActionSync,

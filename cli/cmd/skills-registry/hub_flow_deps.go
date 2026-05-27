@@ -20,9 +20,10 @@ func buildHubDeps(ctx context.Context, cfg config.Config) tui.HubDeps {
 		Repo:  cfg.Repo,
 		Count: hubCountLoader(cfg.Repo, cfg.DefaultBranch),
 		Manage: tui.ManageFlowDeps{
-			Rows:     manageRows(ctx, cfg),
-			Download: manageDownloader(cfg),
-			Delete:   manageDeleter,
+			Rows:           manageRows(ctx, cfg),
+			Install:        manageInstaller(cfg),
+			InstallTargets: installPickerTargets,
+			Delete:         manageDeleter,
 		},
 		Settings: buildSettingsDeps(cfg),
 		Add:      buildAddFlowDeps(cfg),
@@ -60,13 +61,22 @@ func manageRows(ctx context.Context, cfg config.Config) tui.RowLoader {
 	}
 }
 
-func manageDownloader(cfg config.Config) tui.Downloader {
-	return func(downloadCtx context.Context, slug string) (string, string, error) {
+// manageInstaller bridges tui.Installer to installSkillIntoTargets so
+// the manage TUI's Enter-to-install pulls a skill once and copies it
+// into every user-selected agent dot-folder. The registry client is
+// rebuilt per invocation for the same scoping reasons as
+// registrySlugsFn.
+func manageInstaller(cfg config.Config) tui.Installer {
+	return func(installCtx context.Context, slug string, values []any) ([]string, error) {
 		client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 		if err != nil {
-			return "", "", err
+			return nil, err
 		}
-		return DownloadSkill(downloadCtx, client, slug, "")
+		targets, err := installAnyValuesToTargets(values)
+		if err != nil {
+			return nil, err
+		}
+		return installSkillIntoTargets(installCtx, client, slug, targets)
 	}
 }
 
@@ -89,9 +99,11 @@ func buildAddFlowDeps(cfg config.Config) tui.AddFlowDeps {
 		Discover: func(dir, label string) ([]scan.Skill, error) {
 			return scan.Discover([]scan.Source{{Path: dir, Label: label}})
 		},
-		Slugs:   registrySlugsFn(cfg),
-		Files:   filesForSkill,
-		Publish: registryPublishFn(cfg),
+		Slugs:          registrySlugsFn(cfg),
+		Files:          filesForSkill,
+		Publish:        registryPublishFn(cfg),
+		InstallTargets: installPickerTargets,
+		Install:        manageInstaller(cfg),
 	}
 }
 

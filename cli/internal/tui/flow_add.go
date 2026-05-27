@@ -13,11 +13,13 @@ import (
 )
 
 type AddFlowDeps struct {
-	Resolve  func(context.Context, string) (dir string, cleanup func(), err error)
-	Discover func(dir, label string) ([]scan.Skill, error)
-	Slugs    func(context.Context) (map[string]struct{}, error)
-	Files    func(scan.Skill) (map[string][]byte, error)
-	Publish  func(context.Context, string, map[string][]byte, string) (sha string, err error)
+	Resolve        func(context.Context, string) (dir string, cleanup func(), err error)
+	Discover       func(dir, label string) ([]scan.Skill, error)
+	Slugs          func(context.Context) (map[string]struct{}, error)
+	Files          func(scan.Skill) (map[string][]byte, error)
+	Publish        func(context.Context, string, map[string][]byte, string) (sha string, err error)
+	InstallTargets InstallTargetLoader
+	Install        func(ctx context.Context, slug string, targets []any) ([]string, error)
 }
 
 type addFlowState int
@@ -26,6 +28,7 @@ const (
 	addStateSource addFlowState = iota
 	addStateLoading
 	addStateSelect
+	addStateInstall
 	addStateConfirm
 	addStatePublishing
 )
@@ -38,6 +41,7 @@ type AddFlowModel struct {
 	state        addFlowState
 	source       InputModel
 	selectModel  MultiSelectModel
+	installModel InstallPickerModel
 	confirmModel ChoiceModel
 	spinner      spinner.Model
 
@@ -46,6 +50,7 @@ type AddFlowModel struct {
 	sourceText    string
 	skills        []scan.Skill
 	picked        []scan.Skill
+	targets       []any
 	skipped       []string
 	cleanupFn     func()
 }
@@ -58,8 +63,9 @@ type addLoadedMsg struct {
 }
 
 type addPublishedMsg struct {
-	pushed []string
-	err    error
+	pushed    []string
+	installed map[string][]string
+	err       error
 }
 
 func NewAddFlow(ctx context.Context, repo string, deps AddFlowDeps) AddFlowModel {
@@ -117,6 +123,8 @@ func (m AddFlowModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSourceKey(msg)
 	case addStateSelect:
 		return m.handleSelectKey(msg)
+	case addStateInstall:
+		return m.handleInstallKey(msg)
 	case addStateConfirm:
 		return m.handleConfirmKey(msg)
 	}
@@ -157,18 +165,57 @@ func (m AddFlowModel) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.exit("add · nothing selected", true)
 		}
 		m.picked = valuesToSkills(values)
-		m.confirmModel = newFlowConfirm(
-			fmt.Sprintf("Publish %d skill(s) from %s to %s?", len(m.picked), m.sourceText, m.repo),
-			"Only the registry repo is updated.",
-			"Yes, publish",
-			"Continue with the registry write",
-		)
-		m.state = addStateConfirm
-		return m, nil
+		return m.openInstallStep()
 	}
 	next, cmd := m.selectModel.Update(msg)
 	m.selectModel = next.(MultiSelectModel)
 	return m, cmd
+}
+
+// openInstallStep advances the wizard into the agent picker. The
+// picker is built from deps.InstallTargets() if available; otherwise
+// we skip the step (e.g. unit tests that omit the loader) and fall
+// straight through to the confirmation panel.
+func (m AddFlowModel) openInstallStep() (tea.Model, tea.Cmd) {
+	if m.deps.InstallTargets == nil || m.deps.Install == nil {
+		return m.openConfirm()
+	}
+	targets := m.deps.InstallTargets()
+	if len(targets) == 0 {
+		return m.openConfirm()
+	}
+	subtitle := fmt.Sprintf("%d skill(s) staged", len(m.picked))
+	m.installModel = NewInstallPicker("Install locally into which agents?", subtitle, targets)
+	m.state = addStateInstall
+	return m, nil
+}
+
+func (m AddFlowModel) handleInstallKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	next, _ := m.installModel.Update(msg)
+	m.installModel = next.(InstallPickerModel)
+	if m.installModel.Cancelled() {
+		return m.exit("add · cancelled", true)
+	}
+	if !m.installModel.Done() {
+		return m, nil
+	}
+	m.targets = m.installModel.SelectedValues()
+	return m.openConfirm()
+}
+
+func (m AddFlowModel) openConfirm() (tea.Model, tea.Cmd) {
+	subtitle := "Only the registry repo is updated; selected agents get a local install."
+	if len(m.targets) == 0 {
+		subtitle = "Only the registry repo is updated. No local install (no agents selected)."
+	}
+	m.confirmModel = newFlowConfirm(
+		fmt.Sprintf("Publish %d skill(s) from %s to %s?", len(m.picked), m.sourceText, m.repo),
+		subtitle,
+		"Yes, publish",
+		"Continue with the registry write",
+	)
+	m.state = addStateConfirm
+	return m, nil
 }
 
 func (m AddFlowModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -249,17 +296,42 @@ func (m AddFlowModel) handleLoaded(msg addLoadedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AddFlowModel) startPublish() tea.Cmd {
+	picked := m.picked
+	targets := m.targets
+	ctx := m.ctx
+	deps := m.deps
+	source := m.sourceText
 	return func() tea.Msg {
-		pushed, err := publishSkillSet(m.ctx, m.deps.Files, m.deps.Publish, m.picked, func(slug string) string {
-			return fmt.Sprintf("add: %s (from %s)", slug, m.sourceText)
+		pushed, err := publishSkillSet(ctx, deps.Files, deps.Publish, picked, func(slug string) string {
+			return fmt.Sprintf("add: %s (from %s)", slug, source)
 		})
-		return addPublishedMsg{pushed: pushed, err: err}
+		if err != nil {
+			return addPublishedMsg{pushed: pushed, err: err}
+		}
+		installed := map[string][]string{}
+		if deps.Install != nil && len(targets) > 0 {
+			for _, slug := range pushed {
+				paths, ierr := deps.Install(ctx, slug, targets)
+				if ierr != nil {
+					return addPublishedMsg{
+						pushed:    pushed,
+						installed: installed,
+						err:       fmt.Errorf("install %s locally: %w", slug, ierr),
+					}
+				}
+				installed[slug] = paths
+			}
+		}
+		return addPublishedMsg{pushed: pushed, installed: installed}
 	}
 }
 
 func (m AddFlowModel) handlePublished(msg addPublishedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m.exit("✗ add: "+flattenErr(msg.err), false)
+	}
+	if len(msg.installed) > 0 {
+		return m.exit(fmt.Sprintf("✓ added %d skill(s) from %s · installed locally", len(msg.pushed), m.sourceText), true)
 	}
 	return m.exit(fmt.Sprintf("✓ added %d skill(s) from %s", len(msg.pushed), m.sourceText), true)
 }
@@ -290,6 +362,8 @@ func (m AddFlowModel) renderBody() string {
 			Render("Resolving and scanning "+m.sourceText+" …")
 	case addStateSelect:
 		return m.selectModel.View()
+	case addStateInstall:
+		return m.installModel.View()
 	case addStateConfirm:
 		return m.confirmModel.View()
 	case addStatePublishing:
@@ -304,6 +378,8 @@ func (m AddFlowModel) renderFooter() string {
 	case addStateSource:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"type", "source"}, {"enter", "scan"}, {"esc", "cancel"}})
 	case addStateSelect:
+		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"space", "toggle"}, {"tab", "select all"}, {"enter", "continue"}, {"esc", "cancel"}})
+	case addStateInstall:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"space", "toggle"}, {"tab", "select all"}, {"enter", "continue"}, {"esc", "cancel"}})
 	case addStateConfirm:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"↑/↓", "choose"}, {"enter", "confirm"}, {"esc", "cancel"}})

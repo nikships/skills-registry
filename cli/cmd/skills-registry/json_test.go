@@ -435,11 +435,14 @@ func TestRunSyncJSONEmptyEmitsEmptyArrays(t *testing.T) {
 
 // TestRunAddJSONEmitsPushedAndSkipped covers add's JSON parity with
 // sync. A local path containing one SKILL.md and an empty registry
-// should land that skill in `pushed`.
+// should land that skill in `pushed` and `installed` (the JSON path
+// falls back to the universal-locked targets so a scripted `add` always
+// produces a durable local copy).
 func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 	prev := jsonout.Enabled()
 	t.Cleanup(func() { jsonout.SetEnabled(prev) })
 	jsonout.SetEnabled(true)
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
 
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
@@ -456,6 +459,8 @@ func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
+	// SKILL.md content the post-publish install pulls back from the
+	// registry. base64("body") = "Ym9keQ==".
 	entries := []map[string]any{
 		{"key": "GET repos/x/y/contents/", "body": []map[string]any{}},
 		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
@@ -465,6 +470,14 @@ func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 		{"key": "POST repos/x/y/git/trees", "body": map[string]any{"sha": "tree-1"}},
 		{"key": "POST repos/x/y/git/commits", "body": map[string]any{"sha": "commit-1"}},
 		{"key": "PATCH repos/x/y/git/refs/heads/main", "body": map[string]any{"object": map[string]any{"sha": "commit-1"}}},
+		// install-time pull
+		{"key": "GET repos/x/y/contents/demo", "body": []map[string]any{
+			{"type": "file", "name": "SKILL.md", "sha": "skill-md-sha"},
+		}},
+		{"key": "GET repos/x/y/contents/demo/SKILL.md", "body": map[string]any{
+			"encoding": "base64",
+			"content":  "Ym9keQ==",
+		}},
 	}
 	bin := stubGHForRemove(t, entries)
 	installGHEnv(t, bin)
@@ -483,6 +496,18 @@ func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 	}
 	if payload.Skipped == nil {
 		t.Error("skipped should be [] not null")
+	}
+	paths, ok := payload.Installed["demo"]
+	if !ok {
+		t.Fatalf("installed payload missing demo key: %+v", payload.Installed)
+	}
+	if len(paths) == 0 {
+		t.Fatalf("installed[demo] is empty, want at least one path")
+	}
+	// .agents/skills is project-local (under cwd), so the installed
+	// path should sit under the test's chdir root.
+	if !strings.HasPrefix(paths[0], root) {
+		t.Errorf("install path %q does not start with project root %q", paths[0], root)
 	}
 }
 

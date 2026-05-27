@@ -90,11 +90,11 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | What you want | Command |
 |---|---|
 | Open the dashboard | `skills-registry` |
-| Browse what's in your registry as an interactive list | `skills-registry list` |
+| Browse + durably install skills into selected agent dot-folders | `skills-registry list` |
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
 | Pull one skill into the global cache (`~/.cache/skills-mcp/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug>` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync` |
-| Pull a skill from someone else's repo into yours | `skills-registry add <owner/repo>` |
+| Pull a skill from someone else's repo into yours + install locally | `skills-registry add <owner/repo>` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |
 | Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
 | Update the installed binary to the latest release | `skills-registry update` |
@@ -103,7 +103,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 <!-- TODO(maintainer): drop a short GIF of `skills-registry sync` here — the multi-select TUI sells the experience. -->
 <img src="docs/img/sync.gif" alt="skills-registry sync" width="640">
 
-Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter to preview.
+Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `get` stays the cache-only fetch for one-shot agent reads.
 
 ### `remove`: delete a skill end-to-end
 

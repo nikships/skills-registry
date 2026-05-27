@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/anand-92/skills-registry/cli/internal/agents"
 	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
@@ -25,10 +26,13 @@ import (
 // consistent {pushed, skipped} shape. `skipped` carries slugs that
 // were discovered inside the source but already exist in the registry
 // (the safe "no-op" path) so the consumer can decide whether to flag
-// drift.
+// drift. `installed` maps each published slug to the list of absolute
+// paths the durable install copied into, allowing the consumer to
+// correlate trivially via map lookup (e.g. looking up a slug from `pushed`).
 type addJSONResult struct {
-	Pushed  []string `json:"pushed"`
-	Skipped []string `json:"skipped"`
+	Pushed    []string            `json:"pushed"`
+	Skipped   []string            `json:"skipped"`
+	Installed map[string][]string `json:"installed,omitempty"`
 }
 
 var (
@@ -43,10 +47,11 @@ func newAddCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "add <source>",
-		Short: "Add skills from an external source (path, owner/repo, or git URL) to the registry",
+		Short: "Add skills from an external source (path, owner/repo, or git URL) to the registry + install locally",
 		Long: `Clones (or uses) the source, discovers every SKILL.md inside it, lets
-you multi-select what to publish, and pushes the selected skills to your
-GitHub registry repo — not your local folder.`,
+you multi-select what to publish, pushes the selected skills to your
+GitHub registry repo, and durably installs them into the agent
+dot-folders you pick (always at least .agents/skills).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
@@ -99,6 +104,8 @@ func runAddJSON(ctx context.Context, source string) error {
 	}
 	pushed := []string{}
 	skipped := []string{}
+	installed := map[string][]string{}
+	universal := universalInstallTargets()
 	safeSource := redactSourceUserInfo(source)
 	for _, sk := range skills {
 		if _, dup := existing[sk.Slug]; dup {
@@ -118,8 +125,19 @@ func runAddJSON(ctx context.Context, source string) error {
 			return err
 		}
 		pushed = append(pushed, sk.Slug)
+		// JSON code path: no picker available, so the durable install
+		// lands in the locked-universal targets (currently just
+		// `.agents/skills`). Matches the spec's "always-on" guarantee
+		// while keeping the non-interactive path scriptable.
+		paths, err := installSkillIntoTargets(ctx, client, sk.Slug, universal)
+		if err != nil {
+			err = fmt.Errorf("install %s locally: %w", sk.Slug, err)
+			jsonout.PrintError(err)
+			return err
+		}
+		installed[sk.Slug] = paths
 	}
-	return jsonout.Print(addJSONResult{Pushed: pushed, Skipped: skipped})
+	return jsonout.Print(addJSONResult{Pushed: pushed, Skipped: skipped, Installed: installed})
 }
 
 func runAdd(ctx context.Context, source string, yes, all bool) error {
@@ -158,10 +176,74 @@ func runAdd(ctx context.Context, source string, yes, all bool) error {
 		return nil
 	}
 
+	targets, err := promptInstallTargets(yes, len(picked))
+	if err != nil {
+		return err
+	}
+	if targets == nil {
+		return nil
+	}
+
 	safeSource := redactSourceUserInfo(source)
-	return publishSkills(ctx, client, picked, func(slug string) string {
+	if err := publishSkills(ctx, client, picked, func(slug string) string {
 		return fmt.Sprintf("add: %s (from %s)", slug, safeSource)
-	})
+	}); err != nil {
+		return err
+	}
+	return installPickedLocally(ctx, client, picked, targets)
+}
+
+// promptInstallTargets asks the user which agent dot-folders should
+// receive a durable install of every just-published skill. `yes`
+// (--yes or --json auto-yes) skips the picker and defaults to the
+// locked-universal set so a scripted `add --yes` keeps publishing +
+// installing without a TTY prompt.
+func promptInstallTargets(yes bool, count int) ([]agents.Target, error) {
+	if yes {
+		return universalInstallTargets(), nil
+	}
+	subtitle := fmt.Sprintf("%d skill(s) just published", count)
+	picker := tui.NewInstallPicker(
+		"Install locally into which agents?",
+		subtitle,
+		installPickerTargets(),
+	).AsStandalone()
+	out, err := tea.NewProgram(picker).Run()
+	if err != nil {
+		return nil, err
+	}
+	final := out.(tui.InstallPickerModel)
+	if final.Cancelled() {
+		fmt.Println("Cancelled.")
+		return nil, nil
+	}
+	targets, err := installAnyValuesToTargets(final.SelectedValues())
+	if err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+// installPickedLocally durably installs every published skill into the
+// supplied targets. Failures are surfaced immediately — once any local
+// install fails the loop stops, matching publishSkills' fail-fast
+// contract.
+func installPickedLocally(ctx context.Context, client *registry.Client, picked []scan.Skill, targets []agents.Target) error {
+	for _, sk := range picked {
+		paths, err := installSkillIntoTargets(ctx, client, sk.Slug, targets)
+		if err != nil {
+			return fmt.Errorf("install %s locally: %w", sk.Slug, err)
+		}
+		switch len(paths) {
+		case 0:
+		case 1:
+			fmt.Println(tui.OkStyle.Render("→"), sk.Slug, tui.HintStyle.Render(paths[0]))
+		default:
+			fmt.Println(tui.OkStyle.Render("→"), sk.Slug,
+				tui.HintStyle.Render(fmt.Sprintf("installed into %d agents", len(paths))))
+		}
+	}
+	return nil
 }
 
 // selectSkillsForAdd handles the interactive multi-select and confirmation

@@ -31,7 +31,7 @@ func newListCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "Browse your registry as an interactive list",
+		Short: "List registry skills (interactive mode also supports durable installation)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
 				return runListJSON(cmd.Context(), queryFlag)
@@ -125,8 +125,12 @@ func runList(ctx context.Context, query string, plain bool) error {
 		return rows, nil
 	}
 
-	downloader := func(downloadCtx context.Context, slug string) (string, string, error) {
-		return DownloadSkill(downloadCtx, client, slug, "")
+	installer := func(installCtx context.Context, slug string, values []any) ([]string, error) {
+		targets, err := installAnyValuesToTargets(values)
+		if err != nil {
+			return nil, err
+		}
+		return installSkillIntoTargets(installCtx, client, slug, targets)
 	}
 	deleter := func(deleteCtx context.Context, slug string) (string, error) {
 		report, err := runRemove(deleteCtx, slug, true, true)
@@ -139,7 +143,9 @@ func runList(ctx context.Context, query string, plain bool) error {
 		return report.CommitSHA, nil
 	}
 
-	model := tui.NewList(ctx, cfg.Repo, loader, downloader).WithDeleter(deleter)
+	model := tui.NewList(ctx, cfg.Repo, loader, installer).
+		WithDeleter(deleter).
+		WithInstallTargets(installPickerTargets)
 	if _, err := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),

@@ -20,9 +20,10 @@ type HubDeps struct {
 }
 
 type ManageFlowDeps struct {
-	Rows     RowLoader
-	Download Downloader
-	Delete   Deleter
+	Rows           RowLoader
+	Install        Installer
+	InstallTargets InstallTargetLoader
+	Delete         Deleter
 }
 
 type SettingsFlowDeps struct {
@@ -134,8 +135,9 @@ func (m HubProgram) launchFlow(action string) (tea.Model, tea.Cmd) {
 func (m HubProgram) newFlow(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case HubActionManage, HubActionBrowse, HubActionRemove:
-		flow := NewList(m.ctx, m.deps.Repo, m.deps.Manage.Rows, m.deps.Manage.Download).
+		flow := NewList(m.ctx, m.deps.Repo, m.deps.Manage.Rows, m.deps.Manage.Install).
 			WithDeleter(m.deps.Manage.Delete).
+			WithInstallTargets(m.deps.Manage.InstallTargets).
 			WithOnExit(listFlowExit)
 		return flow, flow.Init()
 	case HubActionSync:

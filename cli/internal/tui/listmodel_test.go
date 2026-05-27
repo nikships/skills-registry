@@ -24,24 +24,39 @@ var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 // `go test` environments where lipgloss may or may not emit ANSI codes.
 func stripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
 
-// testDownloadDest is the canonical stub dest used by the download-flow
-// tests. The literal value is opaque — tests only verify the model echoes
-// it back unchanged — but anchoring it on a single const keeps the
-// fixture path consistent across cases.
-const testDownloadDest = "/tmp/cache/skills-mcp/skills/foo_skill"
+// testInstallPaths is the canonical stub path list returned by the
+// install-flow tests. The literal value is opaque — tests only verify
+// the model echoes it back unchanged — but anchoring it on a single
+// fixture keeps the assertions consistent across cases.
+var testInstallPaths = []string{"/cwd/.agents/skills/foo_skill"}
 
-// stubDownloader returns a Downloader that records every slug it sees and
-// returns the configured dest/err.
-type stubDownloader struct {
-	calls []string
-	dest  string
-	err   error
+// stubInstaller records every slug + opaque target list it sees and
+// returns the configured paths/err. Mirrors stubDownloader from the
+// pre-install design so existing assertion shapes can stay intact.
+type stubInstaller struct {
+	calls   []string
+	targets [][]any
+	paths   []string
+	err     error
 }
 
-func (s *stubDownloader) fn() Downloader {
-	return func(_ context.Context, slug string) (string, string, error) {
+func (s *stubInstaller) fn() Installer {
+	return func(_ context.Context, slug string, targets []any) ([]string, error) {
 		s.calls = append(s.calls, slug)
-		return s.dest, "", s.err
+		s.targets = append(s.targets, targets)
+		return s.paths, s.err
+	}
+}
+
+// fixedTargetLoader returns an InstallTargetLoader whose single locked
+// target carries the supplied opaque value. The model treats locked
+// targets as "always selected" so the embedded picker yields exactly
+// this value on enter without the test needing to drive space-toggles.
+func fixedTargetLoader(value any) InstallTargetLoader {
+	return func() []InstallTarget {
+		return []InstallTarget{
+			{Display: "Stub Agent", Hint: ".stub/skills", Locked: true, Value: value},
+		}
 	}
 }
 
@@ -59,7 +74,9 @@ func (s *stubDeleter) fn() Deleter {
 }
 
 // readyModel returns a ListModel in stateReady with two rows loaded.
-func readyModel(t *testing.T, dl Downloader) ListModel {
+// The model is pre-wired with a fixed install-target loader so the
+// Enter-driven picker can immediately resolve a non-empty selection.
+func readyModel(t *testing.T, dl Installer) ListModel {
 	t.Helper()
 	loader := func() ([]SkillRow, error) {
 		return []SkillRow{
@@ -67,7 +84,8 @@ func readyModel(t *testing.T, dl Downloader) ListModel {
 			{Slug: "bar_skill", Name: "Bar", Desc: "second"},
 		}, nil
 	}
-	m := NewList(context.Background(), "owner/repo", loader, dl)
+	m := NewList(context.Background(), "owner/repo", loader, dl).
+		WithInstallTargets(fixedTargetLoader("stub-target"))
 	// Skip the loader by injecting the rowsLoadedMsg directly.
 	got, _ := m.Update(rowsLoadedMsg{rows: []SkillRow{
 		{Slug: "foo_skill", Name: "Foo", Desc: "first"},
@@ -80,74 +98,138 @@ func enterKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
 
 func deleteKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")} }
 
-func TestEnter_TriggersDownload(t *testing.T) {
-	stub := &stubDownloader{dest: testDownloadDest}
+// confirmInstallPicker presses Enter twice: once to open the picker,
+// once inside the picker to confirm. Returns the resulting model and
+// the second Update's tea.Cmd (which carries the install goroutine
+// when the model accepted the selection).
+func confirmInstallPicker(t *testing.T, m ListModel) (ListModel, tea.Cmd) {
+	t.Helper()
+	open, _ := m.Update(enterKey())
+	confirmed, cmd := open.(ListModel).Update(enterKey())
+	return confirmed.(ListModel), cmd
+}
+
+// TestEnter_OpensInstallPicker pins the first half of the new
+// two-press install flow: a single Enter on a row arms the agent
+// picker without launching the installer goroutine.
+func TestEnter_OpensInstallPicker(t *testing.T) {
+	stub := &stubInstaller{paths: testInstallPaths}
 	m := readyModel(t, stub.fn())
 
 	got, cmd := m.Update(enterKey())
 	mm := got.(ListModel)
 
-	if mm.rowState["foo_skill"] != StatusDownloading {
-		t.Fatalf("rowState[foo_skill] = %v, want StatusDownloading", mm.rowState["foo_skill"])
+	if !mm.pickInstall {
+		t.Fatal("first enter did not open the install picker")
+	}
+	if mm.pickingSlug != "foo_skill" {
+		t.Fatalf("pickingSlug = %q, want foo_skill", mm.pickingSlug)
+	}
+	if mm.inflight != 0 {
+		t.Fatalf("inflight = %d, want 0 (no install yet)", mm.inflight)
+	}
+	if cmd != nil {
+		t.Fatalf("opening the picker should not start a cmd, got %T", cmd)
+	}
+	if len(stub.calls) != 0 {
+		t.Fatalf("installer was called %d times during picker open, want 0", len(stub.calls))
+	}
+}
+
+// TestEnter_ConfirmInstallPickerTriggersInstall is the F4.x install
+// regression test: pressing Enter twice (open picker + confirm) lands
+// in StatusInstalling, runs the installer with the locked target
+// value, and surfaces the returned paths via installDoneMsg.
+func TestEnter_ConfirmInstallPickerTriggersInstall(t *testing.T) {
+	stub := &stubInstaller{paths: testInstallPaths}
+	m := readyModel(t, stub.fn())
+
+	mm, cmd := confirmInstallPicker(t, m)
+	if mm.pickInstall {
+		t.Fatal("picker still open after confirm")
+	}
+	if mm.rowState["foo_skill"] != StatusInstalling {
+		t.Fatalf("rowState[foo_skill] = %v, want StatusInstalling", mm.rowState["foo_skill"])
 	}
 	if mm.inflight != 1 {
 		t.Fatalf("inflight = %d, want 1", mm.inflight)
 	}
 	if cmd == nil {
-		t.Fatal("Update returned nil cmd; expected a download tea.Cmd")
+		t.Fatal("Update returned nil cmd; expected an install tea.Cmd")
 	}
-
-	// Executing the command should invoke the downloader and yield a
-	// downloadDoneMsg{} with the resolved dest.
-	msg := cmd()
-	// The cmd is a tea.Batch — drain it until we find the downloadDoneMsg.
-	done, ok := drainForDone(msg)
+	done, ok := drainForInstall(cmd())
 	if !ok {
-		t.Fatal("did not get downloadDoneMsg from cmd output")
+		t.Fatal("did not get installDoneMsg from cmd output")
 	}
 	if done.slug != "foo_skill" {
 		t.Fatalf("done.slug = %q, want foo_skill", done.slug)
 	}
-	if done.dest != stub.dest {
-		t.Fatalf("done.dest = %q, want %q", done.dest, stub.dest)
+	if len(done.paths) != len(testInstallPaths) || done.paths[0] != testInstallPaths[0] {
+		t.Fatalf("done.paths = %v, want %v", done.paths, testInstallPaths)
 	}
 	if got := len(stub.calls); got != 1 || stub.calls[0] != "foo_skill" {
-		t.Fatalf("downloader calls = %v, want [foo_skill]", stub.calls)
+		t.Fatalf("installer calls = %v, want [foo_skill]", stub.calls)
+	}
+	if len(stub.targets) != 1 || len(stub.targets[0]) != 1 || stub.targets[0][0] != "stub-target" {
+		t.Fatalf("installer targets = %v, want one call with [stub-target]", stub.targets)
 	}
 }
 
-func TestEnter_IgnoresDoublePressWhileDownloading(t *testing.T) {
-	stub := &stubDownloader{dest: testDownloadDest}
+// TestInstallPickerEscDismisses asserts the picker's cancel path
+// closes the overlay without any install side effects.
+func TestInstallPickerEscDismisses(t *testing.T) {
+	stub := &stubInstaller{paths: testInstallPaths}
+	m := readyModel(t, stub.fn())
+	open, _ := m.Update(enterKey())
+	got, cmd := open.(ListModel).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mm := got.(ListModel)
+	if mm.pickInstall {
+		t.Fatal("esc did not close the install picker")
+	}
+	if mm.inflight != 0 {
+		t.Fatalf("inflight after cancel = %d, want 0", mm.inflight)
+	}
+	if cmd != nil {
+		t.Fatalf("cancel should not emit a cmd, got %T", cmd)
+	}
+	if len(stub.calls) != 0 {
+		t.Fatalf("installer was called %d times after cancel, want 0", len(stub.calls))
+	}
+}
+
+func TestEnter_IgnoresDoublePressWhileInstalling(t *testing.T) {
+	stub := &stubInstaller{paths: testInstallPaths}
 	m := readyModel(t, stub.fn())
 
-	// First enter starts the download.
-	got, _ := m.Update(enterKey())
-	mm := got.(ListModel)
+	// Open picker + confirm to start the install.
+	mm, _ := confirmInstallPicker(t, m)
 
-	// Second enter on the same row must be a no-op.
-	got2, cmd2 := mm.Update(enterKey())
-	mm2 := got2.(ListModel)
-
+	// Third enter on the same row must be a no-op.
+	got, cmd := mm.Update(enterKey())
+	mm2 := got.(ListModel)
 	if mm2.inflight != 1 {
-		t.Fatalf("inflight after double-press = %d, want 1", mm2.inflight)
+		t.Fatalf("inflight after third press = %d, want 1", mm2.inflight)
 	}
-	if cmd2 != nil {
-		t.Fatalf("expected nil cmd on double-press, got %T", cmd2)
+	if mm2.pickInstall {
+		t.Fatal("third press reopened the picker while installing")
+	}
+	if cmd != nil {
+		t.Fatalf("expected nil cmd on third press, got %T", cmd)
 	}
 }
 
-// Each row may only be downloaded once per session — pressing enter again
-// after the download finished is a no-op, regardless of outcome.
+// Each row may only be installed once per session — pressing enter again
+// after the install finished is a no-op, regardless of outcome.
 func TestEnter_NoOpAfterTerminalStatus(t *testing.T) {
 	for _, st := range []struct {
 		name   string
 		status RowStatus
 	}{
-		{"done", StatusDone},
+		{"installed", StatusInstalled},
 		{"err", StatusErr},
 	} {
 		t.Run(st.name, func(t *testing.T) {
-			stub := &stubDownloader{dest: testDownloadDest}
+			stub := &stubInstaller{paths: testInstallPaths}
 			m := readyModel(t, stub.fn())
 			m.rowState["foo_skill"] = st.status
 
@@ -163,28 +245,31 @@ func TestEnter_NoOpAfterTerminalStatus(t *testing.T) {
 			if mm.rowState["foo_skill"] != st.status {
 				t.Fatalf("rowState mutated to %v, want %v", mm.rowState["foo_skill"], st.status)
 			}
+			if mm.pickInstall {
+				t.Fatalf("picker opened on terminal-status row")
+			}
 			if len(stub.calls) != 0 {
-				t.Fatalf("downloader was called %d times, want 0", len(stub.calls))
+				t.Fatalf("installer was called %d times, want 0", len(stub.calls))
 			}
 		})
 	}
 }
 
-func TestDownloadDoneMsg_Success(t *testing.T) {
-	stub := &stubDownloader{dest: testDownloadDest}
+func TestInstallDoneMsg_Success(t *testing.T) {
+	stub := &stubInstaller{paths: testInstallPaths}
 	m := readyModel(t, stub.fn())
-	// Pretend the download is already in flight.
-	m.rowState["foo_skill"] = StatusDownloading
+	// Pretend the install is already in flight.
+	m.rowState["foo_skill"] = StatusInstalling
 	m.inflight = 1
 
-	got, _ := m.Update(downloadDoneMsg{
-		slug: "foo_skill",
-		dest: testDownloadDest,
+	got, _ := m.Update(installDoneMsg{
+		slug:  "foo_skill",
+		paths: testInstallPaths,
 	})
 	mm := got.(ListModel)
 
-	if mm.rowState["foo_skill"] != StatusDone {
-		t.Fatalf("rowState[foo_skill] = %v, want StatusDone", mm.rowState["foo_skill"])
+	if mm.rowState["foo_skill"] != StatusInstalled {
+		t.Fatalf("rowState[foo_skill] = %v, want StatusInstalled", mm.rowState["foo_skill"])
 	}
 	if mm.inflight != 0 {
 		t.Fatalf("inflight = %d, want 0", mm.inflight)
@@ -192,21 +277,22 @@ func TestDownloadDoneMsg_Success(t *testing.T) {
 	if !mm.toastOK {
 		t.Fatal("toastOK = false, want true on success")
 	}
-	if !strings.Contains(mm.toast, "Foo") || !strings.Contains(mm.toast, testDownloadDest) {
-		t.Fatalf("toast = %q, want it to mention Foo and dest path", mm.toast)
+	if !strings.Contains(mm.toast, "Foo") || !strings.Contains(mm.toast, testInstallPaths[0]) {
+		t.Fatalf("toast = %q, want it to mention Foo and install path", mm.toast)
 	}
-	if mm.rowDest["foo_skill"] != testDownloadDest {
-		t.Fatalf("rowDest[foo_skill] = %q, want dest path", mm.rowDest["foo_skill"])
+	saved := mm.rowPaths["foo_skill"]
+	if len(saved) != len(testInstallPaths) || saved[0] != testInstallPaths[0] {
+		t.Fatalf("rowPaths[foo_skill] = %v, want %v", saved, testInstallPaths)
 	}
 }
 
-func TestDownloadDoneMsg_Error(t *testing.T) {
-	stub := &stubDownloader{err: errors.New("boom")}
+func TestInstallDoneMsg_Error(t *testing.T) {
+	stub := &stubInstaller{err: errors.New("boom")}
 	m := readyModel(t, stub.fn())
-	m.rowState["foo_skill"] = StatusDownloading
+	m.rowState["foo_skill"] = StatusInstalling
 	m.inflight = 1
 
-	got, _ := m.Update(downloadDoneMsg{
+	got, _ := m.Update(installDoneMsg{
 		slug: "foo_skill",
 		err:  errors.New("boom"),
 	})
@@ -229,13 +315,13 @@ func TestDownloadDoneMsg_Error(t *testing.T) {
 // Multi-line errors (typical of `gh` subprocess failures) must be flattened
 // before being placed in the toast — otherwise the body would push the
 // footer off-screen.
-func TestDownloadDoneMsg_FlattensMultilineError(t *testing.T) {
-	stub := &stubDownloader{}
+func TestInstallDoneMsg_FlattensMultilineError(t *testing.T) {
+	stub := &stubInstaller{}
 	m := readyModel(t, stub.fn())
-	m.rowState["foo_skill"] = StatusDownloading
+	m.rowState["foo_skill"] = StatusInstalling
 	m.inflight = 1
 
-	got, _ := m.Update(downloadDoneMsg{
+	got, _ := m.Update(installDoneMsg{
 		slug: "foo_skill",
 		err:  errors.New("HTTP 404\nNot Found\nhttps://api.github.com/…"),
 	})
@@ -249,18 +335,21 @@ func TestDownloadDoneMsg_FlattensMultilineError(t *testing.T) {
 	}
 }
 
-func TestEnter_NoOpWithoutDownloader(t *testing.T) {
+func TestEnter_NoOpWithoutInstaller(t *testing.T) {
 	m := readyModel(t, nil)
 	got, cmd := m.Update(enterKey())
 	mm := got.(ListModel)
 	if mm.inflight != 0 {
-		t.Fatalf("inflight = %d, want 0 (no downloader)", mm.inflight)
+		t.Fatalf("inflight = %d, want 0 (no installer)", mm.inflight)
+	}
+	if mm.pickInstall {
+		t.Fatal("picker opened without an installer wired")
 	}
 	if cmd != nil {
 		t.Fatalf("expected nil cmd, got %T", cmd)
 	}
 	if _, ok := mm.rowState["foo_skill"]; ok {
-		t.Fatal("rowState entry should not be created when downloader is nil")
+		t.Fatal("rowState entry should not be created when installer is nil")
 	}
 }
 
@@ -393,23 +482,23 @@ func TestSlugMatchesName(t *testing.T) {
 	}
 }
 
-// drainForDone walks a tea.Msg that may be a Batch / sequence wrapper and
-// returns the first downloadDoneMsg found.
-func drainForDone(msg tea.Msg) (downloadDoneMsg, bool) {
+// drainForInstall walks a tea.Msg that may be a Batch / sequence
+// wrapper and returns the first installDoneMsg found.
+func drainForInstall(msg tea.Msg) (installDoneMsg, bool) {
 	switch v := msg.(type) {
-	case downloadDoneMsg:
+	case installDoneMsg:
 		return v, true
 	case tea.BatchMsg:
 		for _, c := range v {
 			if c == nil {
 				continue
 			}
-			if d, ok := drainForDone(c()); ok {
+			if d, ok := drainForInstall(c()); ok {
 				return d, true
 			}
 		}
 	}
-	return downloadDoneMsg{}, false
+	return installDoneMsg{}, false
 }
 
 func drainForDelete(msg tea.Msg) (deleteDoneMsg, bool) {
@@ -763,11 +852,11 @@ func TestPreviewPanelKeepsHintWithLongDescription(t *testing.T) {
 		Desc: strings.Repeat("alpha bravo charlie delta ", 80),
 	})
 	rendered := m.renderPreviewPanel()
-	// The download CTA chip is the canonical "fixed footer" element of
+	// The install CTA chip is the canonical "fixed footer" element of
 	// the preview pane. If it's still in the output, the clamp didn't
 	// chop the bottom.
-	if !strings.Contains(rendered, "download") {
-		t.Errorf("preview pane lost download hint with a long description:\n%s",
+	if !strings.Contains(rendered, "install") {
+		t.Errorf("preview pane lost install hint with a long description:\n%s",
 			rendered)
 	}
 	if !strings.Contains(rendered, "registry · owner/repo") {

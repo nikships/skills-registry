@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,22 +47,35 @@ func (s SkillRow) FilterValue() string {
 // the spinner has time to mount; errors land in the error pane.
 type RowLoader func() ([]SkillRow, error)
 
-// Downloader pulls a skill into a local folder and returns the on-disk path.
-// `reused` is non-empty when an existing folder was reused (e.g. a sibling
-// directory whose name slugifies to the same canonical slug).
-type Downloader func(ctx context.Context, slug string) (dest string, reused string, err error)
+// Installer durably installs a registry skill into the supplied agent
+// dot-folders. Returns the list of absolute paths actually written
+// (one per target slug folder) so the caller can surface "installed
+// into N agents" in the toast / preview hint. The temporary fetch
+// scratch space (if any) is owned by the installer; the list / manage
+// TUI never writes to the global cache itself.
+//
+// `targets` is the opaque value list returned by InstallTargetLoader —
+// it's passed straight through so the cmd-side concrete type
+// (e.g. agents.Target) stays in the cmd package.
+type Installer func(ctx context.Context, slug string, targets []any) (paths []string, err error)
+
+// InstallTargetLoader returns the rows shown in the install agent
+// picker. Constructed once per ListModel.NewList / NewAddFlow call,
+// invoked lazily the first time the user opens the picker, so building
+// the list isn't on the hot path of the registry fetch.
+type InstallTargetLoader func() []InstallTarget
 
 // Deleter removes a skill from the registry and returns the commit SHA that
 // performed the deletion.
 type Deleter func(ctx context.Context, slug string) (sha string, err error)
 
-// RowStatus tracks the per-row download state in the list TUI.
+// RowStatus tracks the per-row install state in the list TUI.
 type RowStatus int
 
 const (
 	StatusIdle RowStatus = iota
-	StatusDownloading
-	StatusDone
+	StatusInstalling
+	StatusInstalled
 	StatusErr
 	StatusRemoving
 	StatusRemoved
@@ -75,11 +89,10 @@ type rowsLoadedMsg struct{ rows []SkillRow }
 type loadErrMsg struct{ err error }
 type sparkleTickMsg struct{}
 type revealTickMsg struct{}
-type downloadDoneMsg struct {
-	slug   string
-	dest   string
-	reused string
-	err    error
+type installDoneMsg struct {
+	slug  string
+	paths []string
+	err   error
 }
 type deleteDoneMsg struct {
 	slug string
@@ -112,12 +125,15 @@ const (
 // ListModel is the main interactive list TUI for `skills-registry list`.
 type ListModel struct {
 	// configuration
-	repo     string
-	loader   RowLoader
-	download Downloader
-	delete   Deleter
-	ctx      context.Context
-	OnExit   func(ListModel) tea.Msg
+	repo          string
+	loader        RowLoader
+	install       Installer
+	loadTargets   InstallTargetLoader
+	delete        Deleter
+	ctx           context.Context
+	OnExit        func(ListModel) tea.Msg
+	cachedTargets []InstallTarget
+	targetsLoaded bool
 
 	// sub-components
 	spinner spinner.Model
@@ -136,15 +152,21 @@ type ListModel struct {
 	removeCursor   int
 	removingSlug   string
 
-	// per-slug download state.
+	// install picker — opened when the user presses Enter on a row.
+	pickInstall bool
+	pickModel   InstallPickerModel
+	pickingSlug string
+	pickingName string
+
+	// per-slug install state.
 	rowState map[string]RowStatus
-	rowDest  map[string]string
+	rowPaths map[string][]string
 	rowErr   map[string]error
 	rowSHA   map[string]string
 	inflight int
 
-	// Last download status, shown above the footer until it's replaced by
-	// the next downloadDoneMsg.
+	// Last install status, shown above the footer until it's replaced by
+	// the next installDoneMsg.
 	toast   string
 	toastOK bool
 
@@ -155,21 +177,21 @@ type ListModel struct {
 
 // NewList constructs a ready-to-run ListModel.
 //
-// `ctx` is the cobra command's context; it's threaded into each download so
+// `ctx` is the cobra command's context; it's threaded into each install so
 // the underlying `gh` subprocess is cancelled when the host process receives
 // a signal. Hitting `q` inside the TUI does *not* cancel ctx — bubbletea
-// returns to cobra cleanly and downloads run to completion.
+// returns to cobra cleanly and installs run to completion.
 // `repo` is shown in the header chip (e.g. "owner/repo").
 // `loader` is invoked once after the spinner mounts. Pre-filter inside
 // the loader if you want a narrowed initial view.
-// `downloader` is invoked when the user presses enter on a row; it runs in a
-// goroutine so the TUI stays responsive.
-func NewList(ctx context.Context, repo string, loader RowLoader, downloader Downloader) ListModel {
+// `installer` is invoked after the user has picked agent dot-folders for
+// a row; it runs in a goroutine so the TUI stays responsive.
+func NewList(ctx context.Context, repo string, loader RowLoader, installer Installer) ListModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
 
-	// Shared per-row download state. The delegate reads from the same map
+	// Shared per-row install state. The delegate reads from the same map
 	// the model mutates so status badges (⟳ / ✓ / ✗) stay in sync without
 	// us re-syncing list items on every state change.
 	rowState := map[string]RowStatus{}
@@ -202,14 +224,14 @@ func NewList(ctx context.Context, repo string, loader RowLoader, downloader Down
 	return ListModel{
 		repo:     repo,
 		loader:   loader,
-		download: downloader,
+		install:  installer,
 		ctx:      ctx,
 		spinner:  sp,
 		list:     l,
 		preview:  vp,
 		state:    stateLoading,
 		rowState: rowState,
-		rowDest:  map[string]string{},
+		rowPaths: map[string][]string{},
 		rowErr:   map[string]error{},
 		rowSHA:   map[string]string{},
 	}
@@ -217,6 +239,14 @@ func NewList(ctx context.Context, repo string, loader RowLoader, downloader Down
 
 func (m ListModel) WithDeleter(deleter Deleter) ListModel {
 	m.delete = deleter
+	return m
+}
+
+// WithInstallTargets wires the agent-picker loader. The loader is
+// invoked lazily the first time the user opens the picker so a list
+// that's never installed-from doesn't pay the lookup cost.
+func (m ListModel) WithInstallTargets(loader InstallTargetLoader) ListModel {
+	m.loadTargets = loader
 	return m
 }
 
@@ -244,10 +274,10 @@ func runLoader(loader RowLoader) tea.Cmd {
 	}
 }
 
-func startDownload(ctx context.Context, d Downloader, slug string) tea.Cmd {
+func startInstall(ctx context.Context, d Installer, slug string, targets []any) tea.Cmd {
 	return func() tea.Msg {
-		dest, reused, err := d(ctx, slug)
-		return downloadDoneMsg{slug: slug, dest: dest, reused: reused, err: err}
+		paths, err := d(ctx, slug, targets)
+		return installDoneMsg{slug: slug, paths: paths, err: err}
 	}
 }
 
@@ -288,8 +318,8 @@ func (m ListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
-	case downloadDoneMsg:
-		return m.handleDownloadDone(msg)
+	case installDoneMsg:
+		return m.handleInstallDone(msg)
 	case deleteDoneMsg:
 		return m.handleDeleteDone(msg)
 	case sparkleTickMsg:
@@ -319,7 +349,7 @@ func (m ListModel) handleRowsLoaded(msg rowsLoadedMsg) (tea.Model, tea.Cmd) {
 	return m, revealTick()
 }
 
-func (m ListModel) handleDownloadDone(msg downloadDoneMsg) (tea.Model, tea.Cmd) {
+func (m ListModel) handleInstallDone(msg installDoneMsg) (tea.Model, tea.Cmd) {
 	if m.inflight > 0 {
 		m.inflight--
 	}
@@ -337,16 +367,19 @@ func (m ListModel) handleDownloadDone(msg downloadDoneMsg) (tea.Model, tea.Cmd) 
 		errText := strings.ReplaceAll(msg.err.Error(), "\n", " · ")
 		m.toast = fmt.Sprintf("✗ %s: %s", name, errText)
 		m.toastOK = false
-	} else {
-		m.rowState[msg.slug] = StatusDone
-		m.rowDest[msg.slug] = msg.dest
-		if msg.reused != "" {
-			m.toast = fmt.Sprintf("✓ %s → %s (reused)", name, msg.dest)
-		} else {
-			m.toast = fmt.Sprintf("✓ %s → %s", name, msg.dest)
-		}
-		m.toastOK = true
+		return m, nil
 	}
+	m.rowState[msg.slug] = StatusInstalled
+	m.rowPaths[msg.slug] = msg.paths
+	switch len(msg.paths) {
+	case 0:
+		m.toast = fmt.Sprintf("✓ installed %s", name)
+	case 1:
+		m.toast = fmt.Sprintf("✓ installed %s → %s", name, msg.paths[0])
+	default:
+		m.toast = fmt.Sprintf("✓ installed %s into %d agents", name, len(msg.paths))
+	}
+	m.toastOK = true
 	return m, nil
 }
 
@@ -387,7 +420,7 @@ func (m *ListModel) dropRow(slug string) {
 	}
 	m.rows = filtered
 	delete(m.rowState, slug)
-	delete(m.rowDest, slug)
+	delete(m.rowPaths, slug)
 	delete(m.rowErr, slug)
 	delete(m.rowSHA, slug)
 	m.revealCap = len(m.rows)
@@ -417,6 +450,9 @@ func (m ListModel) handleRevealTick() (tea.Model, tea.Cmd) {
 func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.confirmRemoval {
 		return m.handleRemoveConfirmKey(msg)
+	}
+	if m.pickInstall {
+		return m.handleInstallPickerKey(msg)
 	}
 	// Help overlay swallows most keys.
 	if m.showHelp {
@@ -453,29 +489,79 @@ func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		return m.openRemoveConfirm()
 	case "enter":
-		return m.startSelectedDownload(msg)
+		return m.openInstallPicker(msg)
 	}
 	// Forward unmatched keys to the list so navigation (j/k, pgup/pgdn,
 	// etc.) still works.
 	return m.forwardToList(msg)
 }
 
-// startSelectedDownload kicks off a download for the currently-selected
-// row. Returns the model unchanged when no downloader is wired or the
-// row is not in StatusIdle (already downloading, finished, or failed —
-// retry is out of scope for this flow).
-func (m ListModel) startSelectedDownload(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// openInstallPicker opens the agent multi-select overlay for the
+// currently-selected row. Returns the model unchanged when no installer
+// is wired or the row is not in StatusIdle (already installing,
+// finished, or failed — retry is out of scope for this flow).
+func (m ListModel) openInstallPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	it, ok := m.list.SelectedItem().(SkillRow)
 	if !ok {
 		return m.forwardToList(msg)
 	}
-	if m.download == nil || m.rowState[it.Slug] != StatusIdle {
+	if m.install == nil || m.rowState[it.Slug] != StatusIdle {
 		return m, nil
 	}
-	m.rowState[it.Slug] = StatusDownloading
+	targets := m.ensureInstallTargets()
+	if len(targets) == 0 {
+		return m, nil
+	}
+	subtitle := it.Title()
+	m.pickModel = NewInstallPicker("Install into which agents?", subtitle, targets)
+	m.pickingSlug = it.Slug
+	m.pickingName = it.Title()
+	m.pickInstall = true
+	return m, nil
+}
+
+// ensureInstallTargets caches the result of loadTargets so a user that
+// installs several skills in one session doesn't re-run the loader for
+// each pick. The picker is read-only against the cached slice; the
+// per-pick selection state lives in InstallPickerModel.
+func (m *ListModel) ensureInstallTargets() []InstallTarget {
+	if m.loadTargets == nil {
+		return nil
+	}
+	if !m.targetsLoaded {
+		m.cachedTargets = m.loadTargets()
+		m.targetsLoaded = true
+	}
+	return m.cachedTargets
+}
+
+// handleInstallPickerKey routes keys while the install agent picker
+// overlay is open. Enter confirms the selection and kicks off the
+// installer goroutine; esc / ctrl+c dismisses without doing anything.
+func (m ListModel) handleInstallPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	next, _ := m.pickModel.Update(msg)
+	m.pickModel = next.(InstallPickerModel)
+	if m.pickModel.Cancelled() {
+		m.pickInstall = false
+		m.pickingSlug = ""
+		m.pickingName = ""
+		return m, nil
+	}
+	if !m.pickModel.Done() {
+		return m, nil
+	}
+	values := m.pickModel.SelectedValues()
+	slug := m.pickingSlug
+	m.pickInstall = false
+	m.pickingSlug = ""
+	m.pickingName = ""
+	if slug == "" || m.install == nil || len(values) == 0 {
+		return m, nil
+	}
+	m.rowState[slug] = StatusInstalling
 	m.inflight++
 	return m, tea.Batch(
-		startDownload(m.ctx, m.download, it.Slug),
+		startInstall(m.ctx, m.install, slug, values),
 		m.spinner.Tick,
 	)
 }
@@ -497,7 +583,7 @@ func (m ListModel) openRemoveConfirm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch m.rowState[it.Slug] {
-	case StatusDownloading, StatusRemoving:
+	case StatusInstalling, StatusRemoving:
 		return m, nil
 	}
 	m.confirmRemoval = true
@@ -574,11 +660,25 @@ func (m ListModel) View() string {
 		}
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
 	}
+	if m.pickInstall {
+		overlay := m.renderInstallPickerOverlay()
+		if m.width <= 0 || m.height <= 0 {
+			return overlay
+		}
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
+	}
 	if m.showHelp {
 		overlay := m.renderHelp()
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
 	}
 	return base
+}
+
+// renderInstallPickerOverlay frames the embedded picker view in the same
+// HelpOverlay panel the remove confirmation uses so the visual language
+// stays consistent across overlays.
+func (m ListModel) renderInstallPickerOverlay() string {
+	return HelpOverlay.Render(m.pickModel.View())
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -646,8 +746,8 @@ func (m ListModel) renderMain() string {
 	)
 }
 
-// renderToast formats the most recent download status string. The model also
-// shows an animated spinner glyph while any downloads are in flight so the
+// renderToast formats the most recent install status string. The model also
+// shows an animated spinner glyph while any installs are in flight so the
 // user sees ongoing activity.
 func (m ListModel) renderToast() string {
 	if m.toast == "" && m.inflight == 0 {
@@ -732,7 +832,7 @@ func (m ListModel) renderPreviewPanel() string {
 	row, ok := m.list.SelectedItem().(SkillRow)
 	body := ""
 	if !ok {
-		body = EmptyHint.Render("No skill selected.\n\nUse ↑/↓ to move,\n/ to filter,\nenter to download a skill.")
+		body = EmptyHint.Render("No skill selected.\n\nUse ↑/↓ to move,\n/ to filter,\nenter to install a skill.")
 	} else {
 		// Inner width available for any single-line element in the
 		// preview pane. The pane itself already accounts for the
@@ -795,39 +895,53 @@ func (m ListModel) renderPreviewPanel() string {
 }
 
 // renderPreviewHint renders the per-row hint/CTA line in the preview
-// pane. The selected row's status determines whether the user sees a
-// download button, an in-flight spinner badge, or a success/error chip.
+// pane. The selected row's status determines whether the user sees an
+// install button, an in-flight spinner badge, or a success/error chip.
 func (m ListModel) renderPreviewHint(row SkillRow) string {
 	muted := lipgloss.NewStyle().Foreground(ColMuted)
-	dest := "~/.cache/skills-mcp/skills/" + row.Slug + "/"
+	innerWidth := max(8, m.preview.Width-2)
+	clampDetail := func(s string, reserve int) string {
+		s = strings.ReplaceAll(s, "\n", " · ")
+		return truncate(s, innerWidth-reserve)
+	}
+
 	switch m.rowState[row.Slug] {
-	case StatusDownloading:
-		return lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ downloading") +
-			muted.Render(" → ") +
-			lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
-	case StatusDone:
-		saved := dest
-		if path, ok := m.rowDest[row.Slug]; ok && path != "" {
-			saved = path
+	case StatusInstalling:
+		return lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ installing") +
+			muted.Render(" into agent dot-folders")
+	case StatusInstalled:
+		paths := m.rowPaths[row.Slug]
+		switch len(paths) {
+		case 0:
+			return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ installed")
+		case 1:
+			return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ installed") +
+				muted.Render(" → ") +
+				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(clampDetail(paths[0], 15))
+		default:
+			return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ installed") +
+				muted.Render(" → ") +
+				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(strconv.Itoa(len(paths))+" agents")
 		}
-		return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ saved") +
-			muted.Render(" → ") +
-			lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(saved)
 	case StatusErr:
+		errText := ""
+		if err := m.rowErr[row.Slug]; err != nil {
+			errText = clampDetail(err.Error(), 12)
+		}
 		return lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render("✗ failed") +
 			muted.Render(" — ") +
-			lipgloss.NewStyle().Foreground(ColInk).Render(m.rowErr[row.Slug].Error())
+			lipgloss.NewStyle().Foreground(ColInk).Render(errText)
 	case StatusRemoving:
 		return lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ removing") +
 			muted.Render(" from registry")
 	case StatusRemoved:
 		return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ removed")
 	}
-	// CTA: an actual keycap chip + arrow + target path. Reads as a
-	// button rather than a sentence.
+	// CTA: an actual keycap chip + arrow + target description. Reads
+	// as a button rather than a sentence.
 	hint := DownloadChip.Render("⏎ enter") +
-		muted.Render("  download → ") +
-		lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
+		muted.Render("  install → ") +
+		lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render("pick agent dot-folders")
 	if m.delete != nil {
 		hint += muted.Render("  ·  ") +
 			KeyStyle.Render("d") +
@@ -840,7 +954,7 @@ func (m ListModel) renderFooter() string {
 	keys := []struct{ k, d string }{
 		{"↑/↓", "navigate"},
 		{"/", "filter"},
-		{"enter", "download"},
+		{"enter", "install"},
 	}
 	if m.delete != nil {
 		keys = append(keys, struct{ k, d string }{"d", "remove"})
@@ -916,7 +1030,7 @@ func (m ListModel) renderHelp() string {
 		{"g / G", "jump to top / bottom"},
 		{"/", "start filtering"},
 		{"esc", "clear filter (or quit)"},
-		{"enter", "download into ~/.cache/skills-mcp/skills/<slug>/"},
+		{"enter", "install into selected agent dot-folders"},
 	}
 	if m.delete != nil {
 		rows = append(rows, struct{ k, d string }{"d", "remove selected skill"})
@@ -1191,11 +1305,11 @@ func newSkillDelegate(statusOf func(string) RowStatus) skillDelegate {
 			Foreground(ColPrimary).
 			Bold(true),
 		statusBadges: map[RowStatus]string{
-			StatusDownloading: lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render(" ⟳"),
-			StatusDone:        lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(" ✓"),
-			StatusErr:         lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render(" ✗"),
-			StatusRemoving:    lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render(" ⟳"),
-			StatusRemoved:     lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(" ✓"),
+			StatusInstalling: lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render(" ⟳"),
+			StatusInstalled:  lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(" ✓"),
+			StatusErr:        lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render(" ✗"),
+			StatusRemoving:   lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render(" ⟳"),
+			StatusRemoved:    lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(" ✓"),
 		},
 		statusOf: statusOf,
 	}
