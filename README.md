@@ -12,9 +12,6 @@
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
 [![Stars](https://img.shields.io/github/stars/anand-92/skills-registry?style=social)](https://github.com/anand-92/skills-registry/stargazers)
 
-<!-- TODO(maintainer): drop in a TUI screenshot or short GIF here. Suggestion: `skills-registry list` mid-fuzzy-filter, saved as docs/img/hero.png. -->
-<img src="docs/img/hero.png" alt="skills-registry TUI" width="720">
-
 </div>
 
 ---
@@ -72,8 +69,6 @@ The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `
 
 The wizard ends with a JSON snippet for your MCP client config, pointing at `https://mcp.skills-registry.dev/mcp`. Your client handles the GitHub OAuth on first connect; the server can then read and (with permission) write to your registry repo.
 
-<!-- TODO(maintainer): capture an asciinema of the wizard end-to-end and embed/link here. -->
-
 Paste the printed JSON into your MCP client config, reload, and ask:
 
 > *"What skills do I have available?"*
@@ -90,18 +85,15 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | What you want | Command |
 |---|---|
 | Open the dashboard | `skills-registry` |
-| Browse + durably install skills into selected agent dot-folders | `skills-registry list` |
+| Browse + durably install skills into selected agent dot-folders | `skills-registry list [--query QUERY] [--plain]` |
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
-| Pull one skill into the global cache (`~/.cache/skills-mcp/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug>` |
-| Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync` |
-| Pull a skill from someone else's repo into yours + install locally | `skills-registry add <owner/repo>` |
+| Pull one skill into the global cache (`~/.cache/skills-mcp/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
+| Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync [--all]` |
+| Pull a skill from someone else's repo into yours + install locally | `skills-registry add <source> [--all]` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |
 | Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
 | Update the installed binary to the latest release | `skills-registry update` |
 | Re-run the wizard / bootstrap (idempotent) | `skills-registry bootstrap` |
-
-<!-- TODO(maintainer): drop a short GIF of `skills-registry sync` here — the multi-select TUI sells the experience. -->
-<img src="docs/img/sync.gif" alt="skills-registry sync" width="640">
 
 Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `get` stays the cache-only fetch for one-shot agent reads.
 
@@ -141,7 +133,8 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 | `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
 | `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
 | `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
-| `skills-registry remove <slug> --json` | `{"slug", "repo", "sha", "removed_from": [...]}` |
+| `skills-registry add <source> --json` | `{"pushed": [...slugs], "skipped": [...slugs], "installed": {<slug>: [...paths]}}` |
+| `skills-registry remove <slug> --json` | `{"slug", "removed_from": [...], "sha", "repo"}` |
 | `skills-registry update --json` | `{"updated", "version", "asset", "path", "message"}` |
 
 Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set, so piped invocations never hang on a Bubble Tea prompt that can't render.

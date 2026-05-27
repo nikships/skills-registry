@@ -14,7 +14,7 @@ You need Python 3.10+ and [uv](https://github.com/astral-sh/uv).
 
 ```bash
 git clone https://github.com/anand-92/skills-registry
-cd skills-mcp
+cd infa-not-for-users
 uv sync --group dev
 ```
 
@@ -23,7 +23,7 @@ That installs the package in editable mode along with the dev dependencies.
 ## Running tests
 
 ```bash
-uv run pytest
+cd infa-not-for-users && uv run pytest
 ```
 
 Add or update tests for any behavior change. If you fix a bug, add a regression test that fails before your fix.
@@ -33,8 +33,8 @@ Add or update tests for any behavior change. If you fix a bug, add a regression 
 We use [ruff](https://github.com/astral-sh/ruff) for both linting and formatting.
 
 ```bash
-uv run ruff check .
-uv run ruff format .
+cd infa-not-for-users && uv run ruff check .
+cd infa-not-for-users && uv run ruff format .
 ```
 
 CI runs `ruff check` and `pytest`. Both must pass.
@@ -50,7 +50,7 @@ The Go CLI is checked with `go vet` and `gofmt -l` (formatting drift fails CI).
 We enforce a single, consistent naming style **per language**. These rules
 are wired into the linters above; CI will reject violations.
 
-### Python (`src/skills_mcp/`, `tests/`)
+### Python (`infa-not-for-users/skills_mcp/`, `infa-not-for-users/tests/`)
 
 Enforced by **ruff's `N` rule set** (pep8-naming) — see `ruff.toml`.
 
@@ -139,8 +139,8 @@ Example: `fix: ignore SKILL.md files under hidden directories`.
 
 Before opening the PR, please confirm:
 
-- [ ] Tests pass locally (`uv run pytest`).
-- [ ] `uv run ruff check .` is clean.
+- [ ] Tests pass locally (`cd infa-not-for-users && uv run pytest`).
+- [ ] `cd infa-not-for-users && uv run ruff check .` is clean.
 - [ ] `README.md` is updated if you changed anything user-visible (env vars, CLI, behavior).
 - [ ] No new **mandatory** runtime dependencies. Optional ones need justification in the PR description.
 - [ ] The PR description explains *why*, not just *what*.

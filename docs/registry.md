@@ -97,25 +97,24 @@ All four legacy headless-bootstrap concerns (repo create, push, agent install, c
 
 ### 2.3 Returning-user hub
 
-`cli/cmd/skills-registry/hub.go:runHub` is the loop a bare `skills-registry` enters once config exists:
+`cli/cmd/skills-registry/hub.go:runHub` launches a single alt-screen Bubble Tea program once config exists. The heavy lifting lives in `cli/internal/tui/hub_program.go:HubProgram`, which embeds the dashboard and every action flow inside one long-lived model:
 
 ```mermaid
 flowchart LR
-  Loop[runHub loop] --> Load[config.Load]
-  Load --> Model[build tui.HubModel + skill-count loader]
-  Model --> Run[tea.NewProgram alt-screen]
-  Run --> Sel{Selection?}
-  Sel -- Manage --> AM[ListModel · download + delete]
-  Sel -- Sync --> AS[SyncFlowModel → registry.Client.Publish]
-  Sel -- Add --> AA[AddFlowModel → resolve + Publish]
-  Sel -- Publish --> AP[PublishFlowModel → doPublish]
-  Sel -- Purge --> AX[PurgeFlowModel → os.RemoveAll]
-  Sel -- Settings --> AT[SettingsModel → config.Save]
-  AM & AS & AA & AP & AX & AT --> Toast[flowExitMsg text + ok]
-  Toast --> Loop
+  Run[tea.NewProgram alt-screen] --> Hub[HubProgram]
+  Hub --> HubView[HubModel · card grid + count loader]
+  Hub --> Launch{hubLaunchMsg}
+  Launch -- Manage --> AM[ListModel · download + delete]
+  Launch -- Sync --> AS[SyncFlowModel → registry.Client.Publish]
+  Launch -- Add --> AA[AddFlowModel → resolve + Publish]
+  Launch -- Publish --> AP[PublishFlowModel → doPublish]
+  Launch -- Purge --> AX[PurgeFlowModel → os.RemoveAll]
+  Launch -- Settings --> AT[SettingsModel → config.Save]
+  AM & AS & AA & AP & AX & AT --> Exit[flowExitMsg text + ok]
+  Exit --> Hub
 ```
 
-Each embedded flow ends in a `flowExitMsg` carrying the toast text + ok flag. `HubProgram` swaps back to the hub model, seeds the toast for the next frame, and re-runs the count loader, so the user sees "✓ added from owner/repo" / "✗ remove: slug not found" / "✓ purged 12 local skill folder(s)" / etc. Per-action errors land as red toasts and the user can retry; only a launcher-level failure (e.g. `config.Load` failing mid-session) escapes the loop. The hub terminates on quit (`q` / `esc` / `ctrl+c`) or empty selection.
+Each embedded flow ends in a `flowExitMsg` carrying the toast text + ok flag. `HubProgram` swaps back to the hub model, seeds the toast for the next frame, and re-runs the count loader, so the user sees "✓ added from owner/repo" / "✗ remove: slug not found" / "✓ purged 12 local skill folder(s)" / etc. Per-action errors land as red toasts and the user can retry; only a launcher-level failure (e.g. `config.Load` failing before the program starts) escapes. The hub terminates on quit (`q` / `esc` / `ctrl+c`) or empty selection.
 
 **Purge Local Skills.** Purge is the only hub flow that *deletes* local skill folders under your known dot-folders; other flows (Sync, Settings, etc.) may still write local cache/config files. `tui.PurgeFlowModel` (see `cli/internal/tui/flow_purge.go`) walks three phases: scan (`scan.Discover` over the known dot-folders), confirm (a `ChoiceModel` listing the per-source breakdown), then delete. The deleter (`cli/cmd/skills-registry/hub_flow_deps.go:purgeLocalSkills`) cross-checks every candidate folder against the allow-list returned by `scan.DiscoverSources` before calling `os.RemoveAll`, so even a tampered `scan.Skill` value can't redirect the delete at an arbitrary path. Failures are tallied per-folder and surfaced in the exit toast; the registry repo is never touched. **Carve-out:** any folder named `skills-registry` is preserved — that's the meta-skill `bootstrap.InstallSkillMd` writes into every agent dot-folder, and wiping it would force the user to re-bootstrap to restore the agent's gateway back into the registry. `filterMetaSkill` strips it on the Discover side so the confirm prompt's count reflects what will actually be deleted; an `isMetaSkill` guard inside `purgeLocalSkills` enforces the invariant as defense-in-depth. This mirrors the same carve-out `scan.EntriesForCleanup` makes for the wizard's post-publish cleanup.
 
