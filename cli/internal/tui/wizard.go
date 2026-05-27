@@ -1056,10 +1056,7 @@ func (m WizardModel) renderScanBody() string {
 			DownloadChip.Render("⏎ enter")+
 				lipgloss.NewStyle().Foreground(ColMuted).Render("  continue anyway"))
 	}
-	revealed := m.scanReveal
-	if revealed > len(m.skills) {
-		revealed = len(m.skills)
-	}
+	revealed := min(m.scanReveal, len(m.skills))
 	headline := m.renderScanHeadline(revealed)
 	preview := m.renderScanPreview(revealed)
 	cta := DownloadChip.Render("⏎ enter") +
@@ -1103,12 +1100,9 @@ func (m WizardModel) renderScanPreview(revealed int) string {
 	if revealed == 0 {
 		return ""
 	}
-	max := 5
-	if revealed < max {
-		max = revealed
-	}
+	limit := min(5, revealed)
 	var lines []string
-	for i := 0; i < max; i++ {
+	for i := 0; i < limit; i++ {
 		sk := m.skills[i]
 		bullet := lipgloss.NewStyle().Foreground(ColPink).Bold(true).Render("· ✧")
 		name := lipgloss.NewStyle().Foreground(ColInk).Render(sk.Name)
@@ -1116,9 +1110,9 @@ func (m WizardModel) renderScanPreview(revealed int) string {
 			Render("  " + sk.Slug)
 		lines = append(lines, bullet+" "+name+slug)
 	}
-	if revealed > max {
+	if revealed > limit {
 		lines = append(lines, lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-			Render(fmt.Sprintf("  … +%d more", revealed-max)))
+			Render(fmt.Sprintf("  … +%d more", revealed-limit)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1184,10 +1178,7 @@ func (m WizardModel) renderVisibilityCards() string {
 		},
 	}
 	// Inner content width of the outer wizard panel.
-	innerWidth := m.width - 8
-	if innerWidth < 40 {
-		innerWidth = 40
-	}
+	innerWidth := max(40, m.width-8)
 	// Each card's rendered width adds 4 cols of border+padding, and we
 	// reserve 3 cols between the two cards. Solve for the per-card
 	// content width.
@@ -1356,14 +1347,7 @@ func (m WizardModel) renderPushCTA() string {
 // wizard frame. Clamped between 20 and 60 so the bar reads cleanly without
 // dominating the panel on wide terminals.
 func (m WizardModel) pushProgressWidth() int {
-	w := m.width - 14
-	if w > 60 {
-		w = 60
-	}
-	if w < 20 {
-		w = 20
-	}
-	return w
+	return min(60, max(20, m.width-14))
 }
 
 // renderFooter mirrors the list TUI footer.
@@ -1378,10 +1362,7 @@ func (m WizardModel) renderFooter() string {
 	}
 	left := strings.Join(parts, "")
 	right := SubtitleStyle.Render(animationDots(m.sparkleIdx))
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 }
 
@@ -1497,9 +1478,7 @@ func renderProgressBar(done, total, width, phase int) string {
 		}
 		return b.String()
 	}
-	if done > total {
-		done = total
-	}
+	done = min(done, total)
 	filled := done * width / total
 	palette := []lipgloss.AdaptiveColor{ColPrimary, ColPink, ColPeach, ColAccent, ColCyan}
 	var b strings.Builder

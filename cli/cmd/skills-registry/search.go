@@ -288,31 +288,5 @@ func scoreAndSort(summaries []registry.Summary, query string) []registry.Summary
 }
 
 func printPlainSearch(repo string, summaries []registry.Summary) {
-	fmt.Printf("Search Results: %s  (%d skill", repo, len(summaries))
-	if len(summaries) != 1 {
-		fmt.Print("s")
-	}
-	fmt.Println(")")
-	fmt.Println()
-	width := len("SLUG")
-	for _, s := range summaries {
-		if len(s.Slug) > width {
-			width = len(s.Slug)
-		}
-	}
-	pad := func(s string) string {
-		if len(s) >= width {
-			return s
-		}
-		return s + strings.Repeat(" ", width-len(s))
-	}
-	fmt.Printf("  %s  %s\n", pad("SLUG"), "DESCRIPTION")
-	fmt.Printf("  %s  %s\n", strings.Repeat("─", width), strings.Repeat("─", 11))
-	for _, s := range summaries {
-		desc := s.Description
-		if r := []rune(desc); len(r) > 80 {
-			desc = string(r[:79]) + "…"
-		}
-		fmt.Printf("  %s  %s\n", pad(s.Slug), desc)
-	}
+	printPlainSummaryTable("Search Results", repo, summaries)
 }

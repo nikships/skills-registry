@@ -189,15 +189,9 @@ def _score_skill(query: str, summary: SkillSummary) -> int:
 	q = query.strip()
 	if not q:
 		return 0
-	field_text = {
-		"slug": summary.slug,
-		"name": summary.name,
-		"description": summary.description,
-	}
-	score = 0
-	for field, weight in _FIELD_WEIGHTS:
-		score += _fuzzy_score(q, field_text[field]) * weight
-	return score
+	return sum(
+		_fuzzy_score(q, getattr(summary, field)) * weight for field, weight in _FIELD_WEIGHTS
+	)
 
 
 async def search_skills(
@@ -261,8 +255,7 @@ async def list_skill_folders(
 	for slug, result in zip(folders, results, strict=False):
 		if isinstance(result, BaseException):
 			log.warning("Skipping skill %s in %s: %s", slug, repo, result)
-			continue
-		if result is not None:
+		elif result is not None:
 			summaries.append(result)
 	summaries.sort(key=lambda s: s.slug)
 	return summaries

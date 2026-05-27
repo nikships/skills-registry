@@ -9,7 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
 	"github.com/anand-92/skills-registry/cli/internal/config"
 	"github.com/anand-92/skills-registry/cli/internal/jsonout"
 	"github.com/anand-92/skills-registry/cli/internal/registry"
@@ -81,13 +80,9 @@ func runSyncJSON(ctx context.Context) error {
 	for _, sk := range plan.missing {
 		pushed = append(pushed, sk.Slug)
 	}
-	skipped := plan.skippedSlugs()
-	if skipped == nil {
-		skipped = []string{}
-	}
 	return jsonout.Print(syncJSONResult{
 		Pushed:  pushed,
-		Skipped: skipped,
+		Skipped: plan.skippedSlugs(),
 	})
 }
 
@@ -126,11 +121,7 @@ func planSync(ctx context.Context) (syncPlan, error) {
 	}
 	home, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
-	dotDirs := make([]string, 0, len(agents.All()))
-	for _, a := range agents.All() {
-		dotDirs = append(dotDirs, a.DotDir)
-	}
-	sources := scan.DiscoverSources(home, cwd, nil, dotDirs)
+	sources := scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents())
 	local, err := scan.Discover(sources)
 	if err != nil {
 		return syncPlan{}, err
@@ -159,37 +150,16 @@ func planSync(ctx context.Context) (syncPlan, error) {
 }
 
 func runSync(ctx context.Context, yes, all bool) error {
-	cfg, err := config.Load()
+	plan, err := planSync(ctx)
 	if err != nil {
 		return err
 	}
-	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-	if err != nil {
-		return err
-	}
-
-	home, _ := os.UserHomeDir()
-	cwd, _ := os.Getwd()
-	dotDirs := make([]string, 0, len(agents.All()))
-	for _, a := range agents.All() {
-		dotDirs = append(dotDirs, a.DotDir)
-	}
-	sources := scan.DiscoverSources(home, cwd, nil, dotDirs)
-	local, err := scan.Discover(sources)
-	if err != nil {
-		return err
-	}
-	remote, err := client.Slugs(ctx)
-	if err != nil {
-		return err
-	}
-	missing := scan.DedupeAgainst(local, remote)
-	if len(missing) == 0 {
+	if len(plan.missing) == 0 {
 		fmt.Println("Registry is already in sync with your dot-folders.")
 		return nil
 	}
 
-	picked, err := selectSkillsForSync(missing, yes, all, cfg.Repo)
+	picked, err := selectSkillsForSync(plan.missing, yes, all, plan.client.Repo)
 	if err != nil {
 		return err
 	}
@@ -201,7 +171,7 @@ func runSync(ctx context.Context, yes, all bool) error {
 		return nil
 	}
 
-	return publishSkills(ctx, client, picked, func(slug string) string {
+	return publishSkills(ctx, plan.client, picked, func(slug string) string {
 		return fmt.Sprintf("sync: %s", slug)
 	})
 }

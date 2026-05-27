@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -287,24 +288,5 @@ func joinLabels(items []MultiSelectItem, values []any, maxShown int) string {
 		return strings.Join(labels, ", ")
 	}
 	more := len(labels) - maxShown
-	return strings.Join(labels[:maxShown], ", ") + " +" + itoa(more) + " more"
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if neg {
-		return "-" + string(digits)
-	}
-	return string(digits)
+	return fmt.Sprintf("%s +%d more", strings.Join(labels[:maxShown], ", "), more)
 }

@@ -295,13 +295,7 @@ func (m HubModel) bodyWidth() int {
 // repo chip + skill count on the right, gap-filled so the right cluster
 // pins to the edge.
 func (m HubModel) renderHeader() string {
-	hero := lipgloss.JoinHorizontal(lipgloss.Top,
-		SparkleStyle.Render("✦"),
-		" ",
-		HeroStyle.Render("Skills Registry · Hub"),
-		" ",
-		SparkleStyle.Render("✧"),
-	)
+	hero := flowHero("Skills Registry · Hub")
 	right := m.renderHeaderRight()
 	gap := m.width - lipgloss.Width(hero) - lipgloss.Width(right)
 	if gap < 1 {
@@ -343,23 +337,9 @@ func (m HubModel) renderCount() string {
 
 // renderFooter renders the keybinding hints + animated dots.
 func (m HubModel) renderFooter() string {
-	keys := []struct{ k, d string }{
+	return flowFooter(m.width, m.sparkleIdx, []flowKey{
 		{"←/→/↑/↓", "navigate"},
 		{"enter", "select"},
 		{"q", "quit"},
-	}
-	parts := make([]string, 0, len(keys)*3)
-	for i, kv := range keys {
-		if i > 0 {
-			parts = append(parts, KeySepStyle.Render(" · "))
-		}
-		parts = append(parts, KeyStyle.Render(kv.k), " ", KeyDescStyle.Render(kv.d))
-	}
-	left := strings.Join(parts, "")
-	right := SubtitleStyle.Render(animationDots(m.sparkleIdx))
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	})
 }

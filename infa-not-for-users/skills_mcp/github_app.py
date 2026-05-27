@@ -198,7 +198,7 @@ class GitHubAppClient:
 					)
 				body = resp.json()
 				entries = body.get("repositories", []) if isinstance(body, dict) else []
-				repos.extend(parsed for parsed in (_parse_repo(e) for e in entries) if parsed)
+				repos.extend(filter(None, map(_parse_repo, entries)))
 				if len(entries) < 100:
 					break
 				page += 1

@@ -274,10 +274,7 @@ func (m WizardModel) renderAgentPathPreview() string {
 	if len(m.agentPaths) == 0 {
 		return ""
 	}
-	limit := 5
-	if len(m.agentPaths) < limit {
-		limit = len(m.agentPaths)
-	}
+	limit := min(5, len(m.agentPaths))
 	lines := make([]string, 0, limit+1)
 	for i := 0; i < limit; i++ {
 		bullet := lipgloss.NewStyle().Foreground(ColPink).Bold(true).Render("· ✧")
@@ -296,23 +293,21 @@ func (m WizardModel) renderAgentPathPreview() string {
 // vertical space for an empty section.
 func (m WizardModel) renderAgentLockedStrip() string {
 	var rows []string
-	rows = append(rows, lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-		Render("Always included:"))
-	any := false
 	for _, it := range m.agentItems {
 		if !it.Locked {
 			continue
 		}
-		any = true
 		mark := lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓")
 		label := lipgloss.NewStyle().Foreground(ColInk).Render(it.Display)
 		hint := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).Render("  " + it.Hint)
 		rows = append(rows, "  "+mark+" "+label+hint)
 	}
-	if !any {
+	if len(rows) == 0 {
 		return ""
 	}
-	return strings.Join(rows, "\n")
+	header := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
+		Render("Always included:")
+	return header + "\n" + strings.Join(rows, "\n")
 }
 
 // renderAgentFilterLine renders the "Filter:" prompt + current text. We
@@ -354,12 +349,11 @@ func (m WizardModel) renderAgentRow(idx int, cursor bool) string {
 	it := m.agentItems[idx]
 	_, picked := m.agentSelected[idx]
 	bullet := lipgloss.NewStyle().Foreground(ColFaint).Render("○")
-	if picked {
-		bullet = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("●")
-	}
 	label := lipgloss.NewStyle().Foreground(ColInk).Render(it.Display)
 	if picked {
-		label = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render(it.Display)
+		accent := lipgloss.NewStyle().Foreground(ColAccent).Bold(true)
+		bullet = accent.Render("●")
+		label = accent.Render(it.Display)
 	}
 	hint := ""
 	if it.Hint != "" {
@@ -572,31 +566,25 @@ func (m WizardModel) renderCleanupButtons() string {
 
 // renderCleanupSummary is the post-action body.
 func (m WizardModel) renderCleanupSummary(title string) string {
-	if !m.cleanupYes {
-		headline := lipgloss.NewStyle().Foreground(ColPeach).Italic(true).
-			Render("· kept local skill copies in place.")
-		cta := DownloadChip.Render("⏎ enter") +
-			lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-				Render("  continue to MCP install")
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", headline, "", cta)
-	}
-	if len(m.cleanupEntries) == 0 {
-		headline := lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-			Render("✓ already tidy — nothing to remove.")
-		cta := DownloadChip.Render("⏎ enter") +
-			lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-				Render("  continue to MCP install")
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", headline, "", cta)
-	}
-	headline := lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
-		Render(fmt.Sprintf("✓ removed %d local entry(ies).", m.cleanupDeleted))
-	if m.cleanupFailed > 0 {
-		headline += lipgloss.NewStyle().Foreground(ColDanger).
-			Render(fmt.Sprintf("  (%d failed)", m.cleanupFailed))
-	}
 	cta := DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
 			Render("  continue to MCP install")
+	var headline string
+	switch {
+	case !m.cleanupYes:
+		headline = lipgloss.NewStyle().Foreground(ColPeach).Italic(true).
+			Render("· kept local skill copies in place.")
+	case len(m.cleanupEntries) == 0:
+		headline = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
+			Render("✓ already tidy — nothing to remove.")
+	default:
+		headline = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
+			Render(fmt.Sprintf("✓ removed %d local entry(ies).", m.cleanupDeleted))
+		if m.cleanupFailed > 0 {
+			headline += lipgloss.NewStyle().Foreground(ColDanger).
+				Render(fmt.Sprintf("  (%d failed)", m.cleanupFailed))
+		}
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", headline, "", cta)
 }
 
@@ -776,33 +764,16 @@ func (m WizardModel) renderMCPQuickInstallPanel() string {
 		panelWidth = m.width - 8
 	}
 
-	titleBar := lipgloss.NewStyle().Foreground(ColMuted).
-		Render("── Quick install " + strings.Repeat("─", max(0, panelWidth-17)))
-	var rows []string
+	mutedStyle := lipgloss.NewStyle().Foreground(ColMuted)
+	titleBar := mutedStyle.Render("── Quick install " + strings.Repeat("─", max(0, panelWidth-17)))
+	const labelWidth = 14
+	rows := make([]string, 0, len(mcpQuickInstallRows))
 	for i, row := range mcpQuickInstallRows {
-		labelWidth := 14
-		label := fmt.Sprintf("%-*s", labelWidth, row.label)
-		var line string
-		if i == m.mcpQuickCursor {
-			prefix := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).Render("▶ ")
-			labelStyled := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).Render(label)
-			cmdStyled := lipgloss.NewStyle().Foreground(ColInk).Bold(true).Render(row.command)
-			line = prefix + labelStyled + " " + cmdStyled
-		} else {
-			prefix := "  "
-			labelStyled := lipgloss.NewStyle().Foreground(ColMuted).Render(label)
-			cmdStyled := lipgloss.NewStyle().Foreground(ColInk).Render(row.command)
-			line = prefix + labelStyled + " " + cmdStyled
-		}
-		if m.mcpDone && i == m.mcpQuickCopied {
-			line += "  " + lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ copied")
-		}
-		rows = append(rows, line)
+		rows = append(rows, m.renderMCPQuickInstallRow(row, i, labelWidth))
 	}
 	hint := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
 		Render("  ↑/↓ to move · c to copy highlighted command")
-	bottomBar := lipgloss.NewStyle().Foreground(ColMuted).
-		Render(strings.Repeat("─", panelWidth))
+	bottomBar := mutedStyle.Render(strings.Repeat("─", panelWidth))
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleBar,
 		lipgloss.JoinVertical(lipgloss.Left, rows...),
@@ -810,6 +781,27 @@ func (m WizardModel) renderMCPQuickInstallPanel() string {
 		hint,
 		bottomBar,
 	)
+}
+
+// renderMCPQuickInstallRow renders a single quick-install row. The
+// focused row gets bold primary chrome and a ▶ caret; unfocused rows
+// stay muted. A "✓ copied" badge is appended on the most recently copied
+// row so the user gets immediate feedback after pressing `c`.
+func (m WizardModel) renderMCPQuickInstallRow(row mcpQuickInstallRow, i, labelWidth int) string {
+	label := fmt.Sprintf("%-*s", labelWidth, row.label)
+	prefix := "  "
+	labelStyle := lipgloss.NewStyle().Foreground(ColMuted)
+	cmdStyle := lipgloss.NewStyle().Foreground(ColInk)
+	if i == m.mcpQuickCursor {
+		prefix = lipgloss.NewStyle().Foreground(ColPrimary).Bold(true).Render("▶ ")
+		labelStyle = lipgloss.NewStyle().Foreground(ColPrimary).Bold(true)
+		cmdStyle = lipgloss.NewStyle().Foreground(ColInk).Bold(true)
+	}
+	line := prefix + labelStyle.Render(label) + " " + cmdStyle.Render(row.command)
+	if m.mcpDone && i == m.mcpQuickCopied {
+		line += "  " + lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ copied")
+	}
+	return line
 }
 
 // renderMCPSnippetPanel renders the JSON snippet inside a rounded-border

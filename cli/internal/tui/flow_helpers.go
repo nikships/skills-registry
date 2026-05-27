@@ -17,14 +17,19 @@ type flowKey struct {
 	d string
 }
 
-func flowFrame(title string, width, sparkleIdx int, body, footer string) string {
-	hero := lipgloss.JoinHorizontal(lipgloss.Top,
+// flowHero renders the sparkle-bracketed title line shared by every
+// alt-screen TUI (hub, settings, and the per-flow frames).
+func flowHero(title string) string {
+	return lipgloss.JoinHorizontal(lipgloss.Top,
 		SparkleStyle.Render("✦"),
 		" ",
 		HeroStyle.Render(title),
 		" ",
 		SparkleStyle.Render("✧"),
 	)
+}
+
+func flowFrame(title string, width, sparkleIdx int, body, footer string) string {
 	barWidth := width - 2
 	if barWidth <= 0 {
 		barWidth = 40
@@ -35,7 +40,7 @@ func flowFrame(title string, width, sparkleIdx int, body, footer string) string 
 	}
 	panel := PanelFocused.Width(panelWidth).Render(body)
 	return lipgloss.JoinVertical(lipgloss.Left,
-		hero,
+		flowHero(title),
 		miniGradientBar(barWidth, sparkleIdx),
 		"",
 		panel,

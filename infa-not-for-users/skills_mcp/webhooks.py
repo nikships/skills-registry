@@ -81,17 +81,16 @@ class WebhookHandler:
 		# unsigned replay would already be rejected above, so we only
 		# spend a KV lookup on requests that proved they hold the secret.
 		delivery_id = request.headers.get("X-GitHub-Delivery", "")
+		event = request.headers.get("X-GitHub-Event", "")
 		if delivery_id and await self._deliveries.seen(delivery_id):
 			log.info("Deduped webhook delivery %s", delivery_id)
-			event_header = request.headers.get("X-GitHub-Event", "")
 			posthog_client.capture(
 				distinct_id="server",
 				event="webhook_deduped",
-				properties={"event_type": event_header},
+				properties={"event_type": event},
 			)
 			return JSONResponse({"deduped": delivery_id})
 
-		event = request.headers.get("X-GitHub-Event", "")
 		try:
 			payload = json.loads(body.decode("utf-8"))
 		except (json.JSONDecodeError, UnicodeDecodeError):

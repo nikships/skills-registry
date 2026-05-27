@@ -22,18 +22,20 @@ type Config struct {
 
 // Owner returns the GitHub owner portion of Repo.
 func (c Config) Owner() string {
-	if i := strings.Index(c.Repo, "/"); i >= 0 {
-		return c.Repo[:i]
+	owner, _, ok := strings.Cut(c.Repo, "/")
+	if !ok {
+		return c.Repo
 	}
-	return c.Repo
+	return owner
 }
 
 // Name returns the repo name portion of Repo.
 func (c Config) Name() string {
-	if i := strings.Index(c.Repo, "/"); i >= 0 {
-		return c.Repo[i+1:]
+	_, name, ok := strings.Cut(c.Repo, "/")
+	if !ok {
+		return c.Repo
 	}
-	return c.Repo
+	return name
 }
 
 // ErrMissing is returned when no config exists and no env var is set.
@@ -98,15 +100,12 @@ func Save(cfg Config) (string, error) {
 }
 
 func parseEnvValue(v string) (string, string) {
-	repo := v
-	branch := "main"
-	if i := strings.Index(v, "@"); i >= 0 {
-		repo = strings.TrimSpace(v[:i])
-		if alt := strings.TrimSpace(v[i+1:]); alt != "" {
-			branch = alt
-		}
+	repo, alt, _ := strings.Cut(v, "@")
+	branch := strings.TrimSpace(alt)
+	if branch == "" {
+		branch = "main"
 	}
-	return repo, branch
+	return strings.TrimSpace(repo), branch
 }
 
 func validate(repo string) error {
@@ -157,12 +156,9 @@ func parseTOML(text string) (Config, error) {
 }
 
 func splitKV(line string) (string, string, bool) {
-	i := strings.Index(line, "=")
-	if i < 0 {
+	key, val, ok := strings.Cut(line, "=")
+	if !ok {
 		return "", "", false
 	}
-	key := strings.TrimSpace(line[:i])
-	val := strings.TrimSpace(line[i+1:])
-	val = strings.Trim(val, "\"'")
-	return key, val, true
+	return strings.TrimSpace(key), strings.Trim(strings.TrimSpace(val), "\"'"), true
 }

@@ -390,23 +390,25 @@ func (m *ListModel) dropRow(slug string) {
 	delete(m.rowDest, slug)
 	delete(m.rowErr, slug)
 	delete(m.rowSHA, slug)
-	items := make([]list.Item, len(m.rows))
-	for i, row := range m.rows {
+	m.revealCap = len(m.rows)
+	m.list.SetItems(rowsAsItems(m.rows))
+	m.refreshPreview()
+}
+
+// rowsAsItems boxes a SkillRow slice into the []list.Item the bubbles
+// list expects. Used wherever we re-seed the list after a mutation.
+func rowsAsItems(rows []SkillRow) []list.Item {
+	items := make([]list.Item, len(rows))
+	for i, row := range rows {
 		items[i] = row
 	}
-	m.revealCap = len(m.rows)
-	m.list.SetItems(items)
-	m.refreshPreview()
+	return items
 }
 
 func (m ListModel) handleRevealTick() (tea.Model, tea.Cmd) {
 	if m.revealCap < len(m.rows) {
 		m.revealCap++
-		items := make([]list.Item, m.revealCap)
-		for i := 0; i < m.revealCap; i++ {
-			items[i] = m.rows[i]
-		}
-		m.list.SetItems(items)
+		m.list.SetItems(rowsAsItems(m.rows[:m.revealCap]))
 		return m, revealTick()
 	}
 	return m, nil
@@ -451,27 +453,31 @@ func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		return m.openRemoveConfirm()
 	case "enter":
-		if it, ok := m.list.SelectedItem().(SkillRow); ok {
-			if m.download == nil {
-				return m, nil
-			}
-			// Any non-idle row is a no-op: already downloading (double-
-			// press), already downloaded this session, or previously
-			// failed (retry is out of scope for this feature).
-			if m.rowState[it.Slug] != StatusIdle {
-				return m, nil
-			}
-			m.rowState[it.Slug] = StatusDownloading
-			m.inflight++
-			return m, tea.Batch(
-				startDownload(m.ctx, m.download, it.Slug),
-				m.spinner.Tick,
-			)
-		}
+		return m.startSelectedDownload(msg)
 	}
 	// Forward unmatched keys to the list so navigation (j/k, pgup/pgdn,
 	// etc.) still works.
 	return m.forwardToList(msg)
+}
+
+// startSelectedDownload kicks off a download for the currently-selected
+// row. Returns the model unchanged when no downloader is wired or the
+// row is not in StatusIdle (already downloading, finished, or failed —
+// retry is out of scope for this flow).
+func (m ListModel) startSelectedDownload(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	it, ok := m.list.SelectedItem().(SkillRow)
+	if !ok {
+		return m.forwardToList(msg)
+	}
+	if m.download == nil || m.rowState[it.Slug] != StatusIdle {
+		return m, nil
+	}
+	m.rowState[it.Slug] = StatusDownloading
+	m.inflight++
+	return m, tea.Batch(
+		startDownload(m.ctx, m.download, it.Slug),
+		m.spinner.Tick,
+	)
 }
 
 func (m ListModel) exitCmd() tea.Cmd {
@@ -592,22 +598,13 @@ func (m *ListModel) resize() {
 	const headerBlock = 2 // header line + blank
 	const toastBlock = 2  // blank + toast row (always reserved so the layout doesn't jitter)
 	const footerBlock = 2 // blank + footer line
-	panelInner := m.height - headerBlock - toastBlock - footerBlock
-	if panelInner < 8 {
-		panelInner = 8
-	}
+	panelInner := max(8, m.height-headerBlock-toastBlock-footerBlock)
 	// Each panel: 2 rows borders + 1 row internal heading → subtract 3 for
 	// the actual list/viewport height.
-	innerHeight := panelInner - 3
-	if innerHeight < 4 {
-		innerHeight = 4
-	}
+	innerHeight := max(4, panelInner-3)
 
 	if m.width >= dualPaneMinWidth {
-		listW := m.width * 6 / 10
-		if listW < listMinWidth {
-			listW = listMinWidth
-		}
+		listW := max(listMinWidth, m.width*6/10)
 		previewW := m.width - listW - 2 // -2 for the gap between panels
 		if previewW < previewMinWidth {
 			previewW = previewMinWidth
@@ -709,10 +706,7 @@ func (m ListModel) renderHeader() string {
 	}
 
 	// Gap-fill so the right cluster sits flush against the edge.
-	gap := m.width - lipgloss.Width(hero) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(1, m.width-lipgloss.Width(hero)-lipgloss.Width(right))
 	return lipgloss.JoinHorizontal(lipgloss.Top, hero, strings.Repeat(" ", gap), right)
 }
 
@@ -745,10 +739,7 @@ func (m ListModel) renderPreviewPanel() string {
 		// rounded border + padding; we reserve two extra cells so a
 		// title that fits exactly doesn't sit flush against the
 		// right edge.
-		innerWidth := m.preview.Width - 2
-		if innerWidth < 8 {
-			innerWidth = 8
-		}
+		innerWidth := max(8, m.preview.Width-2)
 		// Multi-byte / very long names get cell-aware truncation so
 		// the title row never overflows the panel.
 		title := PreviewTitle.Render(truncate(row.Title(), innerWidth))
@@ -776,43 +767,7 @@ func (m ListModel) renderPreviewPanel() string {
 		}
 
 		gradient := miniGradientBar(m.preview.Width-2, m.sparkleIdx)
-		dest := "~/.cache/skills-mcp/skills/" + row.Slug + "/"
-		var hint string
-		switch m.rowState[row.Slug] {
-		case StatusDownloading:
-			hint = lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ downloading") +
-				lipgloss.NewStyle().Foreground(ColMuted).Render(" → ") +
-				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
-		case StatusDone:
-			saved := dest
-			if path, ok := m.rowDest[row.Slug]; ok && path != "" {
-				saved = path
-			}
-			hint = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ saved") +
-				lipgloss.NewStyle().Foreground(ColMuted).Render(" → ") +
-				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(saved)
-		case StatusErr:
-			hint = lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render("✗ failed") +
-				lipgloss.NewStyle().Foreground(ColMuted).Render(" — ") +
-				lipgloss.NewStyle().Foreground(ColInk).Render(m.rowErr[row.Slug].Error())
-		case StatusRemoving:
-			hint = lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ removing") +
-				lipgloss.NewStyle().Foreground(ColMuted).Render(" from registry")
-		case StatusRemoved:
-			hint = lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ removed")
-		default:
-			// CTA: an actual keycap chip + arrow + target path. Reads as a
-			// button rather than a sentence.
-			hint = DownloadChip.Render("⏎ enter") +
-				lipgloss.NewStyle().Foreground(ColMuted).Render("  download → ") +
-				lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
-			if m.delete != nil {
-				hint += lipgloss.NewStyle().Foreground(ColMuted).Render("  ·  ") +
-					KeyStyle.Render("d") +
-					lipgloss.NewStyle().Foreground(ColMuted).Render(" remove")
-			}
-		}
-
+		hint := m.renderPreviewHint(row)
 		meta := PreviewMeta.Render("registry · " + m.repo)
 
 		blocks := []string{title}
@@ -839,6 +794,48 @@ func (m ListModel) renderPreviewPanel() string {
 	return PanelStyle.Render(content)
 }
 
+// renderPreviewHint renders the per-row hint/CTA line in the preview
+// pane. The selected row's status determines whether the user sees a
+// download button, an in-flight spinner badge, or a success/error chip.
+func (m ListModel) renderPreviewHint(row SkillRow) string {
+	muted := lipgloss.NewStyle().Foreground(ColMuted)
+	dest := "~/.cache/skills-mcp/skills/" + row.Slug + "/"
+	switch m.rowState[row.Slug] {
+	case StatusDownloading:
+		return lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ downloading") +
+			muted.Render(" → ") +
+			lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
+	case StatusDone:
+		saved := dest
+		if path, ok := m.rowDest[row.Slug]; ok && path != "" {
+			saved = path
+		}
+		return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ saved") +
+			muted.Render(" → ") +
+			lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(saved)
+	case StatusErr:
+		return lipgloss.NewStyle().Foreground(ColDanger).Bold(true).Render("✗ failed") +
+			muted.Render(" — ") +
+			lipgloss.NewStyle().Foreground(ColInk).Render(m.rowErr[row.Slug].Error())
+	case StatusRemoving:
+		return lipgloss.NewStyle().Foreground(ColYellow).Bold(true).Render("⟳ removing") +
+			muted.Render(" from registry")
+	case StatusRemoved:
+		return lipgloss.NewStyle().Foreground(ColAccent).Bold(true).Render("✓ removed")
+	}
+	// CTA: an actual keycap chip + arrow + target path. Reads as a
+	// button rather than a sentence.
+	hint := DownloadChip.Render("⏎ enter") +
+		muted.Render("  download → ") +
+		lipgloss.NewStyle().Foreground(ColPeach).Italic(true).Render(dest)
+	if m.delete != nil {
+		hint += muted.Render("  ·  ") +
+			KeyStyle.Render("d") +
+			muted.Render(" remove")
+	}
+	return hint
+}
+
 func (m ListModel) renderFooter() string {
 	keys := []struct{ k, d string }{
 		{"↑/↓", "navigate"},
@@ -862,10 +859,7 @@ func (m ListModel) renderFooter() string {
 	left := strings.Join(parts, "")
 
 	right := SubtitleStyle.Render(animationDots(m.sparkleIdx))
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 }
 
@@ -1088,10 +1082,7 @@ func clampPreviewDesc(desc string, width, panelHeight int, hasSlug bool) string 
 	if hasSlug {
 		fixed++
 	}
-	budget := panelHeight - fixed
-	if budget < 1 {
-		budget = 1
-	}
+	budget := max(1, panelHeight-fixed)
 	return PreviewBody.Width(width).Render(wrapToLines(desc, width, budget))
 }
 
@@ -1142,9 +1133,7 @@ func miniGradientBar(width, phase int) string {
 	if width <= 0 {
 		return ""
 	}
-	if width > 60 {
-		width = 60
-	}
+	width = min(width, 60)
 	palette := []lipgloss.AdaptiveColor{ColPrimary, ColPink, ColPeach, ColAccent, ColCyan}
 	var b strings.Builder
 	for i := 0; i < width; i++ {
@@ -1296,13 +1285,8 @@ func computeBudgets(width int, showSlug bool) rowBudgets {
 		return b
 	}
 	b.slugBudget = max(16, width/3)
-	if b.slugBudget > width-7 {
-		b.slugBudget = max(0, width-7)
-	}
-	b.titleBudget = width - b.slugBudget - 7
-	if b.titleBudget < 1 {
-		b.titleBudget = 1
-	}
+	b.slugBudget = min(b.slugBudget, max(0, width-7))
+	b.titleBudget = max(1, width-b.slugBudget-7)
 	return b
 }
 
@@ -1363,11 +1347,4 @@ func (d skillDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		rows = append(rows, chrome.bar+chrome.desc.Render(dl))
 	}
 	fmt.Fprint(w, strings.Join(rows, "\n"))
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

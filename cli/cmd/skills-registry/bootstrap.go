@@ -327,6 +327,17 @@ func promptDeleteLocal(sources []scan.Source, registrySlugs map[string]struct{})
 	return nil
 }
 
+// popularAgentDisplays is the small set of agent display names that get
+// default-checked in the agent multi-select. Shared by the legacy
+// bootstrap subcommand (selectAgents) and the onboarding wizard
+// (wizardAgentChoices) so the defaults stay in lockstep.
+var popularAgentDisplays = map[string]struct{}{
+	"Claude Code": {},
+	"Factory":     {},
+	"Cursor":      {},
+	"Codex CLI":   {},
+}
+
 // selectAgents returns the agent targets the user wants to install into.
 func selectAgents(nonInteractive bool) ([]agents.Target, error) {
 	all := agents.All()
@@ -340,6 +351,7 @@ func selectAgents(nonInteractive bool) ([]agents.Target, error) {
 		return locked, nil
 	}
 	items := make([]tui.MultiSelectItem, 0, len(all))
+	var defaultValues []any
 	for _, t := range all {
 		items = append(items, tui.MultiSelectItem{
 			Value:  t,
@@ -347,17 +359,7 @@ func selectAgents(nonInteractive bool) ([]agents.Target, error) {
 			Hint:   t.DotDir + "/skills",
 			Locked: t.Universal,
 		})
-	}
-	// Default-check a few common agents.
-	defaults := map[string]struct{}{
-		"Claude Code": {},
-		"Factory":     {},
-		"Cursor":      {},
-		"Codex CLI":   {},
-	}
-	var defaultValues []any
-	for _, t := range all {
-		if _, ok := defaults[t.Display]; ok {
+		if _, ok := popularAgentDisplays[t.Display]; ok {
 			defaultValues = append(defaultValues, t)
 		}
 	}
@@ -617,62 +619,43 @@ func walkSkillIntoFiles(s scan.Skill, dst map[string][]byte) error {
 }
 
 // walkDirSkipHidden reads every file under root (skipping hidden +
-// __pycache__) and invokes cb with the relative path and content.
+// __pycache__) and invokes cb with the slash-separated relative path
+// and the file body. A failure to open the root surfaces as an error;
+// unreadable subdirectories are silently skipped, matching the
+// historical two-function implementation this replaced.
 func walkDirSkipHidden(root string, cb func(rel string, content []byte)) error {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		name := e.Name()
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			// Only the top-level open error is surfaced; subdir read
+			// errors are tolerated (matches the previous walkSubdir
+			// behavior of returning nil on os.ReadDir failures).
+			if path == root {
+				return walkErr
+			}
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		name := d.Name()
 		if strings.HasPrefix(name, ".") || name == "__pycache__" {
-			continue
-		}
-		full := filepath.Join(root, name)
-		if e.IsDir() {
-			sub, err := os.ReadDir(full)
-			if err != nil {
-				continue
+			if d.IsDir() {
+				return filepath.SkipDir
 			}
-			for _, child := range sub {
-				if err := walkSubdir(root, full, child, cb); err != nil {
-					return err
-				}
-			}
-			continue
+			return nil
 		}
-		body, err := os.ReadFile(full)
+		if d.IsDir() {
+			return nil
+		}
+		body, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		cb(name, body)
-	}
-	return nil
-}
-
-func walkSubdir(root, dir string, child os.DirEntry, cb func(rel string, content []byte)) error {
-	name := child.Name()
-	if strings.HasPrefix(name, ".") || name == "__pycache__" {
-		return nil
-	}
-	full := filepath.Join(dir, name)
-	if child.IsDir() {
-		entries, err := os.ReadDir(full)
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return nil
+			return err
 		}
-		for _, sub := range entries {
-			if err := walkSubdir(root, full, sub, cb); err != nil {
-				return err
-			}
-		}
+		cb(filepath.ToSlash(rel), body)
 		return nil
-	}
-	body, err := os.ReadFile(full)
-	if err != nil {
-		return err
-	}
-	rel, _ := filepath.Rel(root, full)
-	cb(filepath.ToSlash(rel), body)
-	return nil
+	})
 }

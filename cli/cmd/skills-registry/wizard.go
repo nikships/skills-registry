@@ -238,15 +238,9 @@ func wizardCollectFiles(skills []scan.Skill) (map[string][]byte, error) {
 // top and a small "popular" set default-checked.
 func wizardAgentChoices() []tui.WizardAgent {
 	all := agents.All()
-	defaults := map[string]struct{}{
-		"Claude Code": {},
-		"Factory":     {},
-		"Cursor":      {},
-		"Codex CLI":   {},
-	}
 	out := make([]tui.WizardAgent, 0, len(all))
 	for _, t := range all {
-		_, def := defaults[t.Display]
+		_, def := popularAgentDisplays[t.Display]
 		out = append(out, tui.WizardAgent{
 			Display: t.Display,
 			Hint:    t.DotDir + "/skills",

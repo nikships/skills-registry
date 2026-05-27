@@ -301,13 +301,7 @@ func (m SettingsModel) View() string {
 
 // renderHeader builds the sparkle-bracketed title.
 func (m SettingsModel) renderHeader() string {
-	hero := lipgloss.JoinHorizontal(lipgloss.Top,
-		SparkleStyle.Render("✦"),
-		" ",
-		HeroStyle.Render("Skills Registry · Settings"),
-		" ",
-		SparkleStyle.Render("✧"),
-	)
+	hero := flowHero("Skills Registry · Settings")
 	if m.width <= lipgloss.Width(hero) {
 		return hero
 	}
@@ -446,37 +440,19 @@ func (m SettingsModel) renderStatus() string {
 // renderFooter prints the keybinding hints. The keys vary by mode so
 // the user always sees the relevant escape hatch.
 func (m SettingsModel) renderFooter() string {
-	var keys []struct{ k, d string }
+	keys := []flowKey{
+		{"↑/↓", "field"},
+		{"e", "edit"},
+		{"s", "save"},
+		{"q", "back"},
+	}
 	if m.editing {
-		keys = []struct{ k, d string }{
+		keys = []flowKey{
 			{"enter", "commit"},
 			{"esc", "cancel edit"},
 		}
-	} else {
-		keys = []struct{ k, d string }{
-			{"↑/↓", "field"},
-			{"e", "edit"},
-			{"s", "save"},
-			{"q", "back"},
-		}
 	}
-	parts := make([]string, 0, len(keys)*3)
-	for i, kv := range keys {
-		if i > 0 {
-			parts = append(parts, KeySepStyle.Render(" · "))
-		}
-		parts = append(parts, KeyStyle.Render(kv.k), " ", KeyDescStyle.Render(kv.d))
-	}
-	left := strings.Join(parts, "")
-	right := SubtitleStyle.Render(animationDots(m.sparkleIdx))
-	if m.width <= 0 {
-		return left
-	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	return flowFooter(m.width, m.sparkleIdx, keys)
 }
 
 // labelWidth pins a column for the label so the values line up. Wide

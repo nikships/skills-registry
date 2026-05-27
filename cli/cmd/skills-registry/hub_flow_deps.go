@@ -89,21 +89,9 @@ func buildAddFlowDeps(cfg config.Config) tui.AddFlowDeps {
 		Discover: func(dir, label string) ([]scan.Skill, error) {
 			return scan.Discover([]scan.Source{{Path: dir, Label: label}})
 		},
-		Slugs: func(ctx context.Context) (map[string]struct{}, error) {
-			client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-			if err != nil {
-				return nil, err
-			}
-			return client.Slugs(ctx)
-		},
-		Files: filesForSkill,
-		Publish: func(ctx context.Context, slug string, files map[string][]byte, msg string) (string, error) {
-			client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-			if err != nil {
-				return "", err
-			}
-			return client.Publish(ctx, slug, files, msg)
-		},
+		Slugs:   registrySlugsFn(cfg),
+		Files:   filesForSkill,
+		Publish: registryPublishFn(cfg),
 	}
 }
 
@@ -129,21 +117,36 @@ func buildSyncFlowDeps(cfg config.Config) tui.SyncFlowDeps {
 		Discover: func(context.Context) ([]scan.Skill, error) {
 			return discoverLocalSkills()
 		},
-		Slugs: func(ctx context.Context) (map[string]struct{}, error) {
-			client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-			if err != nil {
-				return nil, err
-			}
-			return client.Slugs(ctx)
-		},
-		Files: filesForSkill,
-		Publish: func(ctx context.Context, slug string, files map[string][]byte, msg string) (string, error) {
-			client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-			if err != nil {
-				return "", err
-			}
-			return client.Publish(ctx, slug, files, msg)
-		},
+		Slugs:   registrySlugsFn(cfg),
+		Files:   filesForSkill,
+		Publish: registryPublishFn(cfg),
+	}
+}
+
+// registrySlugsFn returns the standard "list registry slugs" lambda
+// every hub flow uses to discover what's already published. A fresh
+// registry.Client is built per call so the underlying gh credential
+// cache (and any future per-call config) stays scoped to the request.
+func registrySlugsFn(cfg config.Config) func(context.Context) (map[string]struct{}, error) {
+	return func(ctx context.Context) (map[string]struct{}, error) {
+		client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+		if err != nil {
+			return nil, err
+		}
+		return client.Slugs(ctx)
+	}
+}
+
+// registryPublishFn returns the standard "publish a skill" lambda
+// every hub flow that writes to the registry uses. The client is
+// rebuilt per call for the same scoping reasons as registrySlugsFn.
+func registryPublishFn(cfg config.Config) func(context.Context, string, map[string][]byte, string) (string, error) {
+	return func(ctx context.Context, slug string, files map[string][]byte, msg string) (string, error) {
+		client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
+		if err != nil {
+			return "", err
+		}
+		return client.Publish(ctx, slug, files, msg)
 	}
 }
 

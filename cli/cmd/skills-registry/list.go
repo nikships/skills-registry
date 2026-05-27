@@ -155,7 +155,16 @@ func runList(ctx context.Context, query string, plain bool) error {
 // stable columns), so the description column is truncated to 80 chars to
 // keep one row per line.
 func printPlainList(repo string, summaries []registry.Summary) {
-	fmt.Printf("Registry: %s  (%d skill", repo, len(summaries))
+	printPlainSummaryTable("Registry", repo, summaries)
+}
+
+// printPlainSummaryTable is the shared fixed-width renderer used by
+// both `list --plain` and `search`. `label` is the headline prefix
+// (e.g. "Registry" or "Search Results") and the rest of the layout
+// matches across both commands so a piped consumer sees identical
+// columns regardless of which command produced the output.
+func printPlainSummaryTable(label, repo string, summaries []registry.Summary) {
+	fmt.Printf("%s: %s  (%d skill", label, repo, len(summaries))
 	if len(summaries) != 1 {
 		fmt.Print("s")
 	}

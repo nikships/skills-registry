@@ -97,7 +97,8 @@ func runAddJSON(ctx context.Context, source string) error {
 		jsonout.PrintError(err)
 		return err
 	}
-	var pushed, skipped []string
+	pushed := []string{}
+	skipped := []string{}
 	safeSource := redactSourceUserInfo(source)
 	for _, sk := range skills {
 		if _, dup := existing[sk.Slug]; dup {
@@ -117,12 +118,6 @@ func runAddJSON(ctx context.Context, source string) error {
 			return err
 		}
 		pushed = append(pushed, sk.Slug)
-	}
-	if pushed == nil {
-		pushed = []string{}
-	}
-	if skipped == nil {
-		skipped = []string{}
 	}
 	return jsonout.Print(addJSONResult{Pushed: pushed, Skipped: skipped})
 }

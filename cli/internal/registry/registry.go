@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -200,12 +201,12 @@ func (c *Client) summarize(ctx context.Context, slug, treeSHA string) (Summary, 
 		}
 		return Summary{}, false, err
 	}
-	if blob.Encoding != "base64" {
-		return Summary{}, false, nil
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(blob.Content, "\n", ""))
+	raw, err := decodeBlob(blob)
 	if err != nil {
 		return Summary{}, false, err
+	}
+	if raw == nil {
+		return Summary{}, false, nil
 	}
 	name, desc := parseSummary(string(raw), slug)
 	return Summary{
@@ -214,6 +215,17 @@ func (c *Client) summarize(ctx context.Context, slug, treeSHA string) (Summary, 
 		Description: desc,
 		TreeSHA:     treeSHA,
 	}, true, nil
+}
+
+// decodeBlob returns the raw bytes of a contents-API fileBlob. Blobs
+// in any encoding other than base64 are returned as (nil, nil) so
+// callers can treat them as "skip silently" — matching the legacy
+// behavior of summarize / downloadRecursive.
+func decodeBlob(blob fileBlob) ([]byte, error) {
+	if blob.Encoding != "base64" {
+		return nil, nil
+	}
+	return base64.StdEncoding.DecodeString(strings.ReplaceAll(blob.Content, "\n", ""))
 }
 
 // Get downloads the full <slug>/ folder into dest. Existing files are
@@ -248,12 +260,12 @@ func (c *Client) downloadRecursive(ctx context.Context, repoPath, destDir string
 			if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/contents/%s/%s", c.Repo, repoPath, e.Name), &blob); err != nil {
 				return err
 			}
-			if blob.Encoding != "base64" {
-				continue
-			}
-			raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(blob.Content, "\n", ""))
+			raw, err := decodeBlob(blob)
 			if err != nil {
 				return err
+			}
+			if raw == nil {
+				continue
 			}
 			if err := os.WriteFile(filepath.Join(destDir, e.Name), raw, 0o644); err != nil {
 				return err
@@ -283,23 +295,35 @@ var ErrSlugNotFound = errors.New("slug not found in registry")
 //	POST commits (msg, tree, parents)    → new commit
 //	PATCH refs/heads/<branch>            → fast-forward ref
 func (c *Client) Delete(ctx context.Context, slug string) (string, error) {
+	return c.retryOnConflict("delete "+strconv.Quote(slug), func() (string, error) {
+		return c.deleteOnce(ctx, slug)
+	})
+}
+
+// retryOnConflict invokes op up to MaxRetries times, retrying only on
+// 409/422 (the GitHub Git Data API's non-fast-forward signal). Any other
+// error — including ErrSlugNotFound — short-circuits immediately so
+// callers don't pay the backoff for a permanent failure.
+func (c *Client) retryOnConflict(label string, op func() (string, error)) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < c.MaxRetries; attempt++ {
-		sha, err := c.deleteOnce(ctx, slug)
+		sha, err := op()
 		if err == nil {
 			return sha, nil
-		}
-		if errors.Is(err, ErrSlugNotFound) {
-			return "", err
 		}
 		if !isStatus(err, 409) && !isStatus(err, 422) {
 			return "", err
 		}
 		lastErr = err
-		delay := time.Duration(c.RetryBaseS*float64(int(1)<<attempt)*1000) * time.Millisecond
-		time.Sleep(delay)
+		time.Sleep(c.retryDelay(attempt))
 	}
-	return "", fmt.Errorf("delete %q: conflict after %d retries: %w", slug, c.MaxRetries, lastErr)
+	return "", fmt.Errorf("%s: conflict after %d retries: %w", label, c.MaxRetries, lastErr)
+}
+
+// retryDelay returns the sleep duration before retry attempt `attempt`
+// (0-indexed). Exponential backoff seeded at RetryBaseS seconds.
+func (c *Client) retryDelay(attempt int) time.Duration {
+	return time.Duration(c.RetryBaseS*float64(int(1)<<attempt)*1000) * time.Millisecond
 }
 
 func (c *Client) deleteOnce(ctx context.Context, slug string) (string, error) {
@@ -388,20 +412,9 @@ func (c *Client) Publish(ctx context.Context, slug string, files map[string][]by
 	if message == "" {
 		message = "publish: " + slug
 	}
-	var lastErr error
-	for attempt := 0; attempt < c.MaxRetries; attempt++ {
-		sha, err := c.publishOnce(ctx, slug, files, message)
-		if err == nil {
-			return sha, nil
-		}
-		if !isStatus(err, 409) && !isStatus(err, 422) {
-			return "", err
-		}
-		lastErr = err
-		delay := time.Duration(c.RetryBaseS*float64(int(1)<<attempt)*1000) * time.Millisecond
-		time.Sleep(delay)
-	}
-	return "", fmt.Errorf("publish %q: conflict after %d retries: %w", slug, c.MaxRetries, lastErr)
+	return c.retryOnConflict("publish "+strconv.Quote(slug), func() (string, error) {
+		return c.publishOnce(ctx, slug, files, message)
+	})
 }
 
 func (c *Client) publishOnce(ctx context.Context, slug string, files map[string][]byte, message string) (string, error) {
@@ -444,7 +457,6 @@ func (c *Client) publishOnce(ctx context.Context, slug string, files map[string]
 	}
 	entries := make([]treeEntry, 0, len(normalized)+len(previous))
 	for rel, sha := range blobs {
-		sha := sha
 		entries = append(entries, treeEntry{
 			Path: slug + "/" + rel,
 			Mode: "100644",
@@ -866,7 +878,6 @@ func (c *Client) pushTree(ctx context.Context, files map[string][]byte, message 
 	}
 	entries := make([]treeEntry, 0, len(files))
 	for rel, sha := range blobs {
-		sha := sha
 		entries = append(entries, treeEntry{
 			Path: rel,
 			Mode: "100644",
@@ -1167,8 +1178,7 @@ func parseStatus(body string) int {
 	if m == nil {
 		return 0
 	}
-	var n int
-	fmt.Sscanf(m[1], "%d", &n)
+	n, _ := strconv.Atoi(m[1])
 	return n
 }
 
