@@ -152,11 +152,11 @@ func copyFileForInstall(src, dst string) error {
 	if err != nil {
 		return err
 	}
-defer dstFD.Close()
-if _, err := io.Copy(dstFD, srcFD); err != nil {
-	return err
-}
-return dstFD.Close()
+	defer dstFD.Close()
+	if _, err := io.Copy(dstFD, srcFD); err != nil {
+		return err
+	}
+	return dstFD.Close()
 }
 
 // installAnyValuesToTargets converts the opaque []any returned by
