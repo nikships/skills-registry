@@ -1,14 +1,4 @@
 <coding_guidelines>
-# Agent Notes — skills-registry
-
-A living guide for AI agents and new contributors. Captures the architecture, patterns, and trade-offs of the current (0.7.x) **GitHub-backed registry + hosted MCP** design. The CLI binary is `skills-registry`; the GitHub repo is still `skills-mcp` (org URL unchanged); the Python module is still `skills_mcp` (renaming would be churn without payoff).
-
-> **What changed in 0.3.0:** The project pivoted from "consolidate local skills" (gather/add) to "personal GitHub registry repo, fetched on demand". `gather` and `add` were removed. A new Go CLI handles all interactive UX, and a separate Python MCP server exposes the registry as three tools.
-
-> **What changed in 0.5.x:** The user-facing install flow is now `curl | sh` against `install.sh`, not `uvx skills-registry bootstrap`. The Python `init` subcommand is gone; everything bootstrap-related (`gh` auth check, scan/push/agent-select) lives in the Go binary. A bare `skills-registry` routes to the **onboarding wizard** (no config), the **dashboard hub** (config present), or a help dump (non-TTY / `--json`). The Go CLI gained a `remove` subcommand and a persistent `--json` flag honored by every subcommand.
-
-> **What changed in 0.7.x:** The MCP server is no longer something users install. It's **hosted** at `https://mcp.skills-registry.dev/mcp` (Streamable HTTP, OAuth + GitHub App), deployed from a Docker image on Railway. The PyPI wheel + sdist are gone; the Python entry point (`uv/pipx/pip install skills-registry`) is gone; the Go MCP-installer (`EnsureMCPEntryPoint`) is gone. The CLI's only MCP responsibility is printing the JSON snippet that points at the hosted URL — users paste it into their client and the OAuth flow does the rest. All the Python server code, Dockerfile, and Railway config live under `infa-not-for-users/` because users never touch it.
-
 ---
 
 ## Project Overview
