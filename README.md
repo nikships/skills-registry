@@ -66,7 +66,7 @@ skills-registry
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1 | iex"
+powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1)))"
 skills-registry
 ```
 

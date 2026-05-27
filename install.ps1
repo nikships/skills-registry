@@ -1,7 +1,7 @@
 # install.ps1 — install the skills-registry Go CLI on Windows.
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1 | iex"
+#   powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1)))"
 #
 # Detects the host architecture, downloads the matching zip from GitHub
 # Releases, extracts skills-registry.exe into ~\.local\bin, and adds
