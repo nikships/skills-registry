@@ -1,9 +1,14 @@
 name: Release macOS app
 
-# Builds, signs, notarizes, and releases the Skills Registry.app bundle on a
-# `macapp-v*` tag. Sparkle drives in-app auto-updates: each release is signed
-# with an EdDSA key (SPARKLE_PRIVATE_KEY) and an <item> is appended to
-# mac-app/appcast.xml on main (the SUFeedURL the app polls).
+# Auto-cuts a signed + notarized Skills Registry.app release on every push to
+# main that touches the macOS app source (and on manual dispatch) — same model
+# as the CLI's release.yml. The patch version auto-increments from the latest
+# macapp-v* tag (override via the workflow_dispatch `version` input). The
+# workflow creates and pushes the macapp-v<version> tag itself. Sparkle drives
+# in-app auto-updates: each release is signed with an EdDSA key
+# (SPARKLE_PRIVATE_KEY) and an <item> is appended to mac-app/appcast.xml on main
+# (the SUFeedURL the app polls). The appcast commit is NOT in the trigger paths,
+# so it never re-runs this workflow.
 #
 # Required repo secrets:
 #   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64  base64 of the Developer ID
@@ -18,13 +23,18 @@ name: Release macOS app
 
 on:
   push:
-    tags:
-      - "macapp-v*"
+    branches: [main]
+    paths:
+      - "mac-app/Sources/**"
+      - "mac-app/Resources/**"
+      - "mac-app/Package.swift"
+      - "mac-app/Package.resolved"
+      - "mac-app/scripts/bundle.sh"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without prefix, e.g. 0.1.0 (also tags macapp-v<version>)"
-        required: true
+        description: "Override version without prefix, e.g. 0.1.2. Leave empty to auto-increment the patch."
+        required: false
         type: string
 
 permissions:
@@ -54,11 +64,15 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           else
-            TAG="${GITHUB_REF#refs/tags/}"
-            VERSION="${TAG#macapp-v}"
+            # Auto-increment the patch from the latest macapp-v* tag.
+            LATEST="$(git tag --list 'macapp-v*' --sort=-v:refname | head -n1)"
+            CURRENT="${LATEST#macapp-v}"
+            [ -n "$CURRENT" ] || CURRENT="0.0.0"
+            IFS=. read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build_number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
@@ -161,6 +175,12 @@ jobs:
           git commit -m "ci: update macOS appcast for macapp-v${VERSION}" || echo "no appcast changes"
           git pull --rebase origin main
           git push origin main
+
+          # Tag the release commit and push it; the GitHub release below attaches
+          # to this tag. There is no tag-push trigger, so this does not re-run
+          # the workflow.
+          git tag -a "macapp-v${VERSION}" -m "Release macapp-v${VERSION}"
+          git push origin "macapp-v${VERSION}"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
