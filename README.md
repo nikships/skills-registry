@@ -245,6 +245,7 @@ Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-re
 ## Repo layout
 
 - [`cli/`](cli) — the Go binary users install (TUI + headless subcommands).
+- [`mac-app/`](mac-app) — native macOS app (SwiftUI, Apple Silicon) for managing the registry: GitHub login, browse with rich markdown + fuzzy search, publish/remove, bulk-import local skills, and 1-click CLI install. See its [README](mac-app/README.md).
 - [`install.sh`](install.sh) — POSIX one-shot installer for the Go binary.
 - [`docs/`](docs) — architecture deep-dive (`registry.md`) and supporting docs.
 - [`infa-not-for-users/`](infa-not-for-users) — the hosted MCP server (Python + FastMCP), Dockerfile, and Railway config. **Maintainer-only**; see its README for deployment details.

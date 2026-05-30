@@ -17,15 +17,16 @@ flowchart LR
   GH2 --> Repo
 ```
 
-Two user-facing deliverables, **single repo**, two languages.
+User-facing deliverables, **single repo**, three languages.
 
 | Piece | Language | Distribution | Role |
 |---|---|---|---|
 | `install.sh` | POSIX sh | Raw GitHub Content (`curl \| sh`) | One-shot installer. Detects OS/arch, downloads the matching Go tarball, drops the binary into `~/.local/bin/skills-registry`. |
-| `skills-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`, `update`). All honor `--json`. |
-| `skills-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. **Two read-only tools**: `search_skills`, `get_skill`. The hosted server never writes — `publish` / `sync` / `add` / `remove` all happen through the Go CLI. Users never install this; their MCP client connects to the URL and does the OAuth dance. |
+| `skills-registry` | Go | GitHub Releases (`darwin/linux/windows × amd64/arm64`, built by `.github/workflows/release.yml`) | Everything the user touches from the terminal: routing (wizard / hub / help), TUI, and headless subcommands (`bootstrap`, `list`, `get`, `sync`, `add`, `publish`, `remove`, `update`). All honor `--json`. |
+| Skills Registry.app | Swift (SwiftUI) | macOS app bundle, arm64 (built by `.github/workflows/release-macapp.yml`) | Native desktop GUI for the same registry: GitHub App Device-Flow login, browse with rich markdown + fuzzy search, publish/remove, bulk-import local skills, 1-click CLI install + copyable MCP JSON. Shares `registry.toml` and the slug/frontmatter/fuzzy contract with the CLI. |
+| `skills-registry-mcp` (hosted) | Python (FastMCP) | Docker image on Railway, served at `https://mcp.skills-registry.dev/mcp` | Streamable HTTP MCP server. **Two read-only tools**: `search_skills`, `get_skill`. The hosted server never writes — `publish` / `sync` / `add` / `remove` all happen through the Go CLI or the macOS app. Users never install this; their MCP client connects to the URL and does the OAuth dance. |
 
-> **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli). Users see only the CLI; the hosted server is a service, not a deliverable.
+> **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli); the macOS app lives in [`mac-app/`](../mac-app) (see its [README](../mac-app/README.md)). The hosted server is a service, not an installed deliverable.
 
 ### 1.1 Hosted MCP — what runs where
 

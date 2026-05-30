@@ -1,0 +1,178 @@
+name: Release macOS app
+
+# Builds, signs, notarizes, and releases the Skills Registry.app bundle on a
+# `macapp-v*` tag. Sparkle drives in-app auto-updates: each release is signed
+# with an EdDSA key (SPARKLE_PRIVATE_KEY) and an <item> is appended to
+# mac-app/appcast.xml on main (the SUFeedURL the app polls).
+#
+# Required repo secrets:
+#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64  base64 of the Developer ID
+#                                           Application .p12 (cert + key)
+#   APPLE_DEVELOPER_CERTIFICATE_PASSWORD    password for that .p12
+#   APPLE_DEVELOPER_ID_APPLICATION          identity name, e.g.
+#                                           "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID                                Apple ID email for notarytool
+#   APPLE_TEAM_ID                           10-char team id
+#   APPLE_APP_SPECIFIC_PASSWORD             app-specific password for notarytool
+#   SPARKLE_PRIVATE_KEY                     base64 Sparkle EdDSA private key
+
+on:
+  push:
+    tags:
+      - "macapp-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without prefix, e.g. 0.1.0 (also tags macapp-v<version>)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macapp
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, notarize & release
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: mac-app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#macapp-v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Releasing macapp-v${VERSION}"
+
+      - name: Import codesigning certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+      - name: Build + sign app bundle
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: bash scripts/bundle.sh --release --sign "${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}"
+
+      - name: Verify signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 "build/Skills Registry.app"
+          spctl -a -vvv -t install "build/Skills Registry.app" || echo "::warning::Gatekeeper check fails before notarization (expected)"
+
+      - name: Notarize + staple
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent "build/Skills Registry.app" "build/SkillsRegistry-notarize.zip"
+          OUT=$(xcrun notarytool submit "build/SkillsRegistry-notarize.zip" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+            --wait --output-format json)
+          echo "$OUT"
+          STATUS=$(echo "$OUT" | jq -r '.status')
+          if [ "$STATUS" != "Accepted" ]; then
+            ID=$(echo "$OUT" | jq -r '.id')
+            echo "::error::Notarization failed: $STATUS"
+            xcrun notarytool log "$ID" --apple-id "${{ secrets.APPLE_ID }}" \
+              --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+              --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" || true
+            exit 1
+          fi
+          xcrun stapler staple "build/Skills Registry.app"
+          xcrun stapler validate "build/Skills Registry.app"
+          rm -f "build/SkillsRegistry-notarize.zip"
+
+      - name: Zip + checksum
+        run: |
+          set -euo pipefail
+          cd build
+          ditto -c -k --sequesterRsrc --keepParent "Skills Registry.app" "SkillsRegistry-macos-arm64.zip"
+          shasum -a 256 "SkillsRegistry-macos-arm64.zip" | tee "SkillsRegistry-macos-arm64.zip.sha256"
+
+      - name: Sparkle sign
+        id: sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          SIGN_UPDATE=$(find .build -name sign_update -type f | grep -v old_dsa | head -n1)
+          [ -n "$SIGN_UPDATE" ] || { echo "::error::sign_update not found"; exit 1; }
+          SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" "build/SkillsRegistry-macos-arm64.zip" --ed-key-file -)
+          ED=$(echo "$SIG" | grep -o 'sparkle:edSignature="[^"]*"' | sed 's/sparkle:edSignature="//;s/"$//')
+          LEN=$(stat -f%z "build/SkillsRegistry-macos-arm64.zip")
+          echo "ed_signature=$ED" >> "$GITHUB_OUTPUT"
+          echo "length=$LEN" >> "$GITHUB_OUTPUT"
+
+      - name: Update appcast on main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          ED_SIGNATURE: ${{ steps.sparkle.outputs.ed_signature }}
+          LENGTH: ${{ steps.sparkle.outputs.length }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+
+          TODAY=$(date -u +"%a, %d %b %Y %H:%M:%S +0000")
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/macapp-v${VERSION}/SkillsRegistry-macos-arm64.zip"
+          cat > /tmp/new_item.xml <<ENDOFITEM
+              <item>
+                <title>Version ${VERSION}</title>
+                <sparkle:version>${BUILD_NUMBER}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                <pubDate>${TODAY}</pubDate>
+                <enclosure url="${URL}"
+                           type="application/octet-stream"
+                           sparkle:edSignature="${ED_SIGNATURE}"
+                           length="${LENGTH}"/>
+              </item>
+          ENDOFITEM
+
+          sed -i.bak '/<language>en<\/language>/r /tmp/new_item.xml' appcast.xml
+          rm -f appcast.xml.bak /tmp/new_item.xml
+          head -30 appcast.xml
+
+          git add appcast.xml
+          git commit -m "ci: update macOS appcast for macapp-v${VERSION}" || echo "no appcast changes"
+          git pull --rebase origin main
+          git push origin main
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: macapp-v${{ steps.version.outputs.version }}
+          name: Skills Registry (macOS) ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            mac-app/build/SkillsRegistry-macos-arm64.zip
+            mac-app/build/SkillsRegistry-macos-arm64.zip.sha256
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

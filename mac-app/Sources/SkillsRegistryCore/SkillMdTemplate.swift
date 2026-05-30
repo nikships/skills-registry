@@ -1,0 +1,173 @@
+import Foundation
+
+/// Exact Swift mirror of `cli/internal/bootstrap/skillmd.go:SkillMd`.
+///
+/// This is the body of the generated `skills-registry/SKILL.md` meta-skill the
+/// app installs into each agent's `<dot>/skills/skills-registry/` folder. The
+/// CLI (Go) and this app (Swift) MUST render byte-for-byte identical output —
+/// `SkillMdTemplateTests.testGoldenMatchesGoTemplate` pins the contract.
+///
+/// If you change the template here, change `skillmd.go` in the same PR (and
+/// vice-versa) and refresh the golden.
+public enum SkillMdTemplate {
+    /// Render the meta-skill SKILL.md for a given `owner/repo` registry.
+    public static func skillMd(registryRepo: String) -> String {
+        return """
+---
+name: skills-registry
+description: |
+  Broker to your GitHub-hosted personal skill library at \(registryRepo). Use when the
+  user asks for a skill, mentions installing/sharing skills, says 'use the
+  X skill', or you need specialized domain instructions not already loaded
+  in this session.
+---
+
+# Skill Registry
+
+Skills live at https://github.com/\(registryRepo) and can be reached two ways:
+
+1. **MCP (preferred when available).** If this agent's client is wired to
+   the hosted MCP server at `https://mcp.skills-registry.dev/mcp`, you
+   already have the `search_skills` and `get_skill` tools.
+   Use them — they're faster and don't require a CLI binary.
+
+2. **CLI (fallback / write-side).** When MCP isn't available, or for write
+   operations (publish / sync / remove), shell out to the `skills-registry`
+   binary. Requires the `gh` CLI to be authenticated
+   (`gh auth status`); all I/O routes through `gh api` — no
+   `git` or SSH needed for day-to-day commands.
+
+**Do not assume any skill is already loaded.** Always discover, fetch,
+then read the skill's `SKILL.md`; it tells you what else to load
+and when.
+
+## Install the CLI (one-time, only if the binary isn't on PATH)
+
+```
+curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+```
+
+Drops the binary into `~/.local/bin/skills-registry`. Re-run any time
+to upgrade.
+
+## 1. Discover what's available
+
+The hosted MCP and the CLI use the **same fzf V1-style fuzzy scorer**, so
+agents see the same top-10 ordering via either surface.
+
+**Searching with a query (top 10 ranked matches):**
+
+MCP: call `search_skills(query="<query>")` — a non-empty query is
+required; passing `""` returns a "search requires a term" message,
+not the full registry.
+
+CLI:
+```
+skills-registry search <query>
+```
+
+**Enumerating every skill (no query):**
+
+Use `skills-registry list` (TUI or `--json`). `search`
+intentionally does not enumerate — the two commands have separate
+responsibilities.
+
+Match the user's request against descriptions, not just slugs.
+
+## 2. Fetch the skill
+
+MCP: call `get_skill(slug="<slug>")` — returns the raw `SKILL.md` body.
+
+CLI:
+```
+skills-registry get <slug> [--dest PATH]
+```
+
+The CLI fetches the **entire upstream directory tree** for the skill and
+writes it to a local folder. The returned path is a complete, self-contained
+skill package — every file and subfolder belonging to the skill is present
+on disk.
+
+**After fetching, always inspect the folder contents:**
+- Read `SKILL.md` at the root first.
+- Check for common subfolders: `references/`, `scripts/`, `assets/`, `resources/`, etc.
+- Follow local file references in `SKILL.md` by reading the already-fetched
+  files at the returned path — do not re-fetch individual referenced files.
+
+By default the CLI writes to `~/.cache/skills-mcp/skills/<slug>/` (the
+shared global cache; honors `XDG_CACHE_HOME` when set) — pass
+`--dest` to write somewhere else.
+
+**After reading the skill, offer cleanup.** The fetched skill files are now
+in your agent context — the on-disk copy is only needed if you plan to edit
+the skill itself or if the user wants to keep it for offline use. Always
+inform the user where the skill was installed (the `path` returned
+by `get`) and ask:
+
+> "The `<slug>` skill has been fetched to `<path>`. It's
+> already loaded into my context, so I don't need the files on disk anymore.
+> Would you like me to delete the local copy now?"
+
+If the user says yes, delete the folder at the returned path. Do **not** use
+`skills-registry remove` for this — that command deletes the skill
+from the public registry, the cache, and every agent dot-folder. For simple
+local cleanup, just remove the specific folder the `get` command
+returned.
+
+## 3. Publish a new or updated skill (CLI only; hosted MCP is read-only)
+
+- `skills-registry publish <path>` — single-skill push from a local folder
+- `skills-registry add <source>` — pull from a path, `owner/repo`, or git URL,
+  then push selections to the registry
+- `skills-registry sync` — scan your AI tool dot-folders for skills not yet in
+  the registry; multi-select what to push
+
+## 4. Remove a skill (CLI only; hosted MCP is read-only)
+
+```
+skills-registry remove <slug>
+```
+
+Deletes the slug end-to-end: from the GitHub registry repo (single
+atomic commit), the local cache (`~/.cache/skills-mcp/skills/<slug>/`),
+and every agent dot-folder copy. Interactive runs prompt for confirmation;
+pass `--yes` (or `--json`, which implies it) to skip the prompt.
+
+## 5. Programmatic / scripted use — `--json`
+
+Every CLI subcommand accepts a persistent `--json` flag that
+suppresses the TUI and emits a single JSON payload to stdout. Errors land
+as `{"error": "..."}` with a non-zero exit code. This is the
+entry point when you (the agent) are driving the CLI yourself rather than
+letting a human pick from a list.
+
+| Command | Payload shape |
+|---|---|
+| `skills-registry list --json` | `[{"slug": "...", "name": "...", "description": "..."}, …]` |
+| `skills-registry search <query> --json` | `[{"slug": "...", "name": "...", "description": "..."}, …]` (top 10) |
+| `skills-registry get <slug> --json` | `{"slug": "...", "path": "..."}` (path is the on-disk dest) |
+| `skills-registry publish <path> --json` | `{"slug": "...", "sha": "...", "url": "..."}` |
+| `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
+| `skills-registry remove <slug> --json` | `{"slug": "...", "repo": "...", "sha": "...", "removed_from": ["registry", "cache", "dotfolders"]}` |
+
+`--json` always implies `--yes` on destructive commands
+(`sync`, `remove`): JSON callers never get a Bubble Tea
+prompt. Combine with `jq` to chain calls — e.g.
+`skills-registry search <query> --json | jq -r '.[].slug' | xargs -I{} skills-registry get {} --json`
+(or swap `search <query>` for `list` to enumerate every slug — `search` always requires a query).
+
+## Troubleshooting
+
+- `skills-registry --help` — full command list and flags
+- `gh auth status` — confirm GitHub credentials are present
+- If `skills-registry list` or `skills-registry search` errors,
+  check the config at `~/.config/skills-mcp/registry.toml` points at
+  the right `owner/repo`
+- If MCP tools (`search_skills` / `get_skill`) say "no repo
+  linked yet", install the Skills Registry GitHub App on your registry repo
+  via the link the server prints, then retry — the webhook auto-links
+  within a few seconds.
+
+"""
+    }
+}
