@@ -1,0 +1,10 @@
+# Swift Package Manager build artifacts
+.build/
+build/
+
+# macOS
+.DS_Store
+*.xcuserstate
+
+# Local-only handoff secrets — NEVER commit
+.handoff-secrets.md
