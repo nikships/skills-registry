@@ -1,0 +1,99 @@
+name: Release macOS app
+
+# Builds the Skills Registry.app bundle on a tag like `macapp-v0.1.0`
+# (or manual dispatch). If Apple Developer ID secrets are present it
+# code-signs + notarizes + staples; otherwise it ships an ad-hoc-signed,
+# unsigned zip (users right-click → Open the first time). Everything below
+# is keyed off secrets so the workflow is a no-op-safe default for forks.
+
+on:
+  push:
+    tags:
+      - "macapp-v*"
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: "Attempt code-sign + notarize (requires secrets)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build + (optionally) notarize
+    runs-on: macos-15
+    # Map secrets to env so step-level `if:` can gate on their presence
+    # (the `secrets` context isn't allowed directly in `if` expressions).
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+    defaults:
+      run:
+        working-directory: mac-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build release bundle (ad-hoc signed)
+        run: bash scripts/bundle.sh --release
+
+      # ---- Optional: import Developer ID cert and hard-sign ----
+      - name: Import signing certificate
+        if: ${{ env.MACOS_CERT_P12 != '' }}
+        env:
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN=build.keychain
+          security create-keychain -p actions "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p actions "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions "$KEYCHAIN"
+          rm -f /tmp/cert.p12
+
+      - name: Hard-sign with Developer ID
+        if: ${{ env.MACOS_SIGN_IDENTITY != '' }}
+        run: |
+          codesign --force --deep --options runtime \
+            --sign "$MACOS_SIGN_IDENTITY" "build/Skills Registry.app"
+          codesign --verify --verbose "build/Skills Registry.app"
+
+      - name: Zip app
+        run: |
+          cd build
+          ditto -c -k --keepParent "Skills Registry.app" "SkillsRegistry-macos-arm64.zip"
+
+      - name: Notarize + staple
+        if: ${{ env.MACOS_NOTARY_KEY != '' }}
+        env:
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+        run: |
+          echo "$MACOS_NOTARY_KEY" | base64 --decode > /tmp/AuthKey.p8
+          xcrun notarytool submit "build/SkillsRegistry-macos-arm64.zip" \
+            --key /tmp/AuthKey.p8 \
+            --key-id "$MACOS_NOTARY_KEY_ID" \
+            --issuer "$MACOS_NOTARY_ISSUER" \
+            --wait
+          xcrun stapler staple "build/Skills Registry.app"
+          rm -f /tmp/AuthKey.p8
+          cd build && ditto -c -k --keepParent "Skills Registry.app" "SkillsRegistry-macos-arm64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkillsRegistry-macos-arm64
+          path: mac-app/build/SkillsRegistry-macos-arm64.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/macapp-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mac-app/build/SkillsRegistry-macos-arm64.zip
+          fail_on_unmatched_files: true
