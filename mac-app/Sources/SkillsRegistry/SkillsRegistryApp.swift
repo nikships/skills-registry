@@ -5,6 +5,7 @@ import SkillsRegistryCore
 struct SkillsRegistryApp: App {
     @StateObject private var state: AppState
     @StateObject private var theme = ThemeManager()
+    @StateObject private var updater = UpdaterManager()
 
     init() {
         let demo = ProcessInfo.processInfo.arguments.contains("--demo")
@@ -17,6 +18,7 @@ struct SkillsRegistryApp: App {
             RootView()
                 .environmentObject(state)
                 .environmentObject(theme)
+                .environmentObject(updater)
                 .frame(minWidth: 940, minHeight: 620)
                 .background(Brand.bg)
                 .preferredColorScheme(.dark)
@@ -26,8 +28,8 @@ struct SkillsRegistryApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1100, height: 740)
         .commands {
-            CommandGroup(replacing: .appInfo) {
-                Button("About Skills Registry") {}
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(updater: updater)
             }
         }
     }

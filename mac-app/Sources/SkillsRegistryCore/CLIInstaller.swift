@@ -34,21 +34,6 @@ public enum CLIInstaller {
         return line.isEmpty ? nil : line
     }
 
-    /// Latest release tag, e.g. "v0.6.0". Unauthenticated REST call.
-    public static func latestTag() async throws -> String {
-        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(AppConfig.projectRepo)/releases/latest")!)
-        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.setValue("skills-registry-mac", forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard code == 200,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = obj["tag_name"] as? String else {
-            throw GitHubError(status: code, message: "Could not resolve latest release", endpoint: "releases/latest")
-        }
-        return tag
-    }
-
     /// Download + extract + install. Returns the installed binary path.
     @discardableResult
     public static func install(version: String = "latest") async throws -> URL {

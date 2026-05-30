@@ -27,6 +27,7 @@ struct HomeView: View {
             content
         }
         .background(Brand.bg)
+        .task { await state.checkForUpdates() }
     }
 
     private var sidebar: some View {
@@ -133,14 +134,17 @@ struct HomeView: View {
     }
 
     @ViewBuilder private var content: some View {
-        Group {
-            switch section {
-            case .browse: BrowseView()
-            case .importLocal: ImportView()
-            case .settings: SettingsView()
+        VStack(spacing: 0) {
+            UpdateBanner()
+            Group {
+                switch section {
+                case .browse: BrowseView()
+                case .importLocal: ImportView()
+                case .settings: SettingsView()
+                }
             }
+            .id(section)
+            .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
-        .id(section)
-        .transition(.opacity.combined(with: .move(edge: .trailing)))
     }
 }

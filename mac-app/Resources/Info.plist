@@ -32,5 +32,19 @@
     <string>MIT License</string>
     <key>LSUIElement</key>
     <false/>
+    <!-- Sparkle auto-update. SUFeedURL is the raw-GitHub appcast the release
+         workflow commits; SUPublicEDKey is the EdDSA public key whose private
+         half (keychain account "skills-registry" / GH secret SPARKLE_PRIVATE_KEY)
+         signs each release. -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/anand-92/skills-registry/main/mac-app/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>wscGRrGXNxnBdDl8nwHMHD7X9N88pD3e+XfxLqKRU4s=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
 </dict>
 </plist>

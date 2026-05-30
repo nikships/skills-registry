@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.0"),
     ],
     targets: [
         // Pure-Foundation logic: auth, GitHub I/O, registry contracts, scan,
@@ -27,6 +28,7 @@ let package = Package(
             dependencies: [
                 "SkillsRegistryCore",
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ]
         ),
         .testTarget(

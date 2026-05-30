@@ -68,23 +68,50 @@ Sources/SkillsRegistryCore/
   GitHubReads.swift     currentUser, installations, listSkills, getSkill
   GitHubWrites.swift    createRepo, publish, delete, bulkPush (atomic Git Data API)
   CLIInstaller.swift    one-click CLI install (mirrors install.sh)
+  SkillMdTemplate.swift skills-registry/SKILL.md renderer ── byte-identical to skillmd.go
+  MetaSkill.swift       detect / install / refresh the skills-registry meta-skill per agent
+  Updates.swift         Semver + release channels (CLI vs macApp) + latest-release lookup
   Subprocess.swift      async Process wrapper
 
 Sources/SkillsRegistry/
-  SkillsRegistryApp.swift  @main + RootView router + demo detection
+  SkillsRegistryApp.swift  @main + RootView router + demo detection + Sparkle wiring
   AppState.swift           @MainActor ObservableObject orchestrating everything
+  UpdaterManager.swift     Sparkle SPUStandardUpdaterController wrapper + menu command
   Theme.swift              brand palette + reusable styles
   Components.swift         toast, eyebrow, wordmark, empty state
+  UpdateBanner.swift       dismissible CLI-update + meta-skill prompts
   LoginView.swift          sign-in pitch + DeviceCodeSheet
   SetupView.swift          create / connect / install-app
-  HomeView.swift           sidebar + content router
+  HomeView.swift           sidebar + content router + UpdateBanner
   BrowseView.swift         search list + skill rows + detail pane
   SkillDetailView.swift    MarkdownUI render + file rail + actions
   MarkdownTheme.swift      brand-matched MarkdownUI theme
   ImportView.swift         bulk local import checklist
-  SettingsView.swift       CLI install + MCP JSON + registry/account
+  SettingsView.swift       App + agent-skill + CLI + MCP + registry/account cards
   Demo.swift               demo-mode fixtures
 ```
+
+### Staying current: app, CLI, and the meta-skill
+
+Three things can fall out of date; the app keeps each one fresh:
+
+- **The app itself** auto-updates via **[Sparkle](https://github.com/sparkle-project/Sparkle)**.
+  `UpdaterManager` owns an `SPUStandardUpdaterController`; the feed
+  (`SUFeedURL` in `Info.plist`) is `mac-app/appcast.xml` on `main`, and every
+  release is EdDSA-signed (`SUPublicEDKey`) before Sparkle will install it. A
+  daily background check, a "Check for Updates…" menu item, and an "auto-check"
+  toggle in **Settings → App** are the whole surface.
+- **The `skills-registry` CLI** is a separate release stream (`v*` tags vs the
+  app's `macapp-v*` tags — same repo, so `releases/latest` is ambiguous; see
+  `Updates.ReleaseChannel`). On a 6-hour throttle the app checks the CLI
+  channel and, if a newer build exists, shows a dismissible Home banner +
+  a "update → vX.Y.Z" pill in **Settings → Command-line tool**. One click
+  reinstalls the pinned tag.
+- **The `skills-registry` meta-skill** (`SKILL.md`) is the gateway that teaches
+  each agent how to reach your registry. `MetaSkill` scans every detected
+  home-based agent dot-folder, classifies it `missing` / `outdated` / `current`
+  against `SkillMdTemplate`, and the Home banner + **Settings → Agent skill**
+  card install/refresh it into every agent in one click.
 
 ### Auth: GitHub App Device Flow
 
@@ -135,6 +162,11 @@ implementations that must stay in lockstep:
 | Fuzzy scorer | `_fuzzy_score` / `_score_skill` in `infa-not-for-users/skills_mcp/github_api.py` | `fuzzyScore` / `scoreSkill` in `cli/cmd/skills-registry/search.go` | `fuzzyScore` / `scoreAndSort` in `Sources/SkillsRegistryCore/FuzzyScore.swift` |
 | Slug | `slugify` in `github_api.py` | `cli/internal/scan` + `registry` | `slugify` in `Slug.swift` |
 | Frontmatter | `frontmatter.py` | `cli/internal/scan` | `Frontmatter.swift` |
+| Meta-skill `SKILL.md` | — (read-only server) | `SkillMd` in `cli/internal/bootstrap/skillmd.go` | `SkillMdTemplate.swift` |
+
+The Go and Swift `SKILL.md` templates must render **byte-for-byte identical**
+output — `SkillMdTemplateTests` pins the rendered length (6428 bytes for
+`owner/repo`) and key lines. Edit one, edit the other, refresh the test.
 
 The scorer constants (base 16, boundary 8, camel 7, consecutive 5, case 1, gap
 2, field weights name 2 / slug 1 / desc 1, top-N 10) are **duplicated by
@@ -154,7 +186,7 @@ not shared with Python — the hosted server is read-only.
 ## Testing
 
 ```bash
-swift test                       # Core contract + cross-language corpus (15 tests)
+swift test                       # Core contract + cross-language corpus + updates/meta-skill (32 tests)
 ```
 
 UI is verified by launching in demo mode and driving it with cua-driver
@@ -178,16 +210,30 @@ For a notarized build, supply an Apple **Developer ID Application** identity:
 bash scripts/bundle.sh --release --sign "Developer ID Application: Your Name (TEAMID)"
 ```
 
-The `.github/workflows/release-macapp.yml` workflow is notarization-ready: on a
-`macapp-v*` tag it builds the bundle, and **if** these repo secrets are set it
-hard-signs, notarizes with `notarytool`, and staples — otherwise it ships the
-ad-hoc-signed zip:
+`scripts/bundle.sh --notarize` zips, submits to Apple's notary service, and
+staples the ticket (reads `APPLE_ID` / `APPLE_TEAM_ID` /
+`APPLE_APP_SPECIFIC_PASSWORD` from the environment).
+
+### CI release (`.github/workflows/release-macapp.yml`)
+
+On a `macapp-v*` tag (or `workflow_dispatch`) the workflow imports the Developer
+ID cert, builds + nested-signs the bundle (including `Sparkle.framework`'s
+XPC services, `Autoupdate`, and `Updater.app`), notarizes + staples, EdDSA-signs
+the zip with `sign_update`, appends an `<item>` to `mac-app/appcast.xml` on
+`main`, and attaches `SkillsRegistry-macos-arm64.zip` (+ `.sha256`) to the
+release. Required repo secrets:
 
 | Secret | Purpose |
 |---|---|
-| `MACOS_CERT_P12` / `MACOS_CERT_PASSWORD` | base64 Developer ID cert + password |
-| `MACOS_SIGN_IDENTITY` | e.g. `Developer ID Application: … (TEAMID)` |
-| `MACOS_NOTARY_KEY` / `MACOS_NOTARY_KEY_ID` / `MACOS_NOTARY_ISSUER` | App Store Connect API key (base64 `.p8`) for `notarytool` |
+| `APPLE_DEVELOPER_CERTIFICATE_P12_BASE64` / `APPLE_DEVELOPER_CERTIFICATE_PASSWORD` | base64 **Developer ID Application** `.p12` (cert + private key) and its password |
+| `APPLE_DEVELOPER_ID_APPLICATION` | identity name, e.g. `Developer ID Application: … (TEAMID)` |
+| `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_SPECIFIC_PASSWORD` | `notarytool` credentials |
+| `SPARKLE_PRIVATE_KEY` | base64 Sparkle EdDSA private key matching `SUPublicEDKey` in `Info.plist` |
+
+> The cert **must** be a *Developer ID Application* certificate — an "Apple
+> Development" cert cannot notarize. Generate the Sparkle key pair with
+> `generate_keys` (the public key is already in `Info.plist`); export the
+> private half with `generate_keys -x` for `SPARKLE_PRIVATE_KEY`.
 
 The app icon is generated on the fly by `scripts/make-icon.sh` (no checked-in
 binary asset) — pure `sips` + `iconutil` + a tiny AppKit drawing program.

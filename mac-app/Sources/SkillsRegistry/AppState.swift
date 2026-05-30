@@ -27,14 +27,25 @@ final class AppState: ObservableObject {
     @Published var cliInstalled = false
     @Published var cliVersion: String?
 
+    // Update / meta-skill prompts surfaced in the Home banner + Settings.
+    @Published var cliUpdate: ReleaseInfo?
+    @Published var metaSkill = MetaSkill.Status()
+    @Published var dismissedKeys: Set<String> = []
+
     let isDemo: Bool
     private var token: String?
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
     private let flow = DeviceFlow()
 
+    private let defaults = UserDefaults.standard
+    private let dismissKey = "dismissedUpdatePrompts"
+    private let lastCLICheckKey = "lastCLIUpdateCheck"
+    private let cliCheckInterval: TimeInterval = 6 * 3600
+
     init(demo: Bool = false) {
         self.isDemo = demo
+        dismissedKeys = Set(defaults.stringArray(forKey: dismissKey) ?? [])
     }
 
     // MARK: - lifecycle
@@ -317,9 +328,15 @@ final class AppState: ObservableObject {
 
     func installCLI() async {
         do {
-            _ = try await CLIInstaller.install()
+            // Pin the resolved CLI tag so we never pull the CLI asset from a
+            // `macapp-v*` release (the project ships both streams from one repo;
+            // GitHub's `releases/latest` is ambiguous across them).
+            let resolved = try? await Updates.latestRelease(repo: AppConfig.projectRepo, channel: .cli)
+            let version = (resolved ?? nil)?.tag ?? "latest"
+            _ = try await CLIInstaller.install(version: version)
             cliInstalled = true
             cliVersion = await CLIInstaller.installedVersion()
+            cliUpdate = nil
             showToast("CLI installed to ~/.local/bin/skills-registry", .ok)
         } catch {
             showToast("CLI install failed: \(error.localizedDescription)", .error)
@@ -329,6 +346,76 @@ final class AppState: ObservableObject {
     func refreshCLIStatus() async {
         cliInstalled = CLIInstaller.isInstalled()
         cliVersion = await CLIInstaller.installedVersion()
+    }
+
+    // MARK: - update / meta-skill prompts
+
+    /// Run on entering the ready phase. Recomputes the (local) meta-skill
+    /// status every call and checks the CLI release channel on a 6h throttle.
+    /// Sparkle owns the app's own self-update, so it isn't checked here.
+    func checkForUpdates() async {
+        if isDemo { return }
+        refreshMetaSkillStatus()
+        await refreshCLIStatus()
+        await checkCLIUpdate()
+    }
+
+    /// Local-only: classify the meta-skill across detected agent dot-folders.
+    func refreshMetaSkillStatus() {
+        guard let repo else { metaSkill = MetaSkill.Status(); return }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        metaSkill = MetaSkill.status(home: home, registryRepo: repo.fullName)
+    }
+
+    private func checkCLIUpdate() async {
+        guard cliInstalled else { cliUpdate = nil; return }
+        let now = Date().timeIntervalSince1970
+        // Throttle the network call; keep showing an already-found update.
+        if cliUpdate == nil, now - defaults.double(forKey: lastCLICheckKey) < cliCheckInterval {
+            return
+        }
+        guard let latest = (try? await Updates.latestRelease(
+            repo: AppConfig.projectRepo, channel: .cli)) ?? nil else { return }
+        defaults.set(now, forKey: lastCLICheckKey)
+        cliUpdate = Updates.isNewer(installed: cliVersion, than: latest.version) ? latest : nil
+    }
+
+    /// Install / refresh the `skills-registry` meta-skill into every detected
+    /// agent (one click; only writes the missing/outdated ones).
+    func installMetaSkill() async {
+        guard let repo else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        do {
+            let n = try MetaSkill.install(home: home, registryRepo: repo.fullName)
+            refreshMetaSkillStatus()
+            if n > 0 {
+                showToast("Installed skills-registry skill in \(n) agent\(n == 1 ? "" : "s")", .ok)
+            } else {
+                showToast("skills-registry skill already up to date", .info)
+            }
+        } catch {
+            showToast("Couldn't install skill: \(error.localizedDescription)", .error)
+        }
+    }
+
+    // MARK: - prompt dismissal (persisted)
+
+    func dismiss(_ key: String) {
+        dismissedKeys.insert(key)
+        defaults.set(Array(dismissedKeys), forKey: dismissKey)
+    }
+
+    func isDismissed(_ key: String) -> Bool { dismissedKeys.contains(key) }
+
+    /// Stable key for the current CLI update prompt (re-pesters on a new tag).
+    var cliUpdateKey: String? { cliUpdate.map { "cli:\($0.version.string)" } }
+
+    /// Stable key for the meta-skill prompt (re-pesters when the situation
+    /// changes — a new agent appears, or a refresh is needed).
+    var metaSkillKey: String {
+        let missing = metaSkill.targets.filter { $0.state == .missing }.count
+        let outdated = metaSkill.targets.filter { $0.state == .outdated }.count
+        return "skill:\(repo?.fullName ?? "-"):\(missing)-\(outdated)"
     }
 
     // MARK: - toast

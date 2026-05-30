@@ -5,7 +5,13 @@ import SkillsRegistryCore
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var theme: ThemeManager
+    @EnvironmentObject var updater: UpdaterManager
     @State private var installing = false
+    @State private var installingSkill = false
+
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
+    }
 
     var body: some View {
         ScrollView {
@@ -15,6 +21,8 @@ struct SettingsView: View {
                     Text("Connect your agents").font(.system(size: 22, weight: .semibold)).foregroundStyle(Brand.fg)
                 }
                 appearanceCard
+                appCard
+                agentSkillCard
                 cliCard
                 mcpCard
                 registryCard
@@ -24,7 +32,111 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Brand.bg)
-        .task { await state.refreshCLIStatus() }
+        .task { await state.checkForUpdates() }
+    }
+
+    private var appCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Label("App", systemImage: "app.badge").font(.system(size: 15, weight: .semibold)).foregroundStyle(Brand.fg)
+                    Spacer()
+                    Pill(text: "v\(appVersion)", dot: Brand.success)
+                }
+                Text("Skills Registry updates itself in the background and verifies each release's signature before installing. You can also check now.")
+                    .font(.system(size: 13)).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Button { updater.checkForUpdates() } label: {
+                        Label("Check for updates", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(!updater.canCheckForUpdates)
+                    .accessibilityIdentifier("checkAppUpdates")
+                    Spacer()
+                    Toggle("Check automatically", isOn: Binding(
+                        get: { updater.automaticallyChecksForUpdates },
+                        set: { updater.setAutomaticChecks($0) }))
+                        .toggleStyle(.switch)
+                        .font(.system(size: 12)).foregroundStyle(Brand.muted)
+                }
+            }
+        }
+    }
+
+    private var agentSkillCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Label("Agent skill", systemImage: "sparkles").font(.system(size: 15, weight: .semibold)).foregroundStyle(Brand.fg)
+                    Spacer()
+                    agentSkillPill
+                }
+                Text("The `skills-registry` skill teaches each agent how to discover, fetch, and publish skills from your registry. Install it into every detected agent in one click.")
+                    .font(.system(size: 13)).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
+
+                if state.metaSkill.detectedCount > 0 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(state.metaSkill.targets) { row in
+                            HStack(spacing: 8) {
+                                Circle().fill(stateColor(row.state)).frame(width: 6, height: 6)
+                                Text(row.target.display).font(Brand.monoSized(12)).foregroundStyle(Brand.fg2)
+                                Spacer()
+                                Text(stateLabel(row.state)).font(Brand.monoSized(11)).foregroundStyle(Brand.meta)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Brand.surfaceWarm)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Text("No agents detected in your home folder yet.")
+                        .font(Brand.monoSized(11)).foregroundStyle(Brand.meta)
+                }
+
+                Button {
+                    installingSkill = true
+                    Task { await state.installMetaSkill(); installingSkill = false }
+                } label: {
+                    HStack(spacing: 8) {
+                        if installingSkill { ProgressView().controlSize(.small) }
+                        Text(state.metaSkill.anyMissing ? "Install in all agents" : "Reinstall / refresh")
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(installingSkill || state.metaSkill.detectedCount == 0)
+                .accessibilityIdentifier("installMetaSkill")
+            }
+        }
+    }
+
+    @ViewBuilder private var agentSkillPill: some View {
+        if state.metaSkill.detectedCount == 0 {
+            Pill(text: "no agents", dot: Brand.meta)
+        } else if state.metaSkill.anyMissing {
+            Pill(text: "action needed", dot: Brand.warn)
+        } else if state.metaSkill.anyOutdated {
+            Pill(text: "update available", dot: Brand.warn)
+        } else {
+            Pill(text: "installed", dot: Brand.success)
+        }
+    }
+
+    private func stateColor(_ s: MetaSkill.State) -> Color {
+        switch s {
+        case .missing: return Brand.danger
+        case .outdated: return Brand.warn
+        case .current: return Brand.success
+        }
+    }
+
+    private func stateLabel(_ s: MetaSkill.State) -> String {
+        switch s {
+        case .missing: return "not installed"
+        case .outdated: return "out of date"
+        case .current: return "installed"
+        }
     }
 
     private var appearanceCard: some View {
@@ -61,7 +173,9 @@ struct SettingsView: View {
                 HStack {
                     Label("Command-line tool", systemImage: "terminal").font(.system(size: 15, weight: .semibold)).foregroundStyle(Brand.fg)
                     Spacer()
-                    if state.cliInstalled {
+                    if let update = state.cliUpdate {
+                        Pill(text: "update → \(update.version.string)", dot: Brand.warn)
+                    } else if state.cliInstalled {
                         Pill(text: state.cliVersion ?? "installed", dot: Brand.success)
                     } else {
                         Pill(text: "not installed", dot: Brand.warn)

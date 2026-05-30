@@ -32,9 +32,41 @@ The hard part — **real GitHub auth** — is done and tested live:
 - Earlier (demo mode) verified visually: Browse list/detail, fuzzy search,
   markdown rendering, Import, Settings (real CLI v0.5.30 detected), inter-screen
   animations.
-- **15/15 core contract tests pass** (`swift test`), zero warnings. Includes the
+- **32/32 core contract tests pass** (`swift test`), zero warnings. Includes the
   cross-language fuzzy-scorer / slug / frontmatter corpus test that pins the
-  Python ↔ Go ↔ Swift contract.
+  Python ↔ Go ↔ Swift contract, plus the new updates / meta-skill / SKILL.md
+  golden suites.
+
+---
+
+## Auto-update, CLI update prompt & meta-skill install (NEW)
+
+Three "keep current" surfaces were added (build + tests green; live UI
+re-verify pending):
+
+- **App self-update via Sparkle.** `Package.swift` pulls Sparkle 2.x;
+  `UpdaterManager` (`Sources/SkillsRegistry/UpdaterManager.swift`) wraps
+  `SPUStandardUpdaterController`. `Info.plist` has `SUFeedURL`
+  (`mac-app/appcast.xml` on `main`), `SUPublicEDKey`, daily check interval.
+  Surface: "Check for Updates…" app-menu item + **Settings → App** card
+  (version, manual check, auto-check toggle). Native Sparkle UI handles the
+  download/install prompt.
+- **CLI update prompt.** `Updates.swift` (Core) models the two release channels
+  (`v*` = CLI, `macapp-v*` = app — same repo) + semver. `AppState.checkCLIUpdate`
+  polls the CLI channel on a 6h throttle; when newer, a dismissible Home banner
+  (`UpdateBanner.swift`) + a "update → vX.Y.Z" pill in **Settings → Command-line
+  tool** appear. `installCLI()` now **pins the resolved CLI tag** (fixes the
+  ambiguous `releases/latest` across the two streams; the buggy
+  `CLIInstaller.latestTag()` was removed).
+- **Meta-skill install/refresh.** `MetaSkill.swift` (Core) detects home-based
+  agent dot-folders, classifies the `skills-registry/SKILL.md` as
+  missing/outdated/current against `SkillMdTemplate.swift` (a **byte-identical**
+  Swift mirror of the Go `skillmd.go`), and installs/refreshes into all detected
+  agents in one click. Surface: Home banner + **Settings → Agent skill** card.
+
+**Cross-language note:** `SkillMdTemplate.swift` must stay byte-for-byte
+identical to `cli/internal/bootstrap/skillmd.go` — `SkillMdTemplateTests` pins
+the rendered length (6428 bytes for `owner/repo`).
 
 ---
 
@@ -115,14 +147,17 @@ app) re-verification of the visual results is still worth a pass.
 
 ## Remaining work to ship
 
-- **Signing & notarization.** App is **ad-hoc signed** today (runs locally).
-  For distribution: Apple Developer ID Application cert + notarization. The
-  workflow `.github/workflows/release-macapp.yml` is notarization-ready and
-  degrades to an ad-hoc zip; wire the Apple secrets when available. No Apple
-  developer credentials exist yet (see `.handoff-secrets.md`).
+- **Signing & notarization.** `scripts/bundle.sh --release --sign "<id>"` does
+  full nested signing (Sparkle XPC services / Autoupdate / Updater.app +
+  hardened runtime); `--notarize` zips, submits to `notarytool`, and staples.
+  `.github/workflows/release-macapp.yml` does all of this on a `macapp-v*` tag,
+  EdDSA-signs the zip, and appends to `mac-app/appcast.xml`. **Remaining:** set
+  the repo secrets — most are known, but the **Developer ID Application** p12
+  still needs exporting from the login keychain (the previously-pasted p12 was
+  an "Apple Development" cert, which can't notarize). Exact commands + the
+  Sparkle key location are in `.handoff-secrets.md`.
 - **CI:** `.github/workflows/ci.yml` gained a `mac-app` job (macos-15, `swift
   build` + `swift test`, arm64). Confirm it's green on the PR.
-- Fix the 5 bugs above.
 
 ---
 
@@ -144,7 +179,7 @@ UI/app-layer and do **not** touch the contract.
 ```bash
 cd mac-app
 swift build                      # core + app
-swift test                       # 15 contract tests
+swift test                       # 32 contract tests
 scripts/bundle.sh                # -> build/Skills Registry.app (ad-hoc signed)
 open "build/Skills Registry.app" # real mode (device-flow login)
 open "build/Skills Registry.app" --args --demo   # demo mode (fixtures, no network)
