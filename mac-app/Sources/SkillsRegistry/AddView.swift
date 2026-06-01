@@ -12,6 +12,7 @@ struct AddView: View {
     @State private var discovered: [LocalSkill] = []
     @State private var selected: Set<String> = []
     @State private var didFetch = false
+    @State private var fetchFailed = false
     @State private var showPicker = false
     @State private var publishing = false
     @State private var progress: (Int, Int) = (0, 0)
@@ -103,6 +104,10 @@ struct AddView: View {
             EmptyState(icon: "square.and.arrow.down",
                        title: "Fetching…",
                        subtitle: "Resolving the source and scanning it for skills.")
+        } else if fetchFailed {
+            EmptyState(icon: "exclamationmark.triangle",
+                       title: "Fetch failed",
+                       subtitle: "Couldn't resolve or scan that source — check the path or URL and try again.")
         } else if discovered.isEmpty {
             EmptyState(icon: didFetch ? "tray" : "square.and.arrow.down",
                        title: didFetch ? "Nothing new to add" : "Fetch a source to begin",
@@ -147,14 +152,25 @@ struct AddView: View {
         .buttonStyle(.plain)
     }
 
-    private func fetch() {
+    /// `trusted` skips the relative-only path guard for a directory the user
+    /// picked via the native panel (which always yields an absolute path).
+    private func fetch(trusted: Bool = false) {
+        // onSubmit bypasses the disabled buttons, so guard here too: re-running
+        // mid-publish would tear down the temp clone the publish is reading.
+        guard !fetching && !publishing else { return }
         let src = source.trimmingCharacters(in: .whitespaces)
         guard !src.isEmpty else { return }
         fetching = true
+        fetchFailed = false
         Task {
-            let found = await state.resolveAndScan(src)
-            discovered = found
-            selected = Set(found.map(\.slug))
+            if let found = await state.resolveAndScan(src, trustedLocalDir: trusted) {
+                discovered = found
+                selected = Set(found.map(\.slug))
+            } else {
+                discovered = []
+                selected = []
+                fetchFailed = true
+            }
             didFetch = true
             fetching = false
         }
@@ -169,7 +185,7 @@ struct AddView: View {
         panel.message = "Choose a folder containing skills"
         if panel.runModal() == .OK, let url = panel.url {
             source = url.path
-            fetch()
+            fetch(trusted: true)
         }
     }
 

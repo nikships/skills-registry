@@ -304,14 +304,19 @@ final class AppState: ObservableObject {
     /// registry (dup-safe like `importSkills`). The resolved temp clone is kept
     /// alive until the next `resolveAndScan` or a `publishAndInstall` call so
     /// the discovered `folder` paths stay readable for upload.
-    func resolveAndScan(_ source: String) async -> [LocalSkill] {
+    /// Returns the discovered (dup-filtered) skills, or `nil` if the source
+    /// couldn't be resolved/scanned — letting the caller distinguish a fetch
+    /// failure from a genuinely empty result. `trustedLocalDir` relaxes the
+    /// relative-only path guard for directories chosen via the native picker.
+    func resolveAndScan(_ source: String, trustedLocalDir: Bool = false) async -> [LocalSkill]? {
         if isDemo { return Self.demoLocal }
         addCleanup?()
         addCleanup = nil
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let cwd = FileManager.default.currentDirectoryPath
         do {
-            let resolved = try await SourceResolver.resolve(source, home: home, cwd: cwd)
+            let resolved = try await SourceResolver.resolve(
+                source, home: home, cwd: cwd, allowAbsoluteLocal: trustedLocalDir)
             addCleanup = resolved.cleanup
             let discovered = Scan.discover([Scan.Source(path: resolved.scanRoot, label: source)])
             // Normalize both sides so a local "simplify_swarm" dedupes against a
@@ -327,7 +332,7 @@ final class AppState: ObservableObject {
         } catch {
             addCleanup = nil
             showToast("Couldn't fetch source: \(error.localizedDescription)", .error)
-            return []
+            return nil
         }
     }
 

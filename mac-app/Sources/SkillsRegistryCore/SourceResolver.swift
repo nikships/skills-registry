@@ -49,11 +49,20 @@ public enum SourceResolver {
 
     /// Resolve `source`. Clones remote sources into a temp dir (caller must
     /// invoke `cleanup` when done). `gitPath` overrides git discovery (tests).
+    /// `allowAbsoluteLocal` relaxes the relative-only local-path guard for
+    /// directories the user explicitly chose via the native file picker
+    /// (`NSOpenPanel` always returns an absolute path); typed input keeps the
+    /// strict, Go-parity `validateLocalSourcePath` rules.
     public static func resolve(_ source: String, home: String, cwd: String,
-                               gitPath: String? = nil) async throws -> Resolved {
+                               gitPath: String? = nil,
+                               allowAbsoluteLocal: Bool = false) async throws -> Resolved {
         if isLocalPath(source) {
-            let rel = try validateLocalSourcePath(source)
-            let abs = absolutePath(rel, cwd: cwd)
+            let abs: String
+            if allowAbsoluteLocal {
+                abs = try validateTrustedLocalPath(source, cwd: cwd)
+            } else {
+                abs = absolutePath(try validateLocalSourcePath(source), cwd: cwd)
+            }
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: abs, isDirectory: &isDir), isDir.boolValue else {
                 throw ResolveError.notADirectory(source)
@@ -130,6 +139,29 @@ public enum SourceResolver {
             throw ResolveError.invalidLocalPath("traversal is not allowed")
         }
         return path
+    }
+
+    /// Validation for a local directory the user picked via the native file
+    /// picker (`NSOpenPanel`). Unlike `validateLocalSourcePath` this permits the
+    /// absolute path the picker hands back, since it isn't untrusted text input
+    /// — but it still rejects backslashes, encoded separators, and any `..`
+    /// traversal. Returns the absolute path (relative input is resolved against
+    /// `cwd`).
+    static func validateTrustedLocalPath(_ source: String, cwd: String) throws -> String {
+        guard let path = source.removingPercentEncoding else {
+            throw ResolveError.invalidLocalPath("invalid source path encoding")
+        }
+        let lower = source.lowercased()
+        if path.contains("\\") || lower.contains("%5c") {
+            throw ResolveError.invalidLocalPath("backslashes are not allowed")
+        }
+        if lower.contains("%2f") {
+            throw ResolveError.invalidLocalPath("encoded separators are not allowed")
+        }
+        for segment in path.split(separator: "/", omittingEmptySubsequences: false) where segment == ".." {
+            throw ResolveError.invalidLocalPath("traversal is not allowed")
+        }
+        return absolutePath(path, cwd: cwd)
     }
 
     struct TreeURL: Equatable {

@@ -43,6 +43,29 @@ final class SourceResolverTests: XCTestCase {
         XCTAssertThrowsError(try SourceResolver.validateLocalSourcePath("a/../../escape"))
     }
 
+    // MARK: validateTrustedLocalPath (native-picker path — absolute allowed)
+
+    func testTrustedAllowsAbsolute() throws {
+        // NSOpenPanel hands back an absolute path; the strict validator rejects
+        // it, but the trusted picker path must accept it as-is.
+        XCTAssertThrowsError(try SourceResolver.validateLocalSourcePath("/Users/me/skills"))
+        XCTAssertEqual(
+            try SourceResolver.validateTrustedLocalPath("/Users/me/skills", cwd: "/tmp"),
+            "/Users/me/skills")
+    }
+
+    func testTrustedResolvesRelativeAgainstCwd() throws {
+        XCTAssertEqual(
+            try SourceResolver.validateTrustedLocalPath("skills", cwd: "/tmp/work"),
+            "/tmp/work/skills")
+    }
+
+    func testTrustedStillRejectsTraversalAndSeparators() {
+        XCTAssertThrowsError(try SourceResolver.validateTrustedLocalPath("/a/../../escape", cwd: "/tmp"))
+        XCTAssertThrowsError(try SourceResolver.validateTrustedLocalPath("a\\b", cwd: "/tmp"))
+        XCTAssertThrowsError(try SourceResolver.validateTrustedLocalPath("a%2fb", cwd: "/tmp"))
+    }
+
     // MARK: GitHub /tree/ URL parsing
 
     func testParsesTreeURLWithSubpath() {
