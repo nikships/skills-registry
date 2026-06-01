@@ -18,11 +18,11 @@ jobs:
       run:
         working-directory: infa-not-for-users
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
 
@@ -45,11 +45,11 @@ jobs:
       run:
         working-directory: cli
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache-dependency-path: cli/go.sum
 
       - run: go mod download
@@ -88,7 +88,7 @@ jobs:
       run:
         working-directory: mac-app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app

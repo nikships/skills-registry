@@ -216,12 +216,19 @@ staples the ticket (reads `APPLE_ID` / `APPLE_TEAM_ID` /
 
 ### CI release (`.github/workflows/release-macapp.yml`)
 
-On a `macapp-v*` tag (or `workflow_dispatch`) the workflow imports the Developer
-ID cert, builds + nested-signs the bundle (including `Sparkle.framework`'s
-XPC services, `Autoupdate`, and `Updater.app`), notarizes + staples, EdDSA-signs
-the zip with `sign_update`, appends an `<item>` to `mac-app/appcast.xml` on
-`main`, and attaches `SkillsRegistry-macos-arm64.zip` (+ `.sha256`) to the
-release. Required repo secrets:
+The workflow **auto-cuts a release on every push to `main` that touches the
+macOS app source** (`mac-app/Sources/**`, `mac-app/Resources/**`,
+`mac-app/Package.swift`, `mac-app/Package.resolved`, `mac-app/scripts/bundle.sh`)
+— the same auto-publish model as the CLI's `release.yml`. The patch version
+auto-increments from the latest `macapp-v*` tag; trigger a `workflow_dispatch`
+with an explicit `version` to override (or leave it empty to auto-increment).
+The workflow imports the Developer ID cert, builds + nested-signs the bundle
+(including `Sparkle.framework`'s XPC services, `Autoupdate`, and `Updater.app`),
+notarizes + staples, EdDSA-signs the zip with `sign_update`, appends an `<item>`
+to `mac-app/appcast.xml` on `main`, **creates and pushes the `macapp-v<version>`
+tag itself**, and attaches `SkillsRegistry-macos-arm64.zip` (+ `.sha256`) to the
+release. The appcast commit isn't in the trigger paths, so it never re-runs the
+workflow. Required repo secrets:
 
 | Secret | Purpose |
 |---|---|

@@ -12,7 +12,10 @@ public enum AppConfig {
     public static let githubClientID = "Iv23liKPKypuQdJBJveT"
 
     /// The GitHub App slug, used to build install / management URLs.
-    public static let githubAppSlug = "skills-registry"
+    /// Must match the app the `githubClientID` above belongs to
+    /// ("Skills Registry MCP"). The bare `skills-registry` slug is a
+    /// different, unrelated GitHub App.
+    public static let githubAppSlug = "skills-registry-mcp"
 
     /// Hosted MCP endpoint users paste into their MCP client config. Mirrors
     /// `cli/internal/bootstrap/install.go`'s `HostedMCPURL`.

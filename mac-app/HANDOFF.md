@@ -150,8 +150,10 @@ app) re-verification of the visual results is still worth a pass.
 - **Signing & notarization.** `scripts/bundle.sh --release --sign "<id>"` does
   full nested signing (Sparkle XPC services / Autoupdate / Updater.app +
   hardened runtime); `--notarize` zips, submits to `notarytool`, and staples.
-  `.github/workflows/release-macapp.yml` does all of this on a `macapp-v*` tag,
-  EdDSA-signs the zip, and appends to `mac-app/appcast.xml`. **Remaining:** set
+  `.github/workflows/release-macapp.yml` does all of this automatically on every
+  push to `main` that touches the app source (auto-incrementing the patch from
+  the latest `macapp-v*` tag and creating the tag itself), EdDSA-signs the zip,
+  and appends to `mac-app/appcast.xml`. **Remaining:** set
   the repo secrets — most are known, but the **Developer ID Application** p12
   still needs exporting from the login keychain (the previously-pasted p12 was
   an "Apple Development" cert, which can't notarize). Exact commands + the
