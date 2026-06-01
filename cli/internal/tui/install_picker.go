@@ -88,21 +88,9 @@ func NewInstallPicker(title, subtitle string, targets []InstallTarget) InstallPi
 // Reset clears the picker's transient state so a second invocation
 // (e.g. after a previous install completed) starts fresh.
 func (m InstallPickerModel) Reset() InstallPickerModel {
-	selected := map[int]struct{}{}
-	for i, t := range m.targets {
-		if t.Locked {
-			continue
-		}
-		if t.Default {
-			selected[i] = struct{}{}
-		}
-	}
-	m.selected = selected
-	m.cursor = 0
-	m.filter = ""
-	m.done = false
-	m.cancelled = false
-	return m
+	fresh := NewInstallPicker(m.title, m.subtitle, m.targets)
+	fresh.standalone = m.standalone
+	return fresh
 }
 
 // Done reports whether the user pressed Enter to confirm a selection.

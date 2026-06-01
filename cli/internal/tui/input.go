@@ -38,9 +38,8 @@ func (m InputModel) Init() tea.Cmd { return textinput.Blink }
 
 // Update implements tea.Model.
 func (m InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
 		case "ctrl+c", "esc":
 			m.cancelled = true
 			return m, tea.Quit

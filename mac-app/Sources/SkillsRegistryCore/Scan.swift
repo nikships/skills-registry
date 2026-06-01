@@ -75,9 +75,6 @@ public enum Scan {
         guard let text = try? String(contentsOfFile: mainPath, encoding: .utf8) else { return nil }
         let folderName = (folder as NSString).lastPathComponent
         var (name, desc) = Frontmatter.parseSummary(text, slug: folderName)
-        if name == folderName {
-            // parseSummary fell back to the folder name; keep it as the name.
-        }
         if name.isEmpty { name = folderName }
         if desc.isEmpty { desc = "Skill: \(name)" }
         return LocalSkill(

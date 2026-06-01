@@ -149,7 +149,6 @@ func (m AddFlowModel) handleSourceKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.state = addStateLoading
 		return m, tea.Batch(m.spinner.Tick, m.startLoad(source))
 	}
-	var cmd tea.Cmd
 	next, cmd := m.source.Update(msg)
 	m.source = next.(InputModel)
 	return m, cmd
@@ -236,7 +235,6 @@ func (m AddFlowModel) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m AddFlowModel) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.state == addStateSource {
-		var cmd tea.Cmd
 		next, cmd := m.source.Update(msg)
 		m.source = next.(InputModel)
 		return m, cmd
@@ -377,9 +375,7 @@ func (m AddFlowModel) renderFooter() string {
 	switch m.state {
 	case addStateSource:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"type", "source"}, {"enter", "scan"}, {"esc", "cancel"}})
-	case addStateSelect:
-		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"space", "toggle"}, {"tab", "select all"}, {"enter", "continue"}, {"esc", "cancel"}})
-	case addStateInstall:
+	case addStateSelect, addStateInstall:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"space", "toggle"}, {"tab", "select all"}, {"enter", "continue"}, {"esc", "cancel"}})
 	case addStateConfirm:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"↑/↓", "choose"}, {"enter", "confirm"}, {"esc", "cancel"}})

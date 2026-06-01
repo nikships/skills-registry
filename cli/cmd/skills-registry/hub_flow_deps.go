@@ -199,7 +199,11 @@ func isMetaSkill(sk scan.Skill) bool {
 	return filepath.Base(sk.Folder) == "skills-registry"
 }
 
-func discoverLocalSkills() ([]scan.Skill, error) {
+// localSkillSources resolves the discover-source list ($HOME + $CWD
+// across every known dot-folder). Shared by discoverLocalSkills and
+// purgeAllowedRoots so the home/cwd/DiscoverSources resolution lives in
+// one place.
+func localSkillSources() ([]scan.Source, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve home directory: %w", err)
@@ -208,7 +212,15 @@ func discoverLocalSkills() ([]scan.Skill, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve current working directory: %w", err)
 	}
-	return scan.Discover(scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents()))
+	return scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents()), nil
+}
+
+func discoverLocalSkills() ([]scan.Skill, error) {
+	sources, err := localSkillSources()
+	if err != nil {
+		return nil, err
+	}
+	return scan.Discover(sources)
 }
 
 // purgeLocalSkills removes each supplied skill folder with os.RemoveAll.
@@ -259,15 +271,10 @@ func purgeLocalSkills(ctx context.Context, skills []scan.Skill) (int, int, error
 // these roots are refused — the purge action is intentionally scoped to
 // what discoverLocalSkills surfaces.
 func purgeAllowedRoots() ([]string, error) {
-	home, err := os.UserHomeDir()
+	sources, err := localSkillSources()
 	if err != nil {
-		return nil, fmt.Errorf("resolve home directory: %w", err)
+		return nil, err
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("resolve current working directory: %w", err)
-	}
-	sources := scan.DiscoverSources(home, cwd, nil, dotDirsFromAgents())
 	roots := make([]string, 0, len(sources))
 	for _, s := range sources {
 		roots = append(roots, s.Path)

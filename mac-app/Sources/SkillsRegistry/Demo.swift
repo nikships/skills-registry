@@ -38,13 +38,15 @@ extension AppState {
     ]
 
     static func demoDetail(_ slug: String) -> SkillDetail {
+        let match = demoSkills.first { $0.slug == slug }
+        let name = match?.name ?? slug
         let md = """
         ---
-        name: \(demoSkills.first(where: { $0.slug == slug })?.name ?? slug)
-        description: \(demoSkills.first(where: { $0.slug == slug })?.description ?? "A demo skill.")
+        name: \(name)
+        description: \(match?.description ?? "A demo skill.")
         ---
 
-        # \(demoSkills.first(where: { $0.slug == slug })?.name ?? slug)
+        # \(name)
 
         This is a **demo** rendering of a `SKILL.md`. It shows how the macOS app
         presents skills with rich markdown.
@@ -77,8 +79,8 @@ extension AppState {
         """
         return SkillDetail(
             slug: slug,
-            name: demoSkills.first(where: { $0.slug == slug })?.name ?? slug,
-            description: demoSkills.first(where: { $0.slug == slug })?.description ?? "",
+            name: name,
+            description: match?.description ?? "",
             markdown: md,
             files: ["SKILL.md", "references/checklist.md", "scripts/run.sh"]
         )

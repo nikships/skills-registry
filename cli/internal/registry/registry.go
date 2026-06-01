@@ -125,6 +125,9 @@ func (c *Client) Resolve(ctx context.Context, slug string) (string, bool, error)
 	}
 	return slug, false, nil
 }
+
+// New constructs a Client for the given repo, locating `gh` on PATH and
+// defaulting the branch to "main" when empty.
 func New(repo, branch string) (*Client, error) {
 	gh, err := FindGH()
 	if err != nil {
@@ -347,26 +350,73 @@ func (c *Client) retryDelay(attempt int) time.Duration {
 	return time.Duration(c.RetryBaseS*float64(int(1)<<attempt)*1000) * time.Millisecond
 }
 
-func (c *Client) deleteOnce(ctx context.Context, slug string) (string, error) {
+// headRefAndBaseTree fetches the branch HEAD commit SHA (the parent for
+// the next commit) and that commit's base tree SHA. Shared GET prologue
+// for the atomic-commit writers (Publish, Delete).
+func (c *Client) headRefAndBaseTree(ctx context.Context) (parentSHA, baseTreeSHA string, err error) {
 	var ref struct {
 		Object struct {
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
 	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/ref/heads/%s", c.Repo, c.DefaultBranch), &ref); err != nil {
-		return "", err
+		return "", "", err
 	}
-	parentSHA := ref.Object.SHA
-
 	var commit struct {
 		Tree struct {
 			SHA string `json:"sha"`
 		} `json:"tree"`
 	}
-	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/commits/%s", c.Repo, parentSHA), &commit); err != nil {
+	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/commits/%s", c.Repo, ref.Object.SHA), &commit); err != nil {
+		return "", "", err
+	}
+	return ref.Object.SHA, commit.Tree.SHA, nil
+}
+
+// commitEntries posts a new tree (base_tree + entries), commits it on top
+// of parentSHA, and fast-forwards the branch ref. Returns the new commit
+// SHA. This is the shared atomic-commit tail of Publish, Delete, and
+// PushTree — the call sequence (POST trees → POST commits → PATCH refs,
+// force:false) is identical across all three.
+func (c *Client) commitEntries(ctx context.Context, baseTreeSHA string, entries []treeEntry, message, parentSHA string) (string, error) {
+	treePayload, _ := json.Marshal(map[string]any{
+		"base_tree": baseTreeSHA,
+		"tree":      entries,
+	})
+	var newTree struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/trees", c.Repo), treePayload, &newTree); err != nil {
 		return "", err
 	}
-	baseTreeSHA := commit.Tree.SHA
+
+	commitPayload, _ := json.Marshal(map[string]any{
+		"message": message,
+		"tree":    newTree.SHA,
+		"parents": []string{parentSHA},
+	})
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/commits", c.Repo), commitPayload, &newCommit); err != nil {
+		return "", err
+	}
+
+	refPayload, _ := json.Marshal(map[string]any{
+		"sha":   newCommit.SHA,
+		"force": false,
+	})
+	if err := c.patchJSON(ctx, fmt.Sprintf("repos/%s/git/refs/heads/%s", c.Repo, c.DefaultBranch), refPayload, nil); err != nil {
+		return "", err
+	}
+	return newCommit.SHA, nil
+}
+
+func (c *Client) deleteOnce(ctx context.Context, slug string) (string, error) {
+	parentSHA, baseTreeSHA, err := c.headRefAndBaseTree(ctx)
+	if err != nil {
+		return "", err
+	}
 
 	previous, err := c.listTreePaths(ctx, baseTreeSHA, slug)
 	if err != nil {
@@ -394,37 +444,7 @@ func (c *Client) deleteOnce(ctx context.Context, slug string) (string, error) {
 		})
 	}
 
-	treePayload, _ := json.Marshal(map[string]any{
-		"base_tree": baseTreeSHA,
-		"tree":      entries,
-	})
-	var newTree struct {
-		SHA string `json:"sha"`
-	}
-	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/trees", c.Repo), treePayload, &newTree); err != nil {
-		return "", err
-	}
-
-	commitPayload, _ := json.Marshal(map[string]any{
-		"message": "remove: " + slug,
-		"tree":    newTree.SHA,
-		"parents": []string{parentSHA},
-	})
-	var newCommit struct {
-		SHA string `json:"sha"`
-	}
-	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/commits", c.Repo), commitPayload, &newCommit); err != nil {
-		return "", err
-	}
-
-	refPayload, _ := json.Marshal(map[string]any{
-		"sha":   newCommit.SHA,
-		"force": false,
-	})
-	if err := c.patchJSON(ctx, fmt.Sprintf("repos/%s/git/refs/heads/%s", c.Repo, c.DefaultBranch), refPayload, nil); err != nil {
-		return "", err
-	}
-	return newCommit.SHA, nil
+	return c.commitEntries(ctx, baseTreeSHA, entries, "remove: "+slug, parentSHA)
 }
 
 // Publish atomically replaces <slug>/ with files (path → bytes).
@@ -439,25 +459,10 @@ func (c *Client) Publish(ctx context.Context, slug string, files map[string][]by
 }
 
 func (c *Client) publishOnce(ctx context.Context, slug string, files map[string][]byte, message string) (string, error) {
-	var ref struct {
-		Object struct {
-			SHA string `json:"sha"`
-		} `json:"object"`
-	}
-	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/ref/heads/%s", c.Repo, c.DefaultBranch), &ref); err != nil {
+	parentSHA, baseTreeSHA, err := c.headRefAndBaseTree(ctx)
+	if err != nil {
 		return "", err
 	}
-	parentSHA := ref.Object.SHA
-
-	var commit struct {
-		Tree struct {
-			SHA string `json:"sha"`
-		} `json:"tree"`
-	}
-	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/git/commits/%s", c.Repo, parentSHA), &commit); err != nil {
-		return "", err
-	}
-	baseTreeSHA := commit.Tree.SHA
 
 	previous, err := c.listTreePaths(ctx, baseTreeSHA, slug)
 	if err != nil {
@@ -501,37 +506,7 @@ func (c *Client) publishOnce(ctx context.Context, slug string, files map[string]
 		})
 	}
 
-	treePayload, _ := json.Marshal(map[string]any{
-		"base_tree": baseTreeSHA,
-		"tree":      entries,
-	})
-	var newTree struct {
-		SHA string `json:"sha"`
-	}
-	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/trees", c.Repo), treePayload, &newTree); err != nil {
-		return "", err
-	}
-
-	commitPayload, _ := json.Marshal(map[string]any{
-		"message": message,
-		"tree":    newTree.SHA,
-		"parents": []string{parentSHA},
-	})
-	var newCommit struct {
-		SHA string `json:"sha"`
-	}
-	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/commits", c.Repo), commitPayload, &newCommit); err != nil {
-		return "", err
-	}
-
-	refPayload, _ := json.Marshal(map[string]any{
-		"sha":   newCommit.SHA,
-		"force": false,
-	})
-	if err := c.patchJSON(ctx, fmt.Sprintf("repos/%s/git/refs/heads/%s", c.Repo, c.DefaultBranch), refPayload, nil); err != nil {
-		return "", err
-	}
-	return newCommit.SHA, nil
+	return c.commitEntries(ctx, baseTreeSHA, entries, message, parentSHA)
 }
 
 func (c *Client) listTreePaths(ctx context.Context, rootSHA, subPath string) (map[string]struct{}, error) {
@@ -656,6 +631,15 @@ func (c *Client) PushTreeViaGit(ctx context.Context, files map[string][]byte, me
 	return c.commitAndPushIfChanged(ctx, gitBin, work, message)
 }
 
+// remoteURL returns the HTTPS clone URL for the registry repo, honoring
+// the Client.HTTPSURL test override.
+func (c *Client) remoteURL() string {
+	if c.HTTPSURL != "" {
+		return c.HTTPSURL
+	}
+	return "https://github.com/" + c.Repo + ".git"
+}
+
 // resolveGitBin returns the git binary path from Client.GitBin or PATH.
 func (c *Client) resolveGitBin() (string, error) {
 	if c.GitBin != "" {
@@ -688,10 +672,7 @@ func runGitIn(ctx context.Context, gitBin, dir string, args ...string) error {
 // initWorkdir either shallow-clones an existing remote branch or initializes
 // a fresh git workdir in `work`.
 func (c *Client) initWorkdir(ctx context.Context, gitBin, work string) error {
-	remoteURL := c.HTTPSURL
-	if remoteURL == "" {
-		remoteURL = "https://github.com/" + c.Repo + ".git"
-	}
+	remoteURL := c.remoteURL()
 	branchExists, err := c.refExists(ctx)
 	if err != nil {
 		return err
@@ -907,37 +888,7 @@ func (c *Client) pushTree(ctx context.Context, files map[string][]byte, message 
 		})
 	}
 
-	treePayload, _ := json.Marshal(map[string]any{
-		"base_tree": baseTreeSHA,
-		"tree":      entries,
-	})
-	var newTree struct {
-		SHA string `json:"sha"`
-	}
-	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/trees", c.Repo), treePayload, &newTree); err != nil {
-		return "", err
-	}
-
-	commitPayload, _ := json.Marshal(map[string]any{
-		"message": message,
-		"tree":    newTree.SHA,
-		"parents": []string{parentSHA},
-	})
-	var newCommit struct {
-		SHA string `json:"sha"`
-	}
-	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/commits", c.Repo), commitPayload, &newCommit); err != nil {
-		return "", err
-	}
-
-	refPayload, _ := json.Marshal(map[string]any{
-		"sha":   newCommit.SHA,
-		"force": false,
-	})
-	if err := c.patchJSON(ctx, fmt.Sprintf("repos/%s/git/refs/heads/%s", c.Repo, c.DefaultBranch), refPayload, nil); err != nil {
-		return "", err
-	}
-	return newCommit.SHA, nil
+	return c.commitEntries(ctx, baseTreeSHA, entries, message, parentSHA)
 }
 
 // bootstrapInitialCommit handles repos with no commits yet (no main ref).
@@ -1111,8 +1062,15 @@ func (c *Client) contents(ctx context.Context, path string) ([]contentEntry, err
 	return entries, nil
 }
 
-func (c *Client) getJSON(ctx context.Context, endpoint string, out any) error {
-	body, err := c.runGH(ctx, []string{"api", "-X", "GET", endpoint, "-H", "Accept: application/vnd.github+json"}, nil)
+// apiJSON runs `gh api -X <method> <endpoint>` and unmarshals the JSON
+// response into out (skipped when out is nil or the body is empty). A
+// non-nil payload is piped to gh's stdin via `--input -`.
+func (c *Client) apiJSON(ctx context.Context, method, endpoint string, payload []byte, out any) error {
+	args := []string{"api", "-X", method, endpoint, "-H", "Accept: application/vnd.github+json"}
+	if payload != nil {
+		args = append(args, "--input", "-")
+	}
+	body, err := c.runGH(ctx, args, payload)
 	if err != nil {
 		return err
 	}
@@ -1120,39 +1078,22 @@ func (c *Client) getJSON(ctx context.Context, endpoint string, out any) error {
 		return nil
 	}
 	return json.Unmarshal([]byte(body), out)
+}
+
+func (c *Client) getJSON(ctx context.Context, endpoint string, out any) error {
+	return c.apiJSON(ctx, "GET", endpoint, nil, out)
 }
 
 func (c *Client) postJSON(ctx context.Context, endpoint string, payload []byte, out any) error {
-	body, err := c.runGH(ctx, []string{"api", "-X", "POST", endpoint, "-H", "Accept: application/vnd.github+json", "--input", "-"}, payload)
-	if err != nil {
-		return err
-	}
-	if out == nil || strings.TrimSpace(body) == "" {
-		return nil
-	}
-	return json.Unmarshal([]byte(body), out)
+	return c.apiJSON(ctx, "POST", endpoint, payload, out)
 }
 
 func (c *Client) patchJSON(ctx context.Context, endpoint string, payload []byte, out any) error {
-	body, err := c.runGH(ctx, []string{"api", "-X", "PATCH", endpoint, "-H", "Accept: application/vnd.github+json", "--input", "-"}, payload)
-	if err != nil {
-		return err
-	}
-	if out == nil || strings.TrimSpace(body) == "" {
-		return nil
-	}
-	return json.Unmarshal([]byte(body), out)
+	return c.apiJSON(ctx, "PATCH", endpoint, payload, out)
 }
 
 func (c *Client) putJSON(ctx context.Context, endpoint string, payload []byte, out any) error {
-	body, err := c.runGH(ctx, []string{"api", "-X", "PUT", endpoint, "-H", "Accept: application/vnd.github+json", "--input", "-"}, payload)
-	if err != nil {
-		return err
-	}
-	if out == nil || strings.TrimSpace(body) == "" {
-		return nil
-	}
-	return json.Unmarshal([]byte(body), out)
+	return c.apiJSON(ctx, "PUT", endpoint, payload, out)
 }
 
 func (c *Client) runGH(ctx context.Context, args []string, stdin []byte) (string, error) {

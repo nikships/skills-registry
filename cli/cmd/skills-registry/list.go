@@ -68,11 +68,8 @@ func runListJSON(ctx context.Context, query string) error {
 	rows := make([]listJSONRow, 0, len(summaries))
 	needle := strings.ToLower(query)
 	for _, s := range summaries {
-		if needle != "" {
-			hay := strings.ToLower(s.Slug + " " + s.Name + " " + s.Description)
-			if !strings.Contains(hay, needle) {
-				continue
-			}
+		if !summaryMatches(s, needle) {
+			continue
 		}
 		rows = append(rows, listJSONRow{
 			Slug:        s.Slug,
@@ -81,6 +78,18 @@ func runListJSON(ctx context.Context, query string) error {
 		})
 	}
 	return jsonout.Print(rows)
+}
+
+// summaryMatches reports whether s contains the already-lowercased
+// needle across its slug/name/description. An empty needle matches
+// everything. Shared by the --json and TUI list paths so both filter
+// identically.
+func summaryMatches(s registry.Summary, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	hay := strings.ToLower(s.Slug + " " + s.Name + " " + s.Description)
+	return strings.Contains(hay, needle)
 }
 
 func runList(ctx context.Context, query string, plain bool) error {
@@ -114,11 +123,8 @@ func runList(ctx context.Context, query string, plain bool) error {
 		rows := make([]tui.SkillRow, 0, len(summaries))
 		needle := strings.ToLower(query)
 		for _, s := range summaries {
-			if needle != "" {
-				hay := strings.ToLower(s.Slug + " " + s.Name + " " + s.Description)
-				if !strings.Contains(hay, needle) {
-					continue
-				}
+			if !summaryMatches(s, needle) {
+				continue
 			}
 			rows = append(rows, tui.SkillRow{Slug: s.Slug, Name: s.Name, Desc: s.Description})
 		}

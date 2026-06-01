@@ -392,8 +392,9 @@ def build_app(settings: ServerSettings | None = None) -> tuple[ServerSettings, A
 
 
 def main() -> int:
+	log_level = os.environ.get("SKILLS_LOG_LEVEL", "INFO")
 	logging.basicConfig(
-		level=os.environ.get("SKILLS_LOG_LEVEL", "INFO").upper(),
+		level=log_level.upper(),
 		format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 		stream=sys.stderr,
 	)
@@ -408,7 +409,7 @@ def main() -> int:
 		app,
 		host=settings.host,
 		port=settings.port,
-		log_level=os.environ.get("SKILLS_LOG_LEVEL", "INFO").lower(),
+		log_level=log_level.lower(),
 	)
 	return 0
 

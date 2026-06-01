@@ -110,7 +110,7 @@ func parseEnvValue(v string) (string, string) {
 
 func validate(repo string) error {
 	if repo == "" {
-		return fmt.Errorf("invalid registry repo: empty")
+		return errors.New("invalid registry repo: empty")
 	}
 	parts := strings.Split(repo, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

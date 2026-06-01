@@ -119,25 +119,14 @@ public enum SourceResolver {
     /// tilde, absolute paths, and any `..` traversal segment. Returns the
     /// validated (still-relative) path.
     static func validateLocalSourcePath(_ source: String) throws -> String {
-        guard let path = source.removingPercentEncoding else {
-            throw ResolveError.invalidLocalPath("invalid source path encoding")
-        }
-        let lower = source.lowercased()
-        if path.contains("\\") || lower.contains("%5c") {
-            throw ResolveError.invalidLocalPath("backslashes are not allowed")
-        }
-        if lower.contains("%2f") {
-            throw ResolveError.invalidLocalPath("encoded separators are not allowed")
-        }
+        let path = try decodeAndRejectSeparators(source)
         if path.hasPrefix("~") {
             throw ResolveError.invalidLocalPath("tilde expansion is not allowed")
         }
         if path.hasPrefix("/") || matches(windowsDrive, path) {
             throw ResolveError.invalidLocalPath("absolute paths are not allowed")
         }
-        for segment in path.split(separator: "/", omittingEmptySubsequences: false) where segment == ".." {
-            throw ResolveError.invalidLocalPath("traversal is not allowed")
-        }
+        try rejectTraversal(path)
         return path
     }
 
@@ -148,6 +137,15 @@ public enum SourceResolver {
     /// traversal. Returns the absolute path (relative input is resolved against
     /// `cwd`).
     static func validateTrustedLocalPath(_ source: String, cwd: String) throws -> String {
+        let path = try decodeAndRejectSeparators(source)
+        try rejectTraversal(path)
+        return absolutePath(path, cwd: cwd)
+    }
+
+    /// Percent-decode `source`, then reject backslashes and encoded separators
+    /// (`%5c` / `%2f`). Shared first step of both local-path validators; the
+    /// decoded path is returned for the caller's remaining checks.
+    private static func decodeAndRejectSeparators(_ source: String) throws -> String {
         guard let path = source.removingPercentEncoding else {
             throw ResolveError.invalidLocalPath("invalid source path encoding")
         }
@@ -158,10 +156,14 @@ public enum SourceResolver {
         if lower.contains("%2f") {
             throw ResolveError.invalidLocalPath("encoded separators are not allowed")
         }
+        return path
+    }
+
+    /// Reject any `..` path segment.
+    private static func rejectTraversal(_ path: String) throws {
         for segment in path.split(separator: "/", omittingEmptySubsequences: false) where segment == ".." {
             throw ResolveError.invalidLocalPath("traversal is not allowed")
         }
-        return absolutePath(path, cwd: cwd)
     }
 
     struct TreeURL: Equatable {

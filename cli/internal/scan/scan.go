@@ -103,6 +103,14 @@ func DiscoverSources(home, cwd string, extra []string, dotDirs []string) []Sourc
 	}
 
 	var sources []Source
+	add := func(abs, label string) {
+		if _, dup := want[abs]; dup {
+			return
+		}
+		want[abs] = struct{}{}
+		sources = append(sources, Source{Path: abs, Label: label})
+	}
+
 	for _, base := range bases {
 		for _, dot := range dotDirs {
 			p := filepath.Join(base.root, dot, "skills")
@@ -111,14 +119,7 @@ func DiscoverSources(home, cwd string, extra []string, dotDirs []string) []Sourc
 				continue
 			}
 			abs, _ := filepath.Abs(p)
-			if _, dup := want[abs]; dup {
-				continue
-			}
-			want[abs] = struct{}{}
-			sources = append(sources, Source{
-				Path:  abs,
-				Label: base.prefix + "/" + dot + "/skills",
-			})
+			add(abs, base.prefix+"/"+dot+"/skills")
 		}
 	}
 	for _, e := range extra {
@@ -130,11 +131,7 @@ func DiscoverSources(home, cwd string, extra []string, dotDirs []string) []Sourc
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		if _, dup := want[abs]; dup {
-			continue
-		}
-		want[abs] = struct{}{}
-		sources = append(sources, Source{Path: abs, Label: e})
+		add(abs, e)
 	}
 	return sources
 }
@@ -237,7 +234,7 @@ func parseFrontmatter(text string) (map[string]string, string) {
 			case string:
 				out[k] = strings.TrimSpace(s)
 			default:
-				out[k] = strings.TrimSpace(strings.ReplaceAll(strings.TrimSpace(toString(v)), "\n", " "))
+				out[k] = strings.TrimSpace(strings.ReplaceAll(toString(v), "\n", " "))
 			}
 		}
 	}

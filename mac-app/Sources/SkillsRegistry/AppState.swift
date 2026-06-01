@@ -357,12 +357,7 @@ final class AppState: ObservableObject {
         var done = 0
         do {
             for sk in fresh {
-                let prefixed = try Scan.filesForUpload(slug: sk.slug, folder: sk.folder)
-                // filesForUpload prefixes "<slug>/"; both publish and install
-                // want paths relative to the skill folder.
-                var rel: [String: Data] = [:]
-                let prefix = sk.slug + "/"
-                for (k, v) in prefixed { rel[String(k.dropFirst(prefix.count))] = v }
+                let rel = stripSlugPrefix(try Scan.filesForUpload(slug: sk.slug, folder: sk.folder), slug: sk.slug)
                 _ = try await api.publish(repo, slug: sk.slug, files: rel,
                                           message: "add: \(sk.slug)", branch: branch)
                 if !targets.isEmpty {
@@ -403,18 +398,22 @@ final class AppState: ObservableObject {
             return
         }
         do {
-            let files = try Scan.filesForUpload(slug: slug, folder: folder)
-            // filesForUpload prefixes with "<slug>/"; publish wants paths
-            // relative to the skill folder, so strip the prefix.
-            var rel: [String: Data] = [:]
-            let prefix = slug + "/"
-            for (k, v) in files { rel[String(k.dropFirst(prefix.count))] = v }
+            let rel = stripSlugPrefix(try Scan.filesForUpload(slug: slug, folder: folder), slug: slug)
             _ = try await api.publish(repo, slug: slug, files: rel, message: "publish: \(slug)", branch: branch)
             showToast("Published \(slug)", .ok)
             await refreshSkills()
         } catch {
             showToast("Publish failed: \(error.localizedDescription)", .error)
         }
+    }
+
+    /// `Scan.filesForUpload` prefixes every path with "<slug>/"; both publish
+    /// and install want paths relative to the skill folder, so strip it.
+    private func stripSlugPrefix(_ files: [String: Data], slug: String) -> [String: Data] {
+        let prefix = slug + "/"
+        var rel: [String: Data] = [:]
+        for (k, v) in files { rel[String(k.dropFirst(prefix.count))] = v }
+        return rel
     }
 
     // MARK: - local import

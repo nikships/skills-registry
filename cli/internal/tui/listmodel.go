@@ -951,30 +951,16 @@ func (m ListModel) renderPreviewHint(row SkillRow) string {
 }
 
 func (m ListModel) renderFooter() string {
-	keys := []struct{ k, d string }{
+	keys := []flowKey{
 		{"↑/↓", "navigate"},
 		{"/", "filter"},
 		{"enter", "install"},
 	}
 	if m.delete != nil {
-		keys = append(keys, struct{ k, d string }{"d", "remove"})
+		keys = append(keys, flowKey{"d", "remove"})
 	}
-	keys = append(keys,
-		struct{ k, d string }{"?", "help"},
-		struct{ k, d string }{"q", "back"},
-	)
-	parts := make([]string, 0, len(keys)*3)
-	for i, kv := range keys {
-		if i > 0 {
-			parts = append(parts, KeySepStyle.Render(" · "))
-		}
-		parts = append(parts, KeyStyle.Render(kv.k), " ", KeyDescStyle.Render(kv.d))
-	}
-	left := strings.Join(parts, "")
-
-	right := SubtitleStyle.Render(animationDots(m.sparkleIdx))
-	gap := max(1, m.width-lipgloss.Width(left)-lipgloss.Width(right))
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	keys = append(keys, flowKey{"?", "help"}, flowKey{"q", "back"})
+	return flowFooter(m.width, m.sparkleIdx, keys)
 }
 
 func (m ListModel) renderLoading() string {
@@ -1023,7 +1009,7 @@ func (m ListModel) renderError() string {
 }
 
 func (m ListModel) renderHelp() string {
-	rows := []struct{ k, d string }{
+	rows := []flowKey{
 		{"↑ / k", "move up"},
 		{"↓ / j", "move down"},
 		{"pgup / pgdn", "page up / down"},
@@ -1033,11 +1019,11 @@ func (m ListModel) renderHelp() string {
 		{"enter", "install into selected agent dot-folders"},
 	}
 	if m.delete != nil {
-		rows = append(rows, struct{ k, d string }{"d", "remove selected skill"})
+		rows = append(rows, flowKey{"d", "remove selected skill"})
 	}
 	rows = append(rows,
-		struct{ k, d string }{"?", "toggle this help"},
-		struct{ k, d string }{"q / ctrl+c", "quit"},
+		flowKey{"?", "toggle this help"},
+		flowKey{"q / ctrl+c", "quit"},
 	)
 	var lines []string
 	for _, r := range rows {

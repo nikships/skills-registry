@@ -217,16 +217,22 @@ func (m SettingsModel) exitCmd() tea.Cmd {
 	return func() tea.Msg { return m.OnExit(snapshot) }
 }
 
+// focusedInput returns a pointer to whichever textinput the current
+// m.focused field maps to, so the edit-mode helpers don't each repeat
+// the repo-vs-branch branch.
+func (m *SettingsModel) focusedInput() *textinput.Model {
+	if m.focused == settingsFieldRepo {
+		return &m.repoInput
+	}
+	return &m.branchInput
+}
+
 // cancelEdit restores the focused field to its pre-edit value and exits
 // editing mode without saving.
 func (m SettingsModel) cancelEdit() SettingsModel {
-	if m.focused == settingsFieldRepo {
-		m.repoInput.SetValue(m.preEditValue)
-		m.repoInput.Blur()
-	} else {
-		m.branchInput.SetValue(m.preEditValue)
-		m.branchInput.Blur()
-	}
+	in := m.focusedInput()
+	in.SetValue(m.preEditValue)
+	in.Blur()
 	m.editing = false
 	return m
 }
@@ -236,11 +242,7 @@ func (m SettingsModel) cancelEdit() SettingsModel {
 // the wizard's "press enter to confirm" beat and lets the user back out
 // of a typo with esc before committing.
 func (m SettingsModel) commitEdit() SettingsModel {
-	if m.focused == settingsFieldRepo {
-		m.repoInput.Blur()
-	} else {
-		m.branchInput.Blur()
-	}
+	m.focusedInput().Blur()
 	m.editing = false
 	return m
 }
@@ -248,12 +250,9 @@ func (m SettingsModel) commitEdit() SettingsModel {
 // forwardToInput passes the key to whichever textinput is currently
 // focused so typing / cursor movement / backspace all just work.
 func (m SettingsModel) forwardToInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	in := m.focusedInput()
 	var cmd tea.Cmd
-	if m.focused == settingsFieldRepo {
-		m.repoInput, cmd = m.repoInput.Update(msg)
-	} else {
-		m.branchInput, cmd = m.branchInput.Update(msg)
-	}
+	*in, cmd = in.Update(msg)
 	return m, cmd
 }
 
@@ -395,10 +394,7 @@ func (m SettingsModel) renderReadOnly(label, value string, width int) string {
 // activeInputView returns the currently focused textinput's rendered
 // view. Used when the field is in edit mode.
 func (m SettingsModel) activeInputView() string {
-	if m.focused == settingsFieldRepo {
-		return m.repoInput.View()
-	}
-	return m.branchInput.View()
+	return m.focusedInput().View()
 }
 
 // repoFieldValue returns the current repo value (live, since edits

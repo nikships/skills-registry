@@ -113,7 +113,6 @@ func (m PublishFlowModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m PublishFlowModel) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
 	next, cmd := m.path.Update(msg)
 	m.path = next.(InputModel)
 	return m, cmd

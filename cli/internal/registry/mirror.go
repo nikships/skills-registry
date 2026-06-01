@@ -112,10 +112,7 @@ func (c *Client) ensureMirror(ctx context.Context) (string, error) {
 // yet — `gh repo create` produces an empty repo and the wizard hasn't
 // pushed the bootstrap commit yet.
 func (c *Client) cloneMirror(ctx context.Context, gitBin, dir string) error {
-	remoteURL := c.HTTPSURL
-	if remoteURL == "" {
-		remoteURL = "https://github.com/" + c.Repo + ".git"
-	}
+	remoteURL := c.remoteURL()
 	exists, err := remoteBranchExists(ctx, gitBin, remoteURL, c.DefaultBranch)
 	if err != nil {
 		return err
@@ -148,10 +145,7 @@ func (c *Client) cloneMirror(ctx context.Context, gitBin, dir string) error {
 // fetchMirror fast-forwards an existing mirror clone to the current
 // remote HEAD. `reset --hard FETCH_HEAD` handles force-pushes correctly.
 func (c *Client) fetchMirror(ctx context.Context, gitBin, dir string) error {
-	remoteURL := c.HTTPSURL
-	if remoteURL == "" {
-		remoteURL = "https://github.com/" + c.Repo + ".git"
-	}
+	remoteURL := c.remoteURL()
 	if err := c.maybeSetupGitAuth(ctx, remoteURL); err != nil {
 		return fmt.Errorf("configure git credentials via gh: %w", err)
 	}
