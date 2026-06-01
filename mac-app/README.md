@@ -2,9 +2,13 @@
 
 A native, Apple-Silicon SwiftUI app for managing your skills registry end to
 end: sign in with GitHub, create or connect a registry repo, browse skills with
-rich markdown rendering and fuzzy search, publish a skill from a folder, remove
-one, bulk-import the skills already sitting in your local AI-tool folders, and
-copy the one-click CLI install + hosted-MCP JSON from a Settings screen.
+rich markdown rendering and fuzzy search, publish a skill from a folder,
+**install** a registry skill into your agent folders, **add** skills from an
+external source (local path, `owner/repo`, a git URL, or a GitHub
+`/tree/<ref>/<path>` link) and publish + install them in one pass, **remove**
+one end-to-end (registry + MCP cache + agent folders), bulk-import the skills
+already sitting in your local AI-tool folders, and copy the one-click CLI
+install + hosted-MCP JSON from a Settings screen.
 
 It is the **third surface** on the same registry the Go CLI and the hosted
 Python MCP server already share — same `registry.toml`, same slug derivation,
@@ -63,9 +67,12 @@ Sources/SkillsRegistryCore/
   Keychain.swift        user-to-server token storage
   Agents.swift          56-entry dot-folder catalogue (port of cli/internal/agents)
   Scan.swift            local skill discovery + filesForUpload
+  SourceResolver.swift  resolve add source (local/owner-repo/git URL//tree link) → dir (+subpath)
+  LocalInstall.swift    write a skill's files into <agent>/skills/<slug>/ (port of install_local.go)
+  LocalRemove.swift     wipe MCP cache + sweep agent dot-folders (port of remove.go locals)
   DeviceFlow.swift      GitHub App Device Flow (browser login, no client secret)
   GitHubAPI.swift       request plumbing + wire models
-  GitHubReads.swift     currentUser, installations, listSkills, getSkill
+  GitHubReads.swift     currentUser, installations, listSkills, getSkill, skillFileData
   GitHubWrites.swift    createRepo, publish, delete, bulkPush (atomic Git Data API)
   CLIInstaller.swift    one-click CLI install (mirrors install.sh)
   SkillMdTemplate.swift skills-registry/SKILL.md renderer ── byte-identical to skillmd.go
@@ -82,9 +89,11 @@ Sources/SkillsRegistry/
   UpdateBanner.swift       dismissible CLI-update + meta-skill prompts
   LoginView.swift          sign-in pitch + DeviceCodeSheet
   SetupView.swift          create / connect / install-app
-  HomeView.swift           sidebar + content router + UpdateBanner
+  HomeView.swift           sidebar (Browse · Add · Import · Settings) + content router + UpdateBanner
   BrowseView.swift         search list + skill rows + detail pane
-  SkillDetailView.swift    MarkdownUI render + file rail + actions
+  SkillDetailView.swift    MarkdownUI render + file rail + actions (Install/GitHub/Copy/Remove)
+  AddView.swift            add from source → multi-select → publish + install
+  AgentPickerSheet.swift   reusable home-agent multi-select (Install + Add)
   MarkdownTheme.swift      brand-matched MarkdownUI theme
   ImportView.swift         bulk local import checklist
   SettingsView.swift       App + agent-skill + CLI + MCP + registry/account cards
@@ -150,6 +159,36 @@ commit → patch ref`), retrying up to 3× on 409/422. Bulk import uses a single
 commit (`bulkPush`), handling both an empty repo (create the ref) and an
 existing branch (base_tree + parent).
 
+### Install · Add · Remove-everywhere (CLI parity)
+
+Three flows mirror the Go CLI's `install` / `add` / `remove`:
+
+- **Install a registry skill locally.** The skill detail pane's **Install**
+  button fetches every file under `<slug>/` (`GitHubReads.skillFileData`, raw
+  bytes so binaries survive) and writes them into each picked agent's
+  `<dot>/skills/<slug>/` (`LocalInstall.install`). The MCP download cache is
+  never touched — that's `get`'s job; this is the durable equivalent of the
+  CLI's install picker. Re-installing overwrites in place.
+- **Add from a source.** The **Add** sidebar section accepts a local path,
+  `owner/repo`, a full GitHub/GitLab/`git@…` URL, or a GitHub
+  `/tree/<ref>/<subpath>` deep link. `SourceResolver` validates local paths
+  (relative-only, same rules as the CLI), shorthand-expands `owner/repo`,
+  and shallow-clones remote sources (narrowing to the subpath for `/tree/`
+  links). You multi-select discovered skills (dups already in the registry are
+  filtered out), then `publishAndInstall` publishes each and installs it into
+  the agents you pick.
+- **Remove end-to-end.** `remove(_:)` deletes the `<slug>/` subtree from the
+  registry, then `LocalRemove` wipes the MCP cache (`<slug>/` +
+  `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
+  slugified-name match. The toast reports `registry · cache · N dot-folders`.
+
+**Home-scoped install (deliberate divergence from the CLI).** `AgentPickerSheet`
+only lists the home-based agents (`Agents.all().filter(\.underHome)`) and
+pre-checks the ones whose `<dot>` folder already exists. The cwd-based universal
+`.agents/skills` target — always-on in the CLI's picker — is intentionally
+skipped: a desktop app has no meaningful project working directory (the same
+rationale as `MetaSkill.detectedTargets`).
+
 ---
 
 ## The cross-language contract (READ BEFORE EDITING)
@@ -186,15 +225,17 @@ not shared with Python — the hosted server is read-only.
 ## Testing
 
 ```bash
-swift test                       # Core contract + cross-language corpus + updates/meta-skill (32 tests)
+swift test                       # Core contract + cross-language corpus + updates/meta-skill
+                                 # + install/remove/source-resolver (62 tests)
 ```
 
 UI is verified by launching in demo mode and driving it with cua-driver
 (macOS Accessibility computer-use). The app exposes stable
 `accessibilityIdentifier`s on the key controls (`signInWithGitHub`,
 `searchField`, `publishButton`, `importSelected`, `installCLI`, `copyMCP`,
-`removeSkill`, `nav-Browse` / `nav-Import` / `nav-Settings`) so an automated
-driver can find them deterministically.
+`removeSkill`, `installSkill`, `addSourceField`, `addFetch`, `addSelected`,
+`agentPickerConfirm`, `nav-Browse` / `nav-Add` / `nav-Import` / `nav-Settings`)
+so an automated driver can find them deterministically.
 
 ---
 

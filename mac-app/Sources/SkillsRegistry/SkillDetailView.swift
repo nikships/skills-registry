@@ -11,6 +11,7 @@ struct SkillDetailView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var confirmRemove = false
+    @State private var showInstall = false
 
     // Multi-file browsing. SKILL.md renders from `detail.markdown`; other files
     // are fetched lazily into `auxText`.
@@ -33,7 +34,16 @@ struct SkillDetailView: View {
             Button("Remove", role: .destructive) { Task { await state.remove(slug) } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes the \(slug)/ folder from \(state.repo?.fullName ?? "the repo"). It can't be undone from here.")
+            Text("This deletes the \(slug)/ folder from \(state.repo?.fullName ?? "the repo"), clears the MCP cache, and removes it from your agent folders. It can't be undone from here.")
+        }
+        .sheet(isPresented: $showInstall) {
+            AgentPickerSheet(
+                title: "Install \(detail?.name ?? slug)",
+                subtitle: "Copy this skill's files into the agents you pick, at <agent>/skills/\(slug)/.",
+                confirmLabel: "Install"
+            ) { targets in
+                Task { await state.installRegistrySkill(slug, targets: targets) }
+            }
         }
     }
 
@@ -58,6 +68,14 @@ struct SkillDetailView: View {
 
     private var actions: some View {
         HStack(spacing: 8) {
+            if !state.isDemo {
+                Button { showInstall = true } label: {
+                    Label("Install", systemImage: "arrow.down.circle").font(.system(size: 12))
+                }
+                .buttonStyle(GhostButtonStyle())
+                .disabled(detail == nil)
+                .accessibilityIdentifier("installSkill")
+            }
             Button { openOnGitHub() } label: {
                 Label("GitHub", systemImage: "arrow.up.right.square").font(.system(size: 12))
             }.buttonStyle(GhostButtonStyle())

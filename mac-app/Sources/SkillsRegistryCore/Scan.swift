@@ -8,6 +8,11 @@ public enum Scan {
     public struct Source: Hashable, Sendable {
         public var path: String   // absolute
         public var label: String  // e.g. "~/.claude/skills"
+
+        public init(path: String, label: String) {
+            self.path = path
+            self.label = label
+        }
     }
 
     /// Every known skill-bearing directory under $HOME (and cwd, if different).

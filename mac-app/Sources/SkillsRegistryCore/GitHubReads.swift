@@ -135,6 +135,28 @@ extension GitHubAPI {
         return text
     }
 
+    /// Fetch every file under `<slug>/` as raw `Data`, keyed by path relative
+    /// to the skill folder (e.g. "SKILL.md", "scripts/run.sh"). One recursive
+    /// tree call + bounded-concurrency blob fetches. Raw bytes (not UTF-8
+    /// decoded) so binaries survive. Feeds `LocalInstall.install` for durable
+    /// installs of a registry skill. Throws 404 if the slug has no files.
+    public func skillFileData(_ repo: RepoRef, slug: String, branch: String) async throws -> [String: Data] {
+        let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
+                                        as: GHTreeResp.self)
+        let prefix = "\(slug)/"
+        var blobs: [(rel: String, sha: String)] = []
+        for e in tree.tree where e.type == "blob" && e.path.hasPrefix(prefix) {
+            blobs.append((String(e.path.dropFirst(prefix.count)), e.sha))
+        }
+        guard !blobs.isEmpty else {
+            throw GitHubError(status: 404, message: "Skill \(slug) has no files", endpoint: repo.fullName)
+        }
+        let pairs = try await mapConcurrent(blobs, concurrency: 8) { item -> (String, Data) in
+            (item.rel, try await self.blobData(repo, sha: item.sha))
+        }
+        return Dictionary(uniqueKeysWithValues: pairs)
+    }
+
     // MARK: - blob helpers
 
     func blobUTF8(_ repo: RepoRef, sha: String) async throws -> String? {
@@ -143,6 +165,15 @@ extension GitHubAPI {
         let cleaned = blob.content.replacingOccurrences(of: "\n", with: "")
         guard let data = Data(base64Encoded: cleaned) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Raw bytes of a blob (base64-decoded). Used by `skillFileData` so binary
+    /// supporting files survive the round-trip intact.
+    func blobData(_ repo: RepoRef, sha: String) async throws -> Data {
+        let blob = try await getDecoded("repos/\(repo.fullName)/git/blobs/\(sha)", as: GHBlobResp.self)
+        guard blob.encoding == "base64" else { return Data(blob.content.utf8) }
+        let cleaned = blob.content.replacingOccurrences(of: "\n", with: "")
+        return Data(base64Encoded: cleaned) ?? Data()
     }
 }
 

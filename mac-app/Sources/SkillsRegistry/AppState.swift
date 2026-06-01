@@ -38,6 +38,11 @@ final class AppState: ObservableObject {
     private var authTask: Task<Void, Never>?
     private let flow = DeviceFlow()
 
+    /// Best-effort cleanup for the temp clone created by `resolveAndScan`. Held
+    /// until `publishAndInstall` finishes (the discovered skill folders point
+    /// into the clone) or a new resolve supersedes it.
+    private var addCleanup: (@Sendable () -> Void)?
+
     private let defaults = UserDefaults.standard
     private let dismissKey = "dismissedUpdatePrompts"
     private let lastCLICheckKey = "lastCLIUpdateCheck"
@@ -235,6 +240,9 @@ final class AppState: ObservableObject {
         return try await api.fileContent(repo, path: "\(slug)/\(path)", branch: branch)
     }
 
+    /// Remove a skill end-to-end, mirroring `skills-registry remove`: delete
+    /// the `<slug>/` subtree from the registry, then sweep the two local
+    /// footprints (MCP download cache + every agent dot-folder copy).
     func remove(_ slug: String) async {
         guard let api, let repo else { return }
         do {
@@ -243,11 +251,123 @@ final class AppState: ObservableObject {
             // consistent just after the ref update, so the re-list below can
             // still return the slug. Re-apply the removal afterward to be sure.
             skills.removeAll { $0.slug == slug }
-            showToast("Removed \(slug)", .ok)
+
+            // Local cleanup: MCP cache + agent dot-folders (matches remove.go).
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let cwd = FileManager.default.currentDirectoryPath
+            let cacheCleared = LocalRemove.removeFromCache(slug: slug)
+            let dotFolders = LocalRemove.removeFromDotFolders(slug: slug, home: home, cwd: cwd)
+
+            showToast(removeSummary(slug: slug, cacheCleared: cacheCleared, dotFolders: dotFolders.count), .ok)
             await refreshSkills()
             skills.removeAll { $0.slug == slug }
+            refreshMetaSkillStatus()
         } catch {
             showToast("Remove failed: \(error.localizedDescription)", .error)
+        }
+    }
+
+    /// Compress the removal report into a one-line toast:
+    /// "slug · registry · cache · 2 dot-folders" (mirrors removeSummaryLine).
+    private func removeSummary(slug: String, cacheCleared: Bool, dotFolders: Int) -> String {
+        var parts = ["registry"]
+        if cacheCleared { parts.append("cache") }
+        if dotFolders > 0 { parts.append("\(dotFolders) dot-folder\(dotFolders == 1 ? "" : "s")") }
+        return "Removed \(slug) · " + parts.joined(separator: " · ")
+    }
+
+    // MARK: - install registry skill locally
+
+    /// Durably install a registry skill into the selected agent dot-folders:
+    /// fetch every file under `<slug>/` and write it into each target's
+    /// `<dot>/skills/<slug>/`. The MCP download cache is never touched (that's
+    /// `get`'s job) — this is the durable equivalent of the CLI's install
+    /// picker.
+    func installRegistrySkill(_ slug: String, targets: [AgentTarget]) async {
+        guard let api, let repo else { return }
+        guard !targets.isEmpty else { showToast("Pick at least one agent to install into.", .info); return }
+        do {
+            let files = try await api.skillFileData(repo, slug: slug, branch: branch)
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let written = try LocalInstall.install(slug: slug, files: files, targets: targets, home: home, cwd: home)
+            showToast("Installed \(slug) into \(written.count) agent\(written.count == 1 ? "" : "s")", .ok)
+            refreshMetaSkillStatus()
+        } catch {
+            showToast("Install failed: \(error.localizedDescription)", .error)
+        }
+    }
+
+    // MARK: - add (resolve external source → publish + install)
+
+    /// Resolve an `add` source (local path / owner-repo / git URL / GitHub
+    /// `/tree/` URL), discover its skills, and filter out slugs already in the
+    /// registry (dup-safe like `importSkills`). The resolved temp clone is kept
+    /// alive until the next `resolveAndScan` or a `publishAndInstall` call so
+    /// the discovered `folder` paths stay readable for upload.
+    func resolveAndScan(_ source: String) async -> [LocalSkill] {
+        if isDemo { return Self.demoLocal }
+        addCleanup?()
+        addCleanup = nil
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let cwd = FileManager.default.currentDirectoryPath
+        do {
+            let resolved = try await SourceResolver.resolve(source, home: home, cwd: cwd)
+            addCleanup = resolved.cleanup
+            let discovered = Scan.discover([Scan.Source(path: resolved.scanRoot, label: source)])
+            let existing = Set(skills.map(\.slug))
+            let fresh = discovered.filter { !existing.contains($0.slug) && $0.slug != MetaSkill.slug }
+            if discovered.isEmpty {
+                showToast("No SKILL.md files found under \(source).", .info)
+            }
+            return fresh
+        } catch {
+            addCleanup = nil
+            showToast("Couldn't fetch source: \(error.localizedDescription)", .error)
+            return []
+        }
+    }
+
+    /// Publish each selected skill to the registry, then durably install it
+    /// into the chosen agents. Dup-safe: slugs already in the registry are
+    /// skipped. Cleans up the resolved temp clone when done.
+    func publishAndInstall(_ locals: [LocalSkill], targets: [AgentTarget],
+                           progress: @escaping @Sendable (Int, Int) -> Void) async {
+        guard let api, let repo else { return }
+        defer { addCleanup?(); addCleanup = nil }
+        let existing = Set(skills.map(\.slug))
+        let fresh = locals.filter { !existing.contains($0.slug) }
+        let skipped = locals.count - fresh.count
+        guard !fresh.isEmpty else {
+            showToast(skipped > 0 ? "All selected skills already exist in the registry." : "Nothing to add.", .info)
+            return
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let total = fresh.count
+        var done = 0
+        do {
+            for sk in fresh {
+                let prefixed = try Scan.filesForUpload(slug: sk.slug, folder: sk.folder)
+                // filesForUpload prefixes "<slug>/"; both publish and install
+                // want paths relative to the skill folder.
+                var rel: [String: Data] = [:]
+                let prefix = sk.slug + "/"
+                for (k, v) in prefixed { rel[String(k.dropFirst(prefix.count))] = v }
+                _ = try await api.publish(repo, slug: sk.slug, files: rel,
+                                          message: "add: \(sk.slug)", branch: branch)
+                if !targets.isEmpty {
+                    _ = try LocalInstall.install(slug: sk.slug, files: rel, targets: targets, home: home, cwd: home)
+                }
+                done += 1
+                progress(done, total)
+            }
+            let base = targets.isEmpty
+                ? "Added \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
+                : "Added + installed \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
+            showToast(skipped > 0 ? "\(base); skipped \(skipped) already in registry" : base, .ok)
+            await refreshSkills()
+            refreshMetaSkillStatus()
+        } catch {
+            showToast("Add failed: \(error.localizedDescription)", .error)
         }
     }
 
