@@ -674,16 +674,22 @@ func TestReplaceBinaryWindowsRotatesOld(t *testing.T) {
 	if string(body) != "new" {
 		t.Fatalf("dst = %q, want new", body)
 	}
-	oldPath := dst + ".old"
-	oldBody, err := os.ReadFile(oldPath)
+	// The backup uses a unique .old.<nanos> suffix.
+	matches, err := filepath.Glob(dst + ".old.*")
 	if err != nil {
-		// The .old file may already have been removed (if the test runner
+		t.Fatalf("glob .old.*: %v", err)
+	}
+	if len(matches) == 0 {
+		// The backup may already have been removed (if the test runner
 		// is Windows and the file isn't locked). That's acceptable.
-		if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("read .old: %v", err)
-		}
-	} else if string(oldBody) != "old" {
-		t.Fatalf(".old = %q, want old", oldBody)
+		return
+	}
+	oldBody, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if string(oldBody) != "old" {
+		t.Fatalf("backup = %q, want old", oldBody)
 	}
 }
 
@@ -730,17 +736,28 @@ func TestReplaceBinaryWindowsCreatesNewWhenMissing(t *testing.T) {
 
 func TestCleanupOldBinaries(t *testing.T) {
 	dir := t.TempDir()
-	// os.Executable() can't be overridden, so we test the helper
-	// indirectly by exercising the same pattern it uses.
-	oldFile := filepath.Join(dir, "skills-registry.exe.old")
-	if err := os.WriteFile(oldFile, []byte("stale"), 0o644); err != nil {
-		t.Fatalf("write old: %v", err)
+	// Exercise the glob cleanup path that cleanupOldBinaries uses.
+	base := filepath.Join(dir, "skills-registry.exe")
+	for _, name := range []string{"skills-registry.exe.old", "skills-registry.exe.old.123456", "skills-registry.exe.old.789012"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("stale"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
 	}
-	if err := os.Remove(oldFile); err != nil {
-		t.Fatalf("remove old: %v", err)
+	matches, err := filepath.Glob(base + ".old*")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
 	}
-	if _, err := os.Stat(oldFile); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("old file should be gone, stat err = %v", err)
+	if len(matches) != 3 {
+		t.Fatalf("expected 3 stale files, got %d", len(matches))
+	}
+	for _, m := range matches {
+		if err := os.Remove(m); err != nil {
+			t.Fatalf("remove %s: %v", m, err)
+		}
+	}
+	left, _ := filepath.Glob(base + ".old*")
+	if len(left) != 0 {
+		t.Fatalf("expected 0 stale files after cleanup, got %d", len(left))
 	}
 }
 

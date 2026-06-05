@@ -313,8 +313,9 @@ func installUpdate(ctx context.Context, client *http.Client, opts updateOpts, as
 // if it is still locked it will be cleaned up on the next process start.
 func replaceBinary(src, dst, goos string) error {
 	if goos == "windows" {
-		oldPath := dst + ".old"
-		// Remove any stale .old left behind by a previous update.
+		// Use a unique suffix so we never collide with a locked .old
+		// left behind by a previous process.
+		oldPath := fmt.Sprintf("%s.old.%d", dst, time.Now().UnixNano())
 		_ = os.Remove(oldPath)
 
 		if err := os.Rename(dst, oldPath); err != nil && !os.IsNotExist(err) {
@@ -337,7 +338,7 @@ func replaceBinary(src, dst, goos string) error {
 	return nil
 }
 
-// cleanupOldBinaries removes stale <binary>.old files left behind by
+// cleanupOldBinaries removes stale <binary>.old* files left behind by
 // Windows self-updates. Called once at process start before any work
 // begins so we don't litter the install directory.
 func cleanupOldBinaries() {
@@ -346,6 +347,11 @@ func cleanupOldBinaries() {
 		return
 	}
 	_ = os.Remove(exe + ".old")
+	// Also clean up timestamped variants from the unique-suffix path.
+	matches, _ := filepath.Glob(exe + ".old.*")
+	for _, m := range matches {
+		_ = os.Remove(m)
+	}
 }
 
 // downloadUpdateAsset writes the release tarball at the given URL to
