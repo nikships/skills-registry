@@ -301,10 +301,51 @@ func installUpdate(ctx context.Context, client *http.Client, opts updateOpts, as
 	if err := os.Chmod(extracted, 0o755); err != nil {
 		return fmt.Errorf("mark binary executable: %w", err)
 	}
-	if err := os.Rename(extracted, binPath); err != nil {
-		return fmt.Errorf("replace %s: %w", binPath, err)
+	if err := replaceBinary(extracted, binPath, runtime.GOOS); err != nil {
+		return err
 	}
 	return nil
+}
+
+// replaceBinary swaps src in for dst atomically. On Windows it first
+// rotates the existing dst to dst+".old" because Windows does not allow
+// overwriting a running executable. The .old file is removed best-effort;
+// if it is still locked it will be cleaned up on the next process start.
+func replaceBinary(src, dst, goos string) error {
+	if goos == "windows" {
+		oldPath := dst + ".old"
+		// Remove any stale .old left behind by a previous update.
+		_ = os.Remove(oldPath)
+
+		if err := os.Rename(dst, oldPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("rotate old binary: %w", err)
+		}
+		if err := os.Rename(src, dst); err != nil {
+			// Try to restore the old binary so the user isn't left broken.
+			_ = os.Rename(oldPath, dst)
+			return fmt.Errorf("replace %s: %w", dst, err)
+		}
+		// Best-effort: the old binary may still be locked by the
+		// running process. Failure here is not fatal.
+		_ = os.Remove(oldPath)
+		return nil
+	}
+
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("replace %s: %w", dst, err)
+	}
+	return nil
+}
+
+// cleanupOldBinaries removes stale <binary>.old files left behind by
+// Windows self-updates. Called once at process start before any work
+// begins so we don't litter the install directory.
+func cleanupOldBinaries() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	_ = os.Remove(exe + ".old")
 }
 
 // downloadUpdateAsset writes the release tarball at the given URL to

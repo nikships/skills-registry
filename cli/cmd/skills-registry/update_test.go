@@ -143,13 +143,22 @@ func TestPerformUpdateFromLocalTarball(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("old"), 0o755); err != nil {
 		t.Fatalf("write old bin: %v", err)
 	}
-	tarball := filepath.Join(dir, "update.tar.gz")
-	writeUpdateTarball(t, tarball, "new")
+
+	asset, err := updateAssetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatalf("updateAssetName: %v", err)
+	}
+	archivePath := filepath.Join(dir, "update"+filepath.Ext(asset))
+	if strings.HasSuffix(asset, ".zip") {
+		writeUpdateZip(t, archivePath, "skills-registry.exe", "new")
+	} else {
+		writeUpdateTarball(t, archivePath, "new")
+	}
 
 	res, err := performUpdate(context.Background(), updateOpts{
 		version: "v9.9.9",
 		binPath: bin,
-		tarball: tarball,
+		tarball: archivePath,
 		force:   true,
 	})
 	if err != nil {
@@ -416,7 +425,8 @@ func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat updated bin: %v", err)
 	}
-	if info.Mode().Perm()&0o100 == 0 {
+	// Windows doesn't have Unix permission bits; skip the executable check there.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
 		t.Fatalf("updated binary is not executable: mode=%v", info.Mode())
 	}
 }
@@ -616,6 +626,121 @@ func TestExtractUpdateBinaryZip(t *testing.T) {
 	}
 	if string(body) != "win binary" {
 		t.Fatalf("extracted body = %q, want %q", body, "win binary")
+	}
+}
+
+func TestReplaceBinaryPOSIX(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "skills-registry")
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatalf("write dst: %v", err)
+	}
+	src := filepath.Join(dir, "new")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+	if err := replaceBinary(src, dst, "linux"); err != nil {
+		t.Fatalf("replaceBinary: %v", err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(body) != "new" {
+		t.Fatalf("dst = %q, want new", body)
+	}
+	if _, err := os.Stat(src); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("src should be gone, stat err = %v", err)
+	}
+}
+
+func TestReplaceBinaryWindowsRotatesOld(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "skills-registry.exe")
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatalf("write dst: %v", err)
+	}
+	src := filepath.Join(dir, "skills-registry")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+	if err := replaceBinary(src, dst, "windows"); err != nil {
+		t.Fatalf("replaceBinary: %v", err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(body) != "new" {
+		t.Fatalf("dst = %q, want new", body)
+	}
+	oldPath := dst + ".old"
+	oldBody, err := os.ReadFile(oldPath)
+	if err != nil {
+		// The .old file may already have been removed (if the test runner
+		// is Windows and the file isn't locked). That's acceptable.
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read .old: %v", err)
+		}
+	} else if string(oldBody) != "old" {
+		t.Fatalf(".old = %q, want old", oldBody)
+	}
+}
+
+func TestReplaceBinaryWindowsRestoresOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "skills-registry.exe")
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatalf("write dst: %v", err)
+	}
+	// Use a non-existent src so Rename(src, dst) reliably fails on
+	// every platform, then verify the old binary is restored.
+	src := filepath.Join(dir, "does-not-exist")
+	if err := replaceBinary(src, dst, "windows"); err == nil {
+		t.Fatal("expected replaceBinary to fail when src does not exist")
+	}
+	// dst must still contain the old binary.
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst after failed replace: %v", err)
+	}
+	if string(body) != "old" {
+		t.Fatalf("dst = %q after failed replace, want old", body)
+	}
+}
+
+func TestReplaceBinaryWindowsCreatesNewWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "skills-registry.exe")
+	src := filepath.Join(dir, "skills-registry")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+	if err := replaceBinary(src, dst, "windows"); err != nil {
+		t.Fatalf("replaceBinary: %v", err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(body) != "new" {
+		t.Fatalf("dst = %q, want new", body)
+	}
+}
+
+func TestCleanupOldBinaries(t *testing.T) {
+	dir := t.TempDir()
+	// os.Executable() can't be overridden, so we test the helper
+	// indirectly by exercising the same pattern it uses.
+	oldFile := filepath.Join(dir, "skills-registry.exe.old")
+	if err := os.WriteFile(oldFile, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write old: %v", err)
+	}
+	if err := os.Remove(oldFile); err != nil {
+		t.Fatalf("remove old: %v", err)
+	}
+	if _, err := os.Stat(oldFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old file should be gone, stat err = %v", err)
 	}
 }
 

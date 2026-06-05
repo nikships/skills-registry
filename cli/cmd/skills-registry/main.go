@@ -18,6 +18,7 @@ import (
 var version = "dev"
 
 func main() {
+	cleanupOldBinaries()
 	root := newRootCmd()
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
