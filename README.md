@@ -20,7 +20,7 @@
 
 AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf auto-load every installed skill into the agent's startup context — tokens you pay for whether the agent uses them or not.
 
-`skills-registry` flips this: skills live in **one GitHub repo you own**, and agents fetch them on demand through a single lightweight proxy skill, or a remote MCP server. Each agent auto-loads only a tiny pointer file telling it *how* to fetch the rest.
+`skills-registry` flips this: skills live in **one GitHub repo you own**, and each agent auto-loads only a tiny **gateway skill** — a pointer file telling it *how* to search and fetch the rest on demand. That one small skill is all any agent needs. (Prefer native MCP tools? An optional hosted server exposes the same fetch-on-demand calls — see [below](#optional-hosted-mcp-server).)
 
 **You get:**
 
@@ -32,7 +32,7 @@ AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf auto-load every in
 
 ## Quick start
 
-> **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` succeeds), and `git` on `PATH` (only for the first-time bulk push). No Python — the MCP server is hosted.
+> **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` succeeds), and `git` on `PATH` (only for the first-time bulk push).
 
 **npm / npx** (any platform)
 
@@ -59,22 +59,32 @@ The npm package is a thin launcher that downloads the same prebuilt binary from 
 
 The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
-- **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → pick agents to wire up → optionally delete the now-redundant local copies → print the optional MCP JSON snippet.
+- **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → **install the gateway skill into the agents you pick** → optionally delete the now-redundant local copies.
 - **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Publish / Purge / Settings.
 - **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 
-The wizard ends with a JSON snippet for your MCP client config, pointing at `https://mcp.skills-registry.dev/mcp`. Your client handles the GitHub OAuth on first connect; the server can then read and (with permission) write to your registry repo.
-
-Paste the printed JSON into your MCP client config, reload, and ask:
+That's it — your agents are wired up. Each one now carries the gateway skill (`skills-registry/SKILL.md`), so you can just ask:
 
 > *"What skills do I have available?"*
 > *"Get the `code-review` skill and use it on this PR."*
 
-The agent calls `search_skills` and `get_skill` automatically — you never touch the MCP tools directly.
+The agent reads its gateway skill, runs `skills-registry search` / `skills-registry get` to discover and fetch what it needs, loads it into context, and cleans up the on-disk copy after. Nothing but the tiny gateway skill is ever preloaded. If the binary isn't on `PATH`, the skill tells the agent how to install it — so this self-heals.
+
+---
+
+## Native macOS app
+
+Prefer a GUI? There's a native macOS app (SwiftUI, Apple Silicon) for managing your registry without the terminal: GitHub login, browse skills with rich markdown rendering and fuzzy search, publish/remove, bulk-import local skills, and a 1-click CLI install. It shares the same registry repo and config as the CLI. See [`mac-app/`](mac-app).
+
+<img src="docs/img/mac-app.png" alt="Skills Registry macOS app — three-pane layout with the skill list, rendered SKILL.md, and a per-skill file browser." width="100%">
+
+
 
 ---
 
 ## Daily use
+
+<img src="docs/img/tui.png" alt="skills-registry list TUI — fuzzy-filterable skill list on the left with a live SKILL.md preview pane on the right." width="100%">
 
 Run `skills-registry` for the dashboard, or use subcommands directly:
 
@@ -144,7 +154,7 @@ Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is se
 | One home for all your agents | ❌ duplicated | ✅ | ✅ |
 | Fetched on demand (no startup tokens) | ❌ | ❌ | ✅ |
 | Versioned + branchable | ❌ | ✅ | ✅ |
-| Works in every MCP client | partial | ❌ | ✅ |
+| Works in any agent (skill or MCP) | partial | ❌ | ✅ |
 | Share / fork between users | ❌ | clunky | ✅ (just clone the repo) |
 | No shell or SSH config needed | ✅ | ❌ | ✅ |
 
@@ -201,9 +211,9 @@ The first-time bulk push uses a single `git push` to dodge GitHub's secondary ra
 
 ---
 
-## Manual MCP client config
+## Optional: hosted MCP server
 
-The wizard prints this JSON; if you prefer wiring it up by hand:
+The gateway skill is all you need. But if your client supports MCP and you'd rather it call native `search_skills` / `get_skill` tools (no local binary required for reads), there's an optional hosted server. Add it by hand:
 
 ```json
 {
@@ -215,37 +225,17 @@ The wizard prints this JSON; if you prefer wiring it up by hand:
 }
 ```
 
-Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `search_skills` / `get_skill` call goes through the hosted server — no local binary required.
+Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `search_skills` / `get_skill` call goes through the hosted server. Writes (`publish` / `sync` / `remove`) still go through the CLI — the hosted server is read-only.
 
-> **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the CLI directly (`skills-registry list`, `skills-registry get <slug>`).
+> **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the gateway skill + CLI directly (`skills-registry list`, `skills-registry get <slug>`).
 
 ---
 
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The hosted MCP read tools (`search_skills`, `get_skill`) and the CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill + CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) and the optional hosted MCP read tools (`search_skills`, `get_skill`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
----
-
-## Repo layout
-
-- [`cli/`](cli) — the Go binary users install (TUI + headless subcommands).
-- [`mac-app/`](mac-app) — native macOS app (SwiftUI, Apple Silicon) for managing the registry: GitHub login, browse with rich markdown + fuzzy search, publish/remove, bulk-import local skills, and 1-click CLI install. See its [README](mac-app/README.md).
-- [`install.sh`](install.sh) — POSIX one-shot installer for the Go binary.
-- [`npm/`](npm) — thin npm wrapper (`npx skills-registry`) that downloads the matching release binary.
-- [`docs/`](docs) — architecture deep-dive (`registry.md`) and supporting docs.
-- [`infa-not-for-users/`](infa-not-for-users) — the hosted MCP server (Python + FastMCP), Dockerfile, and Railway config. **Maintainer-only**; see its README for deployment details.
-- [`website/`](website) — Next.js landing page (`skills-registry.dev`).
-
----
-
-## More
-
-- 📖 [`docs/registry.md`](docs/registry.md) — architecture deep dive (Git Data API, caching, atomic publish)
-- 🛡️ [`SECURITY.md`](SECURITY.md) — threat model and reporting
-- 🤖 [`AGENTS.md`](AGENTS.md) — contributor notes for AI assistants working in this repo
 
 ---
 
