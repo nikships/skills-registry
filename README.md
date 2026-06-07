@@ -20,7 +20,7 @@
 
 AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf auto-load every installed skill into the agent's startup context — tokens you pay for whether the agent uses them or not.
 
-`skills-registry` flips this: skills live in **one GitHub repo you own**, and agents fetch them on demand through a hosted MCP server. Each agent auto-loads only a tiny pointer file telling it *how* to fetch the rest.
+`skills-registry` flips this: skills live in **one GitHub repo you own**, and agents fetch them on demand through a single lightweight proxy skill, or a remote MCP server. Each agent auto-loads only a tiny pointer file telling it *how* to fetch the rest.
 
 **You get:**
 
@@ -30,31 +30,16 @@ AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf auto-load every in
 
 ---
 
-## What's a "skill"?
-
-A skill is a folder containing a `SKILL.md` (Markdown with optional YAML frontmatter) plus any supporting files the agent might need.
-
-```markdown
----
-name: PDF Processing
-description: Extract and summarize PDF documents
----
-
-# PDF Processing
-
-When the user asks about a PDF, do the following:
-1. Read the file with the pdf-text tool
-2. Summarize section by section
-...
-```
-
-One file, plus any reference docs or examples. Most modern AI coding tools already understand this format; `skills-registry` keeps them in one place.
-
----
-
 ## Quick start
 
 > **You need:** [GitHub CLI](https://cli.github.com/) installed and authenticated (`gh auth status` succeeds), and `git` on `PATH` (only for the first-time bulk push). No Python — the MCP server is hosted.
+
+**npm / npx** (any platform)
+
+```bash
+npx skills-registry          # one-off, no install
+npm install -g skills-registry   # or install globally
+```
 
 **macOS / Linux**
 
@@ -70,18 +55,11 @@ powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/a
 skills-registry
 ```
 
-**npm / npx** (any platform)
-
-```bash
-npx skills-registry          # one-off, no install
-npm install -g skills-registry   # or install globally
-```
-
 The npm package is a thin launcher that downloads the same prebuilt binary from GitHub Releases on install (or first run); the macOS builds are codesigned + notarized.
 
 The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
-- **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → pick agents to wire up → optionally delete the now-redundant local copies → print the hosted-MCP JSON snippet.
+- **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → pick agents to wire up → optionally delete the now-redundant local copies → print the optional MCP JSON snippet.
 - **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Publish / Purge / Settings.
 - **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 
