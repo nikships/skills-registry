@@ -138,7 +138,15 @@ The wizard's step 7 (`WizardStepMCPConnect`) and the headless `bootstrap` subcom
 
 The URL constant lives at `cli/internal/bootstrap/install.go:HostedMCPURL`; `MCPJSONSnippet()` formats it for `mcp.json`. No binary path is computed, no install is attempted, no goroutine runs — `startMCPConnect` synchronously snapshots the snippet, the renderer shows it inside a `PanelStyle` code block, and the user pastes it into their client config.
 
-**Codex is intentionally unsupported by the hosted MCP.** Codex's TOML config only accepts stdio MCP servers (`command = "..."`), and the hosted service speaks Streamable HTTP. The wizard and README call this out; Codex users fall back to the CLI (`skills-registry list`, `skills-registry get <slug>`).
+**Codex** speaks the same Streamable HTTP as every other client; it just configures MCP servers in TOML (`~/.codex/config.toml`) rather than JSON. The equivalent of the JSON snippet is:
+
+```toml
+[mcp_servers.skills-registry]
+enabled = true
+url = "https://mcp.skills-registry.dev/mcp"
+```
+
+The README documents this; the wizard prints the JSON form, which Codex users translate into the TOML block above.
 
 ---
 

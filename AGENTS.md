@@ -11,7 +11,7 @@
 - **Lint/Format (Python):** `ruff`
 - **Build/Test (Go):** stdlib (`go build`, `go test`, `go vet`) + `staticcheck` + `deadcode` for dead-code / unused-symbol detection
 - **TUI library:** Charmbracelet (bubbletea + lipgloss + bubbles + cobra)
-- **MCP transport:** Streamable HTTP via FastMCP 3.x (the hosted server). stdio is no longer supported — Codex remains unsupported because its TOML config only accepts stdio MCPs.
+- **MCP transport:** Streamable HTTP via FastMCP 3.x (the hosted server). stdio is no longer supported. Codex is supported via its TOML config (`[mcp_servers.skills-registry]` with `url = "…"` in `~/.codex/config.toml`) — it speaks the same Streamable HTTP.
 - **Network surface:**
   - **Hosted MCP server (Python):** every GitHub call uses an installation-scoped GitHub App token. No `gh`, no `git`, no SSH, no user shell state. The container has only what its Dockerfile installs.
   - **CLI bootstrap (Go):** the bulk initial import (wizard step 4) uses **`git push` over HTTPS** (single push for the whole tree) because per-file `POST /git/blobs` trips GitHub's secondary rate limit on registries with dozens of skills. Auth wired through `gh auth setup-git`.
@@ -123,7 +123,7 @@ website/                 # Next.js landing page (skills-registry.dev). Static; d
                   via installation-scoped GitHub App token (read-only)
 ```
 
-**MCP wire-up is a static URL.** `cli/internal/bootstrap/install.go` exposes `HostedMCPURL = "https://mcp.skills-registry.dev/mcp"` and `MCPJSONSnippet()` (no arguments — no binary path to compute). The wizard's step 7 (`WizardStepMCPConnect`) and the headless `bootstrap` subcommand both print this snippet. **The CLI never installs, boots, or proxies an MCP server.** Codex remains unsupported because the hosted server speaks Streamable HTTP and Codex's TOML config only accepts stdio (`command = "..."`); the wizard prints a one-line caveat instead of a Codex snippet.
+**MCP wire-up is a static URL.** `cli/internal/bootstrap/install.go` exposes `HostedMCPURL = "https://mcp.skills-registry.dev/mcp"` and `MCPJSONSnippet()` (no arguments — no binary path to compute). The wizard's step 7 (`WizardStepMCPConnect`) and the headless `bootstrap` subcommand both print this snippet. **The CLI never installs, boots, or proxies an MCP server.** Codex is supported: it speaks the same Streamable HTTP but configures servers in TOML (`[mcp_servers.skills-registry]` + `url` in `~/.codex/config.toml`). The wizard prints the JSON snippet; Codex users translate it into the TOML block.
 
 ### Bare-command routing (hub / wizard / help)
 

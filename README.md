@@ -173,7 +173,7 @@ The wizard sets sensible defaults. Override via shell env when needed:
 | `SKILLS_REGISTRY_AUTO_UPDATE` | unset | Set to `1`/`true`/`yes` to opportunistically run `skills-registry update` before opening the hub. Errors are warning-logged, never fatal. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
-The registry repo URL itself lives in `~/.config/skills-mcp/registry.toml`.
+The registry repo itself (as an `owner/repo` slug) lives in `~/.config/skills-mcp/registry.toml`.
 
 ---
 
@@ -227,7 +227,13 @@ The gateway skill is all you need. But if your client supports MCP and you'd rat
 
 Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `search_skills` / `get_skill` call goes through the hosted server. Writes (`publish` / `sync` / `remove`) still go through the CLI — the hosted server is read-only.
 
-> **Codex.** Codex's TOML config only accepts stdio MCPs (`command = "..."`), and the hosted server speaks Streamable HTTP. Not supported yet — use the gateway skill + CLI directly (`skills-registry list`, `skills-registry get <slug>`).
+> **Codex.** Codex uses TOML instead of JSON, but it speaks the same Streamable HTTP. Add this to `~/.codex/config.toml`:
+>
+> ```toml
+> [mcp_servers.skills-registry]
+> enabled = true
+> url = "https://mcp.skills-registry.dev/mcp"
+> ```
 
 ---
 
