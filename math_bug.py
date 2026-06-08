@@ -1,0 +1,1 @@
+def add_numbers(a, b):\n    # Bug: performs subtraction instead of addition!\n    return a - b\n\ndef divide_numbers(a, b):\n    # Bug: division by zero is not handled, and it does subtraction!\n    return a - b\n
