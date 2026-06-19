@@ -14,7 +14,7 @@ description = "Remote FastMCP server for the GitHub-backed skills registry. Auth
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-authors = [{ name = "anand-92" }]
+authors = [{ name = "nikships" }]
 keywords = ["mcp", "model-context-protocol", "fastmcp", "claude", "skills", "ai-tools"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -42,9 +42,9 @@ dependencies = [
 skills-registry-mcp = "skills_mcp.remote_server:main"
 
 [project.urls]
-Homepage = "https://github.com/anand-92/skills-registry"
-Repository = "https://github.com/anand-92/skills-registry"
-Issues = "https://github.com/anand-92/skills-registry/issues"
+Homepage = "https://github.com/nikships/skills-registry"
+Repository = "https://github.com/nikships/skills-registry"
+Issues = "https://github.com/nikships/skills-registry/issues"
 
 [dependency-groups]
 dev = [

@@ -13,11 +13,11 @@
   "homepage": "https://skills-registry.dev",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anand-92/skills-registry.git",
+    "url": "git+https://github.com/nikships/skills-registry.git",
     "directory": "npm"
   },
   "bugs": {
-    "url": "https://github.com/anand-92/skills-registry/issues"
+    "url": "https://github.com/nikships/skills-registry/issues"
   },
   "license": "Apache-2.0",
   "bin": {

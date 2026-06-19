@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
+	"github.com/nikships/skills-registry/cli/internal/agents"
 )
 
 // HostedMCPURL is the public Streamable-HTTP endpoint of the hosted

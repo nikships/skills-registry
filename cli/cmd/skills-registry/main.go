@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anand-92/skills-registry/cli/internal/config"
-	"github.com/anand-92/skills-registry/cli/internal/jsonout"
+	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/jsonout"
 )
 
 var version = "dev"

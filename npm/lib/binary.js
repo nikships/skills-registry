@@ -13,7 +13,7 @@ const os = require("os");
 const path = require("path");
 const https = require("https");
 
-const REPO = process.env.SKILLS_REGISTRY_REPO || "anand-92/skills-registry";
+const REPO = process.env.SKILLS_REGISTRY_REPO || "nikships/skills-registry";
 const PKG_VERSION = require("../package.json").version;
 
 // Map Node's process.platform / process.arch onto the release asset matrix.

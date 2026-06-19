@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/anand-92/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/scan"
 )
 
 // FallbackPaths mirror the Python `gh.find_gh()` list so the CLI keeps

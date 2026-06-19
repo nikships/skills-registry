@@ -37,10 +37,10 @@ export default function Home() {
         <a href="#mcp-tools">MCP tools</a>
         <a href="#install">Install</a>
         <a href="#cli">CLI</a>
-        <a href="https://github.com/anand-92/skills-registry">GitHub</a>
+        <a href="https://github.com/nikships/skills-registry">GitHub</a>
       </nav>
       <div className="nav-right">
-        <a className="btn btn-ghost btn-sm" href="https://github.com/anand-92/skills-registry">★ Star</a>
+        <a className="btn btn-ghost btn-sm" href="https://github.com/nikships/skills-registry">★ Star</a>
         <a className="btn btn-primary btn-sm" href="#install">Install</a>
       </div>
     </div>
@@ -58,7 +58,7 @@ export default function Home() {
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary btn-arrow" href="#install">Install in one command</a>
-            <a className="btn btn-ghost" href="https://github.com/anand-92/skills-registry">View on GitHub</a>
+            <a className="btn btn-ghost" href="https://github.com/nikships/skills-registry">View on GitHub</a>
           </div>
           <p className="meta-text" style={{marginTop: "20px"}}>
             <span className="num">curl … install.sh | sh</span> &nbsp;·&nbsp; needs <span className="inline-code">gh</span> + <span className="inline-code">git</span>
@@ -73,7 +73,7 @@ export default function Home() {
             <span className="tt">~ / skills-registry — zsh</span>
           </div>
           <div className="terminal-body">
-            <span className="term-line"><span className="term-prompt">$</span> <span className="term-cmd">curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh</span></span>
+            <span className="term-line"><span className="term-prompt">$</span> <span className="term-cmd">curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/install.sh | sh</span></span>
 
             <span className="term-line term-comment"># Detecting platform…</span>
             <span className="term-line"><span className="term-ok">✓</span> darwin/arm64 detected</span>
@@ -84,7 +84,7 @@ export default function Home() {
             <span className="term-line term-comment"># Onboarding wizard — scanning ~/.* for existing skills…</span>
             <span className="term-line"><span className="term-indent"></span>found 11 skills in <span className="term-accent">~/.claude/skills</span></span>
             <span className="term-line"><span className="term-indent"></span>found  6 skills in <span className="term-accent">~/.cursor/skills</span></span>
-            <span className="term-line"><span className="term-ok">✓</span> Created <span className="term-accent">anand-92/my-skills</span> · pushed 17 skills</span>
+            <span className="term-line"><span className="term-ok">✓</span> Created <span className="term-accent">nikships/my-skills</span> · pushed 17 skills</span>
 
             <span className="term-line group"><span className="term-ok">Done.</span> Wire up the hosted MCP:</span>
             <span className="term-line term-comment"># Paste into Claude Code / Cursor / VS Code mcp.json</span>
@@ -157,7 +157,7 @@ export default function Home() {
             <span className="problem-tag" style={{color: "var(--accent)"}}>After · skills-registry</span>
             <h3 className="h4" style={{fontWeight: "600"}}>One repo. Every device. Fetched on demand.</h3>
             <ul className="problem-list" style={{marginTop: "14px"}}>
-              <li className="good">anand-92/my-skills/code-review/SKILL.md</li>
+              <li className="good">nikships/my-skills/code-review/SKILL.md</li>
               <li className="good">Same skills on laptop, desktop, and cloud VM</li>
               <li className="good">Every agent on every device points to the same repo</li>
               <li className="good">Edit once — every machine sees the update instantly</li>
@@ -519,7 +519,7 @@ agent: get_skill("code-review")
 
             <div className="code-panel" id="inst-curl" hidden={installTab !== "inst-curl"}>
               <pre className="code-block"><code>{`# Drops the Go binary into ~/.local/bin/skills-registry
-$ curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+$ curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/install.sh | sh
 
 # Then run the wizard:
 $ skills-registry`}</code></pre>
@@ -551,11 +551,11 @@ $ skills-registry`}</code></pre>
         <div className="cta-wrap">
           <div>
             <h2>Free, open, and pre-1.0. Try it today.</h2>
-            <p className="lead">Apache-2.0. No accounts. No telemetry. No paid tier — ever. Built by <a href="https://github.com/anand-92" style={{color: "#ff9ec2", textDecoration: "underline", textDecorationThickness: "1px", textUnderlineOffset: "3px"}}>anand-92</a> as an open-source dev tool. Star the repo or file an issue if it breaks.</p>
+            <p className="lead">Apache-2.0. No accounts. No telemetry. No paid tier — ever. Built by <a href="https://github.com/nikships" style={{color: "#ff9ec2", textDecoration: "underline", textDecorationThickness: "1px", textUnderlineOffset: "3px"}}>nikships</a> as an open-source dev tool. Star the repo or file an issue if it breaks.</p>
           </div>
           <div className="cta-actions">
             <a className="btn btn-light btn-arrow" href="#install"><span className="num">skills-registry</span></a>
-            <a className="btn btn-outline-light" href="https://github.com/anand-92/skills-registry">★ Star on GitHub</a>
+            <a className="btn btn-outline-light" href="https://github.com/nikships/skills-registry">★ Star on GitHub</a>
             <span className="meta-light">MCP surface stable · internals may shift between minor versions</span>
           </div>
         </div>
@@ -575,18 +575,18 @@ $ skills-registry`}</code></pre>
         <div className="foot-col">
           <h5>Project</h5>
           <ul>
-            <li><a href="https://github.com/anand-92/skills-registry">GitHub</a></li>
-            <li><a href="https://github.com/anand-92/skills-registry/releases">Releases</a></li>
-            <li><a href="https://github.com/anand-92/skills-registry/issues">Issues</a></li>
+            <li><a href="https://github.com/nikships/skills-registry">GitHub</a></li>
+            <li><a href="https://github.com/nikships/skills-registry/releases">Releases</a></li>
+            <li><a href="https://github.com/nikships/skills-registry/issues">Issues</a></li>
           </ul>
         </div>
         <div className="foot-col">
           <h5>Docs</h5>
           <ul>
-            <li><a href="https://github.com/anand-92/skills-registry/blob/main/docs/registry.md">Architecture</a></li>
-            <li><a href="https://github.com/anand-92/skills-registry/blob/main/CONTRIBUTING.md">Contributing</a></li>
-            <li><a href="https://github.com/anand-92/skills-registry/blob/main/AGENTS.md">AGENTS.md</a></li>
-            <li><a href="https://github.com/anand-92/skills-registry/blob/main/SECURITY.md">Security</a></li>
+            <li><a href="https://github.com/nikships/skills-registry/blob/main/docs/registry.md">Architecture</a></li>
+            <li><a href="https://github.com/nikships/skills-registry/blob/main/CONTRIBUTING.md">Contributing</a></li>
+            <li><a href="https://github.com/nikships/skills-registry/blob/main/AGENTS.md">AGENTS.md</a></li>
+            <li><a href="https://github.com/nikships/skills-registry/blob/main/SECURITY.md">Security</a></li>
           </ul>
         </div>
         <div className="foot-col">
@@ -601,7 +601,7 @@ $ skills-registry`}</code></pre>
       </div>
 
       <div className="foot-bottom">
-        <span className="meta-text">© 2026 anand-92 · Apache-2.0</span>
+        <span className="meta-text">© 2026 nikships · Apache-2.0</span>
         <span className="meta-text">v0.7.0 · Beta · MCP surface stable</span>
       </div>
     </div>

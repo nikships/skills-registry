@@ -47,7 +47,7 @@ The CLI (`skills-registry list`, `skills-registry search`, `get`, …) is separa
 The user-facing entry point is a single shell command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/install.sh | sh
 ```
 
 `install.sh` (POSIX `sh`, ~150 LOC):

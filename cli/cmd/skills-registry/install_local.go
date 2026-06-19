@@ -16,10 +16,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
-	"github.com/anand-92/skills-registry/cli/internal/scan"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/agents"
+	"github.com/nikships/skills-registry/cli/internal/registry"
+	"github.com/nikships/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // installPickerTargets returns the rows shown by the install agent

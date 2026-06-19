@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>Skills Registry Updates</title>
-    <link>https://github.com/anand-92/skills-registry</link>
+    <link>https://github.com/nikships/skills-registry</link>
     <description>Most recent updates to the Skills Registry macOS app</description>
     <language>en</language>
     <item>
@@ -11,7 +11,7 @@
       <sparkle:shortVersionString>0.1.7</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Sun, 07 Jun 2026 09:18:22 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.7/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.7/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="O94jEq/1yG21NAOCyf23OS6sAEnK0AxpfedZ5NIYEYoET48tlmwLS92BPhZlt/MZoERcF6Fb+TmPeVDroFALDw=="
                  length="2716854"/>
@@ -22,7 +22,7 @@
       <sparkle:shortVersionString>0.1.6</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Mon, 01 Jun 2026 22:28:07 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.6/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.6/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="xd0cTom86FMpuFxFSnhUCHKL2aaoWSLMoc2Gp/mlPbKjH6l3bDQoeZEE5uepNg06uE287uiJxjNAgb00mJS8AQ=="
                  length="2716841"/>
@@ -33,7 +33,7 @@
       <sparkle:shortVersionString>0.1.5</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Mon, 01 Jun 2026 22:08:15 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.5/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.5/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="WH40i/YaanjL8Ajonq0Pt6cmD3OLasP3QtuYYRWEmkL5ZDc00sigw2k3RSSoDLy6/V+0/lced3v3h0RcFIZODQ=="
                  length="2717520"/>
@@ -44,7 +44,7 @@
       <sparkle:shortVersionString>0.1.4</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Mon, 01 Jun 2026 20:58:15 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.4/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.4/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="C/7GUjGWrocobqESzXRYg7w0zVPI2pHv+YEQ8i/e4D34xp2zZWZT8vAr1ylr/PuTeeCU6YKMFt7w1h7A7fyuCA=="
                  length="2615105"/>
@@ -55,7 +55,7 @@
       <sparkle:shortVersionString>0.1.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Sat, 30 May 2026 11:26:36 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.3/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.3/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="ACb7OLCBrS4BRg0XmnbdpOrS9gJA5i+P8tLowA7nj57oAq46/J1Tghc333IYWyKUkXOiq79edObd7c/7i5b4CQ=="
                  length="2614607"/>
@@ -66,7 +66,7 @@
       <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Sat, 30 May 2026 07:04:42 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.2/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.2/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="OZZgl5P5MhoEKdyFfZMyhVGBEeGwJZsDBJC06KEdqSRjLeJr7SWflXi9JQ1occtfsQ8UvXZ/KN7N1zR4jwRyDg=="
                  length="2614754"/>
@@ -77,7 +77,7 @@
       <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Sat, 30 May 2026 06:43:20 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.1/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.1/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="hoSmecWjl1IX4gBtKTsSHqxFYN7NnAlYVo8gFrx/B3B+foNFFN1uibO9oKTBERI/sooX8wOAPk2Bq0YmID95Dg=="
                  length="2614735"/>
@@ -88,7 +88,7 @@
       <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <pubDate>Sat, 30 May 2026 06:35:51 +0000</pubDate>
-      <enclosure url="https://github.com/anand-92/skills-registry/releases/download/macapp-v0.1.0/SkillsRegistry-macos-arm64.zip"
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.0/SkillsRegistry-macos-arm64.zip"
                  type="application/octet-stream"
                  sparkle:edSignature="znOx046oG/5PF2Sp36NVY3uBzwG5g1LR+nHUhkCH2Kk2dBdSc0F6SjkG9tpJcW4VcGgkMZ+dL7WZIDqRhjB8Cw=="
                  length="2614685"/>

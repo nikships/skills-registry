@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/jsonout"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
+	"github.com/nikships/skills-registry/cli/internal/jsonout"
+	"github.com/nikships/skills-registry/cli/internal/registry"
 )
 
 func TestFuzzyScoreOrderMatters(t *testing.T) {

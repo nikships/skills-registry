@@ -9,12 +9,12 @@ import (
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
-	"github.com/anand-92/skills-registry/cli/internal/bootstrap"
-	"github.com/anand-92/skills-registry/cli/internal/config"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
-	"github.com/anand-92/skills-registry/cli/internal/scan"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/agents"
+	"github.com/nikships/skills-registry/cli/internal/bootstrap"
+	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/registry"
+	"github.com/nikships/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // runWizard launches the onboarding wizard in alt-screen mode. The

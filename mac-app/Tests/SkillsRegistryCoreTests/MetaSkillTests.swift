@@ -31,7 +31,7 @@ final class MetaSkillTests: XCTestCase {
 
     func testMissingThenInstallThenCurrent() throws {
         try mkAgentDir(".claude")
-        let repo = "anand-92/my-skills"
+        let repo = "nikships/my-skills"
 
         var status = MetaSkill.status(home: home, registryRepo: repo)
         XCTAssertEqual(status.detectedCount, 1)
@@ -55,7 +55,7 @@ final class MetaSkillTests: XCTestCase {
 
     func testOutdatedDetectionAndRefresh() throws {
         try mkAgentDir(".claude")
-        let repo = "anand-92/my-skills"
+        let repo = "nikships/my-skills"
         let path = MetaSkill.skillPath(for: MetaSkill.detectedTargets(home: home)[0], home: home)
         try FileManager.default.createDirectory(
             atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
@@ -75,7 +75,7 @@ final class MetaSkillTests: XCTestCase {
 
     func testCurrentSkillIsNotRewritten() throws {
         try mkAgentDir(".claude")
-        let repo = "anand-92/my-skills"
+        let repo = "nikships/my-skills"
         _ = try MetaSkill.install(home: home, registryRepo: repo)
         // Second install should write nothing — everything is already current.
         let written = try MetaSkill.install(home: home, registryRepo: repo)

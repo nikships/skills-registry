@@ -22,7 +22,7 @@ public enum AppConfig {
     public static let hostedMCPURL = "https://mcp.skills-registry.dev/mcp"
 
     /// owner/repo of the project itself — source of CLI release tarballs.
-    public static let projectRepo = "anand-92/skills-registry"
+    public static let projectRepo = "nikships/skills-registry"
 
     /// Where the one-click CLI installer drops the binary (mirrors install.sh).
     public static var cliInstallDir: URL {

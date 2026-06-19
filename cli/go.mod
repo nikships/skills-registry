@@ -1,4 +1,4 @@
-module github.com/anand-92/skills-registry/cli
+module github.com/nikships/skills-registry/cli
 
 go 1.24.5
 

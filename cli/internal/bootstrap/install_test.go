@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
+	"github.com/nikships/skills-registry/cli/internal/agents"
 )
 
 func TestInstallSkillMdWritesEverywhere(t *testing.T) {

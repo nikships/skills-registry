@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/anand-92/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/scan"
 )
 
 type SyncFlowDeps struct {

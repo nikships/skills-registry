@@ -56,7 +56,7 @@ def make_routes(*, install_url: str, mcp_url: str) -> dict[str, object]:
 		extra_css="a { color: #1462ad; }",
 		body=f"""  <h1>Skills Registry MCP</h1>
   <p>This is the remote MCP endpoint for the
-     <a href=https://github.com/anand-92/skills-registry>Skills Registry</a>
+     <a href=https://github.com/nikships/skills-registry>Skills Registry</a>
      project.</p>
   <p>To connect, point your MCP client at <code>{mcp_url}</code>. The first
      connection will open a GitHub OAuth window to authorize access.</p>

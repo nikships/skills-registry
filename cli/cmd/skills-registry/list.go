@@ -9,10 +9,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/anand-92/skills-registry/cli/internal/config"
-	"github.com/anand-92/skills-registry/cli/internal/jsonout"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/jsonout"
+	"github.com/nikships/skills-registry/cli/internal/registry"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // listJSONRow is the per-skill payload emitted by `list --json`. Field

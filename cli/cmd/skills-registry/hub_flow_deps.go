@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anand-92/skills-registry/cli/internal/bootstrap"
-	"github.com/anand-92/skills-registry/cli/internal/cache"
-	"github.com/anand-92/skills-registry/cli/internal/config"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
-	"github.com/anand-92/skills-registry/cli/internal/scan"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/bootstrap"
+	"github.com/nikships/skills-registry/cli/internal/cache"
+	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/registry"
+	"github.com/nikships/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 func buildHubDeps(ctx context.Context, cfg config.Config) tui.HubDeps {

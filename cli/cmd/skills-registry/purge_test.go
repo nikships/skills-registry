@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/scan"
 )
 
 // TestPurgeLocalSkillsRemovesFolders verifies the happy path: every

@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/anand-92/skills-registry/cli/internal/config"
-	"github.com/anand-92/skills-registry/cli/internal/registry"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/registry"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // runHub launches one long-lived alt-screen Bubble Tea program. Every hub

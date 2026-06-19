@@ -48,7 +48,7 @@ final class ReleaseChannelTests: XCTestCase {
 final class UpdatesPickLatestTests: XCTestCase {
     private func rel(_ tag: String, draft: Bool = false, pre: Bool = false) -> [String: Any] {
         ["tag_name": tag, "draft": draft, "prerelease": pre,
-         "html_url": "https://github.com/anand-92/skills-registry/releases/tag/\(tag)"]
+         "html_url": "https://github.com/nikships/skills-registry/releases/tag/\(tag)"]
     }
 
     func testPicksHighestCLIIgnoringMacApp() {

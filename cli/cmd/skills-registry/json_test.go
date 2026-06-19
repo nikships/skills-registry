@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/jsonout"
+	"github.com/nikships/skills-registry/cli/internal/jsonout"
 )
 
 // TestRunListJSONEmitsArrayOfSummaries pins the JSON-001 contract:

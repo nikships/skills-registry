@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/agents"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/agents"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // TestInstallPickerTargetsLocksUniversal pins the spec invariant:

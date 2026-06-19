@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/config"
 )
 
 // TestErrToastSurfacesActionAndMessage pins the F3.2 toast formatter:

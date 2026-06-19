@@ -37,7 +37,7 @@
          half (keychain account "skills-registry" / GH secret SPARKLE_PRIVATE_KEY)
          signs each release. -->
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/anand-92/skills-registry/main/mac-app/appcast.xml</string>
+    <string>https://raw.githubusercontent.com/nikships/skills-registry/main/mac-app/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>wscGRrGXNxnBdDl8nwHMHD7X9N88pD3e+XfxLqKRU4s=</string>
     <key>SUEnableAutomaticChecks</key>

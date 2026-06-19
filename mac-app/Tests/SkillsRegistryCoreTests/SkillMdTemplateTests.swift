@@ -17,9 +17,9 @@ final class SkillMdTemplateTests: XCTestCase {
     }
 
     func testRepoInterpolation() {
-        let out = SkillMdTemplate.skillMd(registryRepo: "anand-92/my-skills")
-        XCTAssertTrue(out.contains("library at anand-92/my-skills."))
-        XCTAssertTrue(out.contains("https://github.com/anand-92/my-skills and can be reached"))
+        let out = SkillMdTemplate.skillMd(registryRepo: "nikships/my-skills")
+        XCTAssertTrue(out.contains("library at nikships/my-skills."))
+        XCTAssertTrue(out.contains("https://github.com/nikships/my-skills and can be reached"))
         // The placeholder repo must not leak into the interpolated slots. (The
         // literal `owner/repo` still appears once as docs for `add <source>`.)
         XCTAssertFalse(out.contains("library at owner/repo."))

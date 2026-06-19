@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anand-92/skills-registry/cli/internal/cache"
+	"github.com/nikships/skills-registry/cli/internal/cache"
 )
 
 func TestResolveDest(t *testing.T) {

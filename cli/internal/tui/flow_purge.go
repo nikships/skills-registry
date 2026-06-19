@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/anand-92/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/scan"
 )
 
 // PurgeFlowDeps wires the Purge Local Skills hub action to its scan and

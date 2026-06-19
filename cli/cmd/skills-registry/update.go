@@ -18,8 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anand-92/skills-registry/cli/internal/jsonout"
-	"github.com/anand-92/skills-registry/cli/internal/tui"
+	"github.com/nikships/skills-registry/cli/internal/jsonout"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // Defaults mirror install.sh so the in-binary updater and the curl|sh
