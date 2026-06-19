@@ -25,7 +25,7 @@ import (
 // Defaults mirror install.sh so the in-binary updater and the curl|sh
 // installer always pull from the same release surface.
 const (
-	defaultUpdateRepo       = "anand-92/skills-registry"
+	defaultUpdateRepo       = "nikships/skills-registry"
 	defaultGitHubAPIBaseURL = "https://api.github.com"
 	defaultReleaseBaseURL   = "https://github.com"
 	updateHTTPTimeout       = 60 * time.Second
@@ -76,7 +76,7 @@ func newUpdateCmd() *cobra.Command {
 and replaces the current binary in place. Mirrors install.sh — no gh
 dependency, just a straight HTTPS GET against the public release URL.
 
-By default this installs the latest release from anand-92/skills-registry.
+By default this installs the latest release from nikships/skills-registry.
 Use --version to pin a tag (for example v0.5.1), or --bin to update a
 specific binary path. Set SKILLS_REGISTRY_AUTO_UPDATE=1 to opportunistically
 update right before opening the hub.`,

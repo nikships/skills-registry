@@ -1,7 +1,7 @@
 # install.ps1 — install the skills-registry Go CLI on Windows.
 #
 # Usage:
-#   powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1)))"
+#   powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nikships/skills-registry/main/install.ps1)))"
 #
 # Detects the host architecture, downloads the matching zip from GitHub
 # Releases, extracts skills-registry.exe into ~\.local\bin, and adds
@@ -10,7 +10,7 @@
 # Supported platforms: windows/amd64, windows/arm64
 #
 # Environment overrides (mostly for testing / pinning):
-#   SKILLS_REGISTRY_REPO     Override owner/repo (default: anand-92/skills-registry)
+#   SKILLS_REGISTRY_REPO     Override owner/repo (default: nikships/skills-registry)
 #   SKILLS_REGISTRY_VERSION  Pin to a tag, e.g. v0.5.1 (default: latest)
 #   SKILLS_BIN_DIR           Override install dir (default: $HOME\.local\bin)
 #   SKILLS_REGISTRY_ARCH     Override detected arch (default: from RuntimeInformation)
@@ -29,7 +29,7 @@ param(
     [string]$BinDir = $env:SKILLS_BIN_DIR
 )
 
-if (-not $Repo) { $Repo = "anand-92/skills-registry" }
+if (-not $Repo) { $Repo = "nikships/skills-registry" }
 if (-not $Version) { $Version = "latest" }
 if (-not $BinDir) { $BinDir = "$env:USERPROFILE\.local\bin" }
 

@@ -180,7 +180,7 @@ func TestPerformUpdateFromLocalTarball(t *testing.T) {
 func TestLatestReleaseTagViaHTTP(t *testing.T) {
 	wantTag := "v1.2.3"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/anand-92/skills-registry/releases/latest" {
+		if r.URL.Path != "/repos/nikships/skills-registry/releases/latest" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		if ua := r.Header.Get("User-Agent"); ua != updateUserAgent {
@@ -193,7 +193,7 @@ func TestLatestReleaseTagViaHTTP(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
 	if err != nil {
 		t.Fatalf("latestReleaseTag: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestLatestReleaseTagHTTPError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
 	if err == nil {
 		t.Fatal("expected error on non-200 response")
 	}
@@ -223,7 +223,7 @@ func TestLatestReleaseTagEmptyTag(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
 	if err == nil {
 		t.Fatal("expected error when tag_name is empty")
 	}
@@ -238,7 +238,7 @@ func TestLatestReleaseTagInvalidJSON(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "anand-92/skills-registry")
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
 	if err == nil {
 		t.Fatal("expected JSON decode error")
 	}
@@ -251,7 +251,7 @@ func TestLatestReleaseTagInvalidJSON(t *testing.T) {
 // the format install.sh uses for pinned releases.
 func TestDownloadUpdateAssetPinnedVersion(t *testing.T) {
 	body := []byte("tarball-bytes")
-	wantPath := "/anand-92/skills-registry/releases/download/v1.2.3/skills-registry_darwin_arm64.tar.gz"
+	wantPath := "/nikships/skills-registry/releases/download/v1.2.3/skills-registry_darwin_arm64.tar.gz"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != wantPath {
 			t.Errorf("unexpected path %q (want %q)", r.URL.Path, wantPath)
@@ -266,7 +266,7 @@ func TestDownloadUpdateAssetPinnedVersion(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "skills-registry_darwin_arm64.tar.gz")
 	if err := downloadUpdateAsset(
 		context.Background(), srv.Client(), srv.URL,
-		"anand-92/skills-registry", "v1.2.3",
+		"nikships/skills-registry", "v1.2.3",
 		"skills-registry_darwin_arm64.tar.gz", dest,
 	); err != nil {
 		t.Fatalf("downloadUpdateAsset: %v", err)
@@ -284,7 +284,7 @@ func TestDownloadUpdateAssetPinnedVersion(t *testing.T) {
 // TestDownloadUpdateAssetLatestPath verifies the latest-release URL
 // uses /releases/latest/download/<asset> (matches install.sh).
 func TestDownloadUpdateAssetLatestPath(t *testing.T) {
-	wantPath := "/anand-92/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz"
+	wantPath := "/nikships/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz"
 	hit := atomic.Bool{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hit.Store(true)
@@ -298,7 +298,7 @@ func TestDownloadUpdateAssetLatestPath(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "asset.tar.gz")
 	if err := downloadUpdateAsset(
 		context.Background(), srv.Client(), srv.URL,
-		"anand-92/skills-registry", "latest",
+		"nikships/skills-registry", "latest",
 		"skills-registry_linux_amd64.tar.gz", dest,
 	); err != nil {
 		t.Fatalf("downloadUpdateAsset: %v", err)
@@ -317,7 +317,7 @@ func TestDownloadUpdateAssetNotFound(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "asset.tar.gz")
 	err := downloadUpdateAsset(
 		context.Background(), srv.Client(), srv.URL,
-		"anand-92/skills-registry", "v9.9.9",
+		"nikships/skills-registry", "v9.9.9",
 		"skills-registry_linux_amd64.tar.gz", dest,
 	)
 	if err == nil {
@@ -371,7 +371,7 @@ func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
 
 	releaseSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dlCalls.Add(1)
-		wantPath := "/anand-92/skills-registry/releases/download/" + wantTag + "/" + asset
+		wantPath := "/nikships/skills-registry/releases/download/" + wantTag + "/" + asset
 		if r.URL.Path != wantPath {
 			t.Errorf("download path = %q, want %q", r.URL.Path, wantPath)
 		}
@@ -385,7 +385,7 @@ func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
 	t.Cleanup(releaseSrv.Close)
 
 	res, err := performUpdate(context.Background(), updateOpts{
-		repo:           "anand-92/skills-registry",
+		repo:           "nikships/skills-registry",
 		version:        "latest",
 		binPath:        bin,
 		force:          true,

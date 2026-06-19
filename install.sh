@@ -2,10 +2,10 @@
 # install.sh — install the skills-registry Go CLI.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/install.sh | sh
 #
 # Detects the host OS and architecture, downloads the matching tarball
-# from the GitHub Releases of anand-92/skills-registry, drops the
+# from the GitHub Releases of nikships/skills-registry, drops the
 # skills-registry binary into ~/.local/bin/, and marks it executable.
 #
 # Supported platforms (POSIX — macOS & Linux):
@@ -16,7 +16,7 @@
 # never silently downloads the wrong asset.
 #
 # Environment overrides (mostly for testing / pinning):
-#   SKILLS_REGISTRY_REPO     Override owner/repo (default: anand-92/skills-registry)
+#   SKILLS_REGISTRY_REPO     Override owner/repo (default: nikships/skills-registry)
 #   SKILLS_REGISTRY_VERSION  Pin to a tag, e.g. v0.5.1 (default: latest)
 #   SKILLS_BIN_DIR           Override install dir (default: $HOME/.local/bin)
 #   SKILLS_REGISTRY_OS       Override detected OS (default: $(uname -s))
@@ -32,7 +32,7 @@
 
 set -eu
 
-REPO=${SKILLS_REGISTRY_REPO:-anand-92/skills-registry}
+REPO=${SKILLS_REGISTRY_REPO:-nikships/skills-registry}
 VERSION=${SKILLS_REGISTRY_VERSION:-latest}
 BIN_DIR=${SKILLS_BIN_DIR:-$HOME/.local/bin}
 BINARY=skills-registry

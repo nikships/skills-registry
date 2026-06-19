@@ -41,7 +41,7 @@ and when.
 ## Install the CLI (one-time, only if the binary isn't on PATH)
 
 ` + "```" + `
-curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/install.sh | sh
 ` + "```" + `
 
 Drops the binary into ` + "`~/.local/bin/skills-registry`" + `. Re-run any time

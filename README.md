@@ -6,11 +6,11 @@
 
 **One GitHub repo, every AI agent. Skills fetched on demand — not auto-loaded into every startup context.**
 
-[![CI](https://github.com/anand-92/skills-registry/actions/workflows/ci.yml/badge.svg)](https://github.com/anand-92/skills-registry/actions/workflows/ci.yml)
+[![CI](https://github.com/nikships/skills-registry/actions/workflows/ci.yml/badge.svg)](https://github.com/nikships/skills-registry/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
 [![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
-[![Stars](https://img.shields.io/github/stars/anand-92/skills-registry?style=social)](https://github.com/anand-92/skills-registry/stargazers)
+[![Stars](https://img.shields.io/github/stars/nikships/skills-registry?style=social)](https://github.com/nikships/skills-registry/stargazers)
 
 </div>
 
@@ -44,14 +44,14 @@ npm install -g skills-registry   # or install globally
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anand-92/skills-registry/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/install.sh | sh
 skills-registry
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/anand-92/skills-registry/main/install.ps1)))"
+powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nikships/skills-registry/main/install.ps1)))"
 skills-registry
 ```
 
@@ -106,6 +106,17 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `get` stays the cache-only fetch for one-shot agent reads.
 
 <img src="docs/img/demo.gif" alt="skills-registry list TUI — fuzzy-filterable skill list on the left with a live SKILL.md preview pane on the right, filtering as you type." width="100%">
+
+### Import a public skill repo
+
+`add` scans every nested `SKILL.md` in the source repo before publishing selected skills into your own registry. For example, a user can import the TweetClaw skill for OpenClaw and Xquik without copying files by hand:
+
+```bash
+skills-registry add Xquik-dev/tweetclaw
+skills-registry get tweetclaw
+```
+
+That keeps the public source repo as the import target while the user's registry owns the stored copy, version history, and local agent install. TweetClaw covers X/Twitter jobs such as tweet scraping, tweet and reply search, follower export, user lookup, media workflows, tweet monitoring, webhooks, giveaway draws, and approval-gated posting.
 
 ### `remove`: delete a skill end-to-end
 
@@ -245,8 +256,8 @@ Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS C
 
 `skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill + CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) and the optional hosted MCP read tools (`search_skills`, `get_skill`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
-Found a bug? Have an idea? [Open an issue](https://github.com/anand-92/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Found a bug? Have an idea? [Open an issue](https://github.com/nikships/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
-[Apache-2.0](LICENSE) · made by [@anand-92](https://github.com/anand-92)
+[Apache-2.0](LICENSE) · made by [@nikships](https://github.com/nikships)

@@ -61,7 +61,7 @@ func TestSkillMdDocumentsCurlInstaller(t *testing.T) {
 	if !strings.Contains(body, "install.sh | sh") {
 		t.Fatalf("SKILL.md is missing the curl|sh install instruction")
 	}
-	if !strings.Contains(body, "raw.githubusercontent.com/anand-92/skills-registry") {
+	if !strings.Contains(body, "raw.githubusercontent.com/nikships/skills-registry") {
 		t.Fatalf("SKILL.md should reference the canonical install.sh URL")
 	}
 }

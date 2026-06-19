@@ -93,25 +93,25 @@ func TestInstallScriptURLConstruction(t *testing.T) {
 			name:   "darwin/arm64",
 			os:     "Darwin",
 			arch:   "arm64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_darwin_arm64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_darwin_arm64.tar.gz",
 		},
 		{
 			name:   "darwin/amd64",
 			os:     "Darwin",
 			arch:   "x86_64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_darwin_amd64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_darwin_amd64.tar.gz",
 		},
 		{
 			name:   "linux/amd64",
 			os:     "Linux",
 			arch:   "amd64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz",
 		},
 		{
 			name:   "linux/arm64",
 			os:     "Linux",
 			arch:   "aarch64",
-			expect: "https://github.com/anand-92/skills-registry/releases/latest/download/skills-registry_linux_arm64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_linux_arm64.tar.gz",
 		},
 	}
 	for _, tc := range cases {
@@ -144,7 +144,7 @@ func TestInstallScriptPinnedVersion(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d (stderr: %s)", code, errStr)
 	}
-	want := "https://github.com/anand-92/skills-registry/releases/download/v9.9.9/skills-registry_linux_amd64.tar.gz"
+	want := "https://github.com/nikships/skills-registry/releases/download/v9.9.9/skills-registry_linux_amd64.tar.gz"
 	if got := strings.TrimSpace(out); got != want {
 		t.Fatalf("URL mismatch:\n  got:  %s\n  want: %s", got, want)
 	}
