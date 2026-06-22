@@ -115,7 +115,7 @@ func (c *Client) cloneMirror(ctx context.Context, gitBin, dir string) error {
 	remoteURL := c.remoteURL()
 	exists, err := remoteBranchExists(ctx, gitBin, remoteURL, c.DefaultBranch)
 	if err != nil {
-		return err
+		return fmt.Errorf("check remote branch: %w", err)
 	}
 	if !exists {
 		return os.MkdirAll(dir, 0o755)
@@ -124,12 +124,12 @@ func (c *Client) cloneMirror(ctx context.Context, gitBin, dir string) error {
 		return fmt.Errorf("configure git credentials via gh: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return err
+		return fmt.Errorf("create mirror parent dir: %w", err)
 	}
 	// `git clone` insists the target be empty; wipe any stale partial
 	// state from a previous failed run.
 	if err := os.RemoveAll(dir); err != nil {
-		return err
+		return fmt.Errorf("remove stale mirror dir: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, gitBin,
 		"clone", "--depth", "1", "--branch", c.DefaultBranch, remoteURL, dir)
@@ -150,7 +150,7 @@ func (c *Client) fetchMirror(ctx context.Context, gitBin, dir string) error {
 		return fmt.Errorf("configure git credentials via gh: %w", err)
 	}
 	if err := runGitIn(ctx, gitBin, dir, "fetch", "--depth", "1", "origin", c.DefaultBranch); err != nil {
-		return err
+		return fmt.Errorf("git fetch origin: %w", err)
 	}
 	return runGitIn(ctx, gitBin, dir, "reset", "--hard", "FETCH_HEAD")
 }
@@ -271,7 +271,7 @@ func (c *Client) slugsViaMirror(ctx context.Context) (map[string]struct{}, error
 func (c *Client) getViaMirror(ctx context.Context, slug, dest string) error {
 	dir, err := c.ensureMirror(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("ensure mirror: %w", err)
 	}
 	src := filepath.Join(dir, slug)
 	info, err := os.Stat(src)
@@ -279,13 +279,13 @@ func (c *Client) getViaMirror(ctx context.Context, slug, dest string) error {
 		if errors.Is(err, os.ErrNotExist) {
 			return os.MkdirAll(dest, 0o755)
 		}
-		return err
+		return fmt.Errorf("stat source slug dir: %w", err)
 	}
 	if !info.IsDir() {
 		return os.MkdirAll(dest, 0o755)
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create dest dir: %w", err)
 	}
 	return copyTree(src, dest)
 }
@@ -298,7 +298,7 @@ func (c *Client) getViaMirror(ctx context.Context, slug, dest string) error {
 func copyTree(src, dest string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("read src dir: %w", err)
 	}
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
@@ -308,26 +308,26 @@ func copyTree(src, dest string) error {
 		destPath := filepath.Join(dest, e.Name())
 		if e.IsDir() {
 			if err := os.MkdirAll(destPath, 0o755); err != nil {
-				return err
+				return fmt.Errorf("create dest subdir: %w", err)
 			}
 			if err := copyTree(srcPath, destPath); err != nil {
-				return err
+				return fmt.Errorf("copy tree: %w", err)
 			}
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
-			return err
+			return fmt.Errorf("stat src entry: %w", err)
 		}
 		if !info.Mode().IsRegular() {
 			continue
 		}
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("read src file: %w", err)
 		}
 		if err := os.WriteFile(destPath, data, 0o644); err != nil {
-			return err
+			return fmt.Errorf("write dest file: %w", err)
 		}
 	}
 	return nil
