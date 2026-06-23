@@ -17,6 +17,16 @@ type HubDeps struct {
 	Publish  PublishFlowDeps
 	Sync     SyncFlowDeps
 	Purge    PurgeFlowDeps
+
+	// Reload rebuilds the full dependency set for a newly-saved
+	// repo/branch so a Settings change takes effect without restarting
+	// the program. Every flow's deps (and the count loader) capture the
+	// repo at construction time, so swapping a single field isn't enough
+	// — the whole set has to be rebuilt from the new config. The cmd
+	// layer wires this to buildHubDeps; when nil (tests), exitFlow still
+	// refreshes the header repo + Settings deps from the saved values so
+	// the visible state matches what was written to disk.
+	Reload func(repo, branch string) HubDeps
 }
 
 type ManageFlowDeps struct {
@@ -45,6 +55,13 @@ type HubProgram struct {
 type flowExitMsg struct {
 	toast string
 	ok    bool
+
+	// repo/branch carry a newly-persisted Settings change back to the
+	// HubProgram so the dashboard chrome and every embedded flow pick up
+	// the new registry live. An empty repo means "no config change" —
+	// the case for every non-settings flow exit.
+	repo   string
+	branch string
 }
 
 func flowExitCmd(toast string, ok bool) tea.Cmd {
@@ -168,6 +185,9 @@ func (m HubProgram) newFlow(action string) (tea.Model, tea.Cmd) {
 func (m HubProgram) exitFlow(msg flowExitMsg) (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(msg.toast)
 	m.flow = nil
+	if msg.repo != "" {
+		m.applyConfigChange(msg.repo, msg.branch)
+	}
 	m.hub = m.hub.WithSelectionReset()
 	if text != "" {
 		m.hub = m.hub.WithToast(text, msg.ok)
@@ -178,6 +198,30 @@ func (m HubProgram) exitFlow(msg flowExitMsg) (tea.Model, tea.Cmd) {
 	m.hub.countLoaded = false
 	m.hub.countErr = nil
 	return m, tea.Batch(runHubCountLoader(m.ctx, m.hub.loader), m.hub.spinner.Tick)
+}
+
+// applyConfigChange swaps in the dependency set for a freshly-saved
+// repo/branch so the dashboard chrome and every embedded flow target the
+// new registry without a restart. With a Reload hook wired (production)
+// it rebuilds the whole set — including the skill-count loader — from the
+// new config; without one (tests) it still refreshes the header repo and
+// Settings deps so the visible state matches what was written to disk.
+// The hub is rebuilt afterwards so the header repo chip and count loader
+// track the new registry; the terminal size and sparkle phase captured so
+// far are carried over so the first post-save frame doesn't reflow or
+// stutter.
+func (m *HubProgram) applyConfigChange(repo, branch string) {
+	if m.deps.Reload != nil {
+		m.deps = m.deps.Reload(repo, branch)
+	} else {
+		m.deps.Repo = repo
+		m.deps.Settings.Repo = repo
+		m.deps.Settings.Branch = branch
+	}
+	hub := NewHub(m.ctx, m.deps.Repo, m.deps.Count)
+	hub.width, hub.height = m.hub.width, m.hub.height
+	hub.sparkleIdx = m.hub.sparkleIdx
+	m.hub = hub
 }
 
 func listFlowExit(m ListModel) tea.Msg {
@@ -191,8 +235,18 @@ func settingsFlowExit(m SettingsModel) tea.Msg {
 	if err := m.SaveError(); err != nil {
 		return flowExitMsg{toast: "✗ settings: " + flattenErr(err), ok: false}
 	}
-	if m.SavedPath() != "" {
-		return flowExitMsg{toast: "✓ settings saved → " + m.SavedPath(), ok: true}
+	if path := m.SavedPath(); path != "" {
+		// origRepo/origBranch hold the values actually written to disk —
+		// save() advances them only on a successful write, so an
+		// edit-after-save the user never persisted (esc still commits the
+		// input) doesn't leak into the live reload. Branch is already
+		// defaulted to "main" by save(), matching config.Save on disk.
+		return flowExitMsg{
+			toast:  "✓ settings saved → " + path,
+			ok:     true,
+			repo:   m.origRepo,
+			branch: m.origBranch,
+		}
 	}
 	return flowExitMsg{toast: "settings · closed", ok: true}
 }

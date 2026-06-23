@@ -222,6 +222,52 @@ func TestSettingsSaveInvokesSaverWithTrimmedValues(t *testing.T) {
 	}
 }
 
+// TestSettingsFlowExitCarriesPersistedRepo verifies that the hub
+// hand-off reports the values actually written to disk so the dashboard
+// reload (see hub_program.go) targets the saved registry — and that an
+// edit made after the save but never persisted does NOT leak into that
+// reload.
+func TestSettingsFlowExitCarriesPersistedRepo(t *testing.T) {
+	stub := &stubSaver{returnPath: "/tmp/registry.toml"}
+	m := freshSettings(stub.fn())
+	m.repoInput.SetValue("new-owner/new-repo")
+	m.branchInput.SetValue("develop")
+
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	saved := nm.(SettingsModel)
+
+	// User keeps typing after the save but never presses `s` again.
+	saved.repoInput.SetValue("typo/not-saved")
+
+	msg, ok := settingsFlowExit(saved).(flowExitMsg)
+	if !ok {
+		t.Fatalf("settingsFlowExit returned %T, want flowExitMsg", settingsFlowExit(saved))
+	}
+	if !msg.ok {
+		t.Errorf("flowExitMsg.ok = false, want true after successful save")
+	}
+	if msg.repo != "new-owner/new-repo" {
+		t.Errorf("flowExitMsg.repo = %q, want new-owner/new-repo (the persisted value)", msg.repo)
+	}
+	if msg.branch != "develop" {
+		t.Errorf("flowExitMsg.branch = %q, want develop", msg.branch)
+	}
+}
+
+// TestSettingsFlowExitWithoutSaveCarriesNoRepo guards the inverse: when
+// the user leaves settings without saving, the exit must not carry a
+// repo (which would trigger a needless dashboard reload).
+func TestSettingsFlowExitWithoutSaveCarriesNoRepo(t *testing.T) {
+	m := freshSettings(nil)
+	msg, ok := settingsFlowExit(m).(flowExitMsg)
+	if !ok {
+		t.Fatalf("settingsFlowExit returned %T, want flowExitMsg", settingsFlowExit(m))
+	}
+	if msg.repo != "" {
+		t.Errorf("flowExitMsg.repo = %q, want empty (no save happened)", msg.repo)
+	}
+}
+
 // TestSettingsSaveDefaultsBranchToMain verifies the empty-branch
 // safety net: a blank branch is auto-replaced with "main" before
 // hitting the saver so a config save never blanks out the branch field.
