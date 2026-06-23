@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/nikships/skills-registry/cli/internal/agents"
+	"github.com/nikships/skills-registry/cli/internal/bootstrap"
 	"github.com/nikships/skills-registry/cli/internal/config"
 	"github.com/nikships/skills-registry/cli/internal/registry"
 	"github.com/nikships/skills-registry/cli/internal/tui"
@@ -45,8 +48,38 @@ type hubToast struct {
 // internal/config.
 func settingsSaver() tui.SettingsSaver {
 	return func(repo, branch string) (string, error) {
-		return config.Save(config.Config{Repo: repo, DefaultBranch: branch})
+		path, err := config.Save(config.Config{Repo: repo, DefaultBranch: branch})
+		if err != nil {
+			return "", err
+		}
+		// The auto-installed `skills-registry` meta-skill embeds the
+		// registry slug in its body, so a repo change leaves every
+		// installed copy pointing at the old repo. Rewrite the copies that
+		// already live in the user's agent dot-folders so they track the
+		// new repo too. Best-effort by design: config.Save above is the
+		// authoritative write, and a stale copy self-heals on the next
+		// bootstrap/get — so a refresh hiccup must never make a successful
+		// settings save look like it failed.
+		refreshInstalledMetaSkill(repo)
+		return path, nil
 	}
+}
+
+// refreshInstalledMetaSkill rewrites the generated skills-registry
+// SKILL.md in every agent dot-folder that already has it installed so a
+// registry-repo change propagates into the copies the user opted into.
+// Errors are intentionally swallowed — see settingsSaver for why this is
+// best-effort.
+func refreshInstalledMetaSkill(repo string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	_, _ = bootstrap.RefreshSkillMd(home, cwd, repo, agents.All())
 }
 
 // errToast formats an action failure as a one-line red toast. A

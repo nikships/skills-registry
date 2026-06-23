@@ -36,6 +36,36 @@ func InstallSkillMd(home, cwd, registryRepo string, targets []agents.Target) ([]
 	return written, nil
 }
 
+// RefreshSkillMd rewrites the generated SKILL.md for every agent
+// dot-folder that ALREADY has the skills-registry meta-skill installed,
+// so a registry-repo change (e.g. editing the repo in Settings)
+// propagates into the copies the user opted into. The generated body
+// embeds the registry slug, so without this an installed copy keeps
+// pointing at the old repo until it's manually reinstalled.
+//
+// Unlike InstallSkillMd this never creates a new copy: a dot-folder with
+// no existing skills-registry/SKILL.md is skipped, so we don't silently
+// fan the meta-skill out into agents the user never selected. Returns the
+// list of rewritten file paths.
+func RefreshSkillMd(home, cwd, registryRepo string, targets []agents.Target) ([]string, error) {
+	body := SkillMd(registryRepo)
+	var written []string
+	for _, t := range targets {
+		path := filepath.Join(t.SkillsDir(home, cwd), "skills-registry", "SKILL.md")
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return written, fmt.Errorf("stat %s: %w", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			return written, fmt.Errorf("write %s: %w", path, err)
+		}
+		written = append(written, path)
+	}
+	return written, nil
+}
+
 // MCPJSONSnippet returns the JSON blob to paste into a desktop MCP
 // client's config (`mcp.json` for Claude Code / Claude Desktop / Cursor /
 // VS Code+Copilot). The snippet points at the hosted server; the user's
