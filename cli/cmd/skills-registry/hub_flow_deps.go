@@ -30,6 +30,13 @@ func buildHubDeps(ctx context.Context, cfg config.Config) tui.HubDeps {
 		Publish:  buildPublishFlowDeps(),
 		Sync:     buildSyncFlowDeps(cfg),
 		Purge:    buildPurgeFlowDeps(),
+		// Rebuild every flow's deps (and the count loader) from the saved
+		// config so editing the repo in Settings takes effect live —
+		// without this the hub keeps targeting the launch-time repo until
+		// the process restarts.
+		Reload: func(repo, branch string) tui.HubDeps {
+			return buildHubDeps(ctx, config.Config{Repo: repo, DefaultBranch: branch})
+		},
 	}
 }
 

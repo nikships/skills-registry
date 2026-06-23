@@ -353,6 +353,97 @@ func TestHubProgramLaunchesManageFlow(t *testing.T) {
 	}
 }
 
+// TestHubProgramSettingsSaveRefreshesRepoLive is the regression test for
+// the "changed the repo, saved, but the TUI kept showing the old one until
+// restart" bug. A settings flow exit that carries a saved repo/branch must
+// invoke the Reload hook and rebuild the dashboard so the header chip — and
+// the deps every subsequent flow uses — track the new registry.
+func TestHubProgramSettingsSaveRefreshesRepoLive(t *testing.T) {
+	var gotRepo, gotBranch string
+	p := NewHubProgram(context.Background(), HubDeps{
+		Repo:     "old/repo",
+		Settings: SettingsFlowDeps{Repo: "old/repo", Branch: "main"},
+		Reload: func(repo, branch string) HubDeps {
+			gotRepo, gotBranch = repo, branch
+			return HubDeps{
+				Repo:     repo,
+				Settings: SettingsFlowDeps{Repo: repo, Branch: branch},
+			}
+		},
+	})
+	p.hub.width, p.hub.height = 120, 30
+	p.flow = NewPublishFlow(context.Background(), PublishFlowDeps{})
+
+	nm, _ := p.Update(flowExitMsg{
+		toast:  "✓ settings saved → /x/registry.toml",
+		ok:     true,
+		repo:   "new/repo",
+		branch: "dev",
+	})
+	hp := nm.(HubProgram)
+
+	if gotRepo != "new/repo" || gotBranch != "dev" {
+		t.Fatalf("Reload called with (%q,%q), want (new/repo,dev)", gotRepo, gotBranch)
+	}
+	if hp.deps.Repo != "new/repo" {
+		t.Errorf("deps.Repo = %q, want new/repo", hp.deps.Repo)
+	}
+	if hp.hub.repo != "new/repo" {
+		t.Errorf("hub.repo = %q, want new/repo", hp.hub.repo)
+	}
+	if !strings.Contains(hp.hub.View(), "new/repo") {
+		t.Errorf("hub View() missing refreshed repo chip:\n%s", hp.hub.View())
+	}
+	if strings.Contains(hp.hub.View(), "old/repo") {
+		t.Errorf("hub View() still shows stale repo chip:\n%s", hp.hub.View())
+	}
+}
+
+// TestHubProgramSettingsSaveWithoutReloadRefreshesHeader covers the
+// no-Reload fallback (used in tests / any caller that doesn't wire the
+// hook): the saved repo/branch must still land on the header chip and the
+// Settings deps so re-opening Settings shows the persisted values.
+func TestHubProgramSettingsSaveWithoutReloadRefreshesHeader(t *testing.T) {
+	p := NewHubProgram(context.Background(), HubDeps{
+		Repo:     "old/repo",
+		Settings: SettingsFlowDeps{Repo: "old/repo", Branch: "main"},
+	})
+	p.hub.width, p.hub.height = 120, 30
+
+	nm, _ := p.Update(flowExitMsg{toast: "✓ saved", ok: true, repo: "new/repo", branch: "dev"})
+	hp := nm.(HubProgram)
+
+	if hp.hub.repo != "new/repo" {
+		t.Errorf("hub.repo = %q, want new/repo", hp.hub.repo)
+	}
+	if hp.deps.Repo != "new/repo" {
+		t.Errorf("deps.Repo = %q, want new/repo", hp.deps.Repo)
+	}
+	if hp.deps.Settings.Repo != "new/repo" || hp.deps.Settings.Branch != "dev" {
+		t.Errorf("deps.Settings = {%q,%q}, want {new/repo,dev}",
+			hp.deps.Settings.Repo, hp.deps.Settings.Branch)
+	}
+}
+
+// TestHubProgramNonSettingsExitLeavesRepoUntouched guards the inverse: a
+// flow exit with no repo (every non-settings flow) must not disturb the
+// configured repo.
+func TestHubProgramNonSettingsExitLeavesRepoUntouched(t *testing.T) {
+	p := NewHubProgram(context.Background(), HubDeps{Repo: "owner/repo"})
+	p.hub.width, p.hub.height = 120, 30
+	p.flow = NewPublishFlow(context.Background(), PublishFlowDeps{})
+
+	nm, _ := p.Update(flowExitMsg{toast: "✓ published demo", ok: true})
+	hp := nm.(HubProgram)
+
+	if hp.hub.repo != "owner/repo" {
+		t.Errorf("hub.repo = %q, want owner/repo (unchanged)", hp.hub.repo)
+	}
+	if hp.deps.Repo != "owner/repo" {
+		t.Errorf("deps.Repo = %q, want owner/repo (unchanged)", hp.deps.Repo)
+	}
+}
+
 func TestHubProgramUnknownActionToastsError(t *testing.T) {
 	p := NewHubProgram(context.Background(), HubDeps{Repo: "owner/repo"})
 	nm, cmd := p.Update(hubLaunchMsg{action: "bogus"})
