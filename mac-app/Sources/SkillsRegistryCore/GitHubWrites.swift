@@ -48,13 +48,17 @@ extension GitHubAPI {
 
     /// Atomically replace `<slug>/` with `files` (paths relative to the skill
     /// folder, e.g. "SKILL.md"). Returns the new commit SHA. Port of
-    /// `registry.Client.Publish`.
+    /// `registry.Client.Publish`. Serialized per branch via `BranchGate` so
+    /// consecutive UI actions queue instead of racing.
     @discardableResult
     public func publish(_ repo: RepoRef, slug: String, files: [String: Data],
                         message: String, branch: String) async throws -> String {
         let msg = message.isEmpty ? "publish: \(slug)" : message
-        return try await retryOnConflict("publish \(slug)") {
-            try await self.publishOnce(repo, slug: slug, files: files, message: msg, branch: branch)
+        let key = BranchGate.key(repo, branch)
+        return try await BranchGate.shared.withLock(key) {
+            try await self.retryOnConflict("publish \(slug)", key: key) {
+                try await self.publishOnce(repo, slug: slug, files: files, message: msg, branch: branch)
+            }
         }
     }
 
@@ -84,18 +88,22 @@ extension GitHubAPI {
     }
 
     /// Atomically remove the entire `<slug>/` subtree. Port of `registry.Client.Delete`.
+    /// Serialized per branch via `BranchGate`.
     @discardableResult
     public func delete(_ repo: RepoRef, slug: String, message: String, branch: String) async throws -> String {
         let msg = message.isEmpty ? "remove: \(slug)" : message
-        return try await retryOnConflict("delete \(slug)") {
-            let (parentSHA, baseTreeSHA) = try await self.headTree(repo, branch: branch)
-            let previous = try await self.listTreePaths(repo, rootSHA: baseTreeSHA, subPath: slug)
-            if previous.isEmpty { throw WriteError.slugNotFound(slug) }
-            let entries: [[String: Any]] = previous.sorted().map {
-                ["path": "\(slug)/\($0)", "mode": "100644", "type": "blob", "sha": NSNull()]
+        let key = BranchGate.key(repo, branch)
+        return try await BranchGate.shared.withLock(key) {
+            try await self.retryOnConflict("delete \(slug)", key: key) {
+                let (parentSHA, baseTreeSHA) = try await self.headTree(repo, branch: branch)
+                let previous = try await self.listTreePaths(repo, rootSHA: baseTreeSHA, subPath: slug)
+                if previous.isEmpty { throw WriteError.slugNotFound(slug) }
+                let entries: [[String: Any]] = previous.sorted().map {
+                    ["path": "\(slug)/\($0)", "mode": "100644", "type": "blob", "sha": NSNull()]
+                }
+                return try await self.commitTree(repo, baseTreeSHA: baseTreeSHA, parentSHA: parentSHA,
+                                                 entries: entries, message: msg, branch: branch)
             }
-            return try await self.commitTree(repo, baseTreeSHA: baseTreeSHA, parentSHA: parentSHA,
-                                             entries: entries, message: msg, branch: branch)
         }
     }
 
@@ -106,36 +114,44 @@ extension GitHubAPI {
     public func bulkPush(_ repo: RepoRef, files: [String: Data], message: String,
                         branch: String, progress: UploadProgress? = nil) async throws -> String {
         if files.isEmpty { throw WriteError.nothingToUpload }
-        let blobs = try await uploadBlobs(repo, files, progress: progress)
-        let entries: [[String: Any]] = blobs.map {
-            ["path": $0.key, "mode": "100644", "type": "blob", "sha": $0.value]
-        }
+        let key = BranchGate.key(repo, branch)
+        return try await BranchGate.shared.withLock(key) {
+            let blobs = try await self.uploadBlobs(repo, files, progress: progress)
+            let entries: [[String: Any]] = blobs.map {
+                ["path": $0.key, "mode": "100644", "type": "blob", "sha": $0.value]
+            }
 
-        if let head = try await headTreeIfExists(repo, branch: branch) {
-            return try await commitTree(repo, baseTreeSHA: head.treeSHA, parentSHA: head.commitSHA,
-                                        entries: entries, message: message, branch: branch)
-        }
-        // Empty repo: tree with no base, commit with no parents, then create ref.
-        let tree = try await postDecoded("repos/\(repo.fullName)/git/trees",
-                                         json: ["tree": entries], as: GHShaResp.self)
-        let commit = try await postDecoded("repos/\(repo.fullName)/git/commits",
-                                           json: ["message": message, "tree": tree.sha, "parents": []],
+            if let head = try await self.headTreeIfExists(repo, branch: branch) {
+                return try await self.commitTree(repo, baseTreeSHA: head.treeSHA, parentSHA: head.commitSHA,
+                                                 entries: entries, message: message, branch: branch)
+            }
+            // Empty repo: tree with no base, commit with no parents, then create ref.
+            let tree = try await self.postDecoded("repos/\(repo.fullName)/git/trees",
+                                                  json: ["tree": entries], as: GHShaResp.self)
+            let commit = try await self.postDecoded("repos/\(repo.fullName)/git/commits",
+                                                    json: ["message": message, "tree": tree.sha, "parents": []],
+                                                    as: GHShaResp.self)
+            _ = try await self.postDecoded("repos/\(repo.fullName)/git/refs",
+                                           json: ["ref": "refs/heads/\(branch)", "sha": commit.sha],
                                            as: GHShaResp.self)
-        _ = try await postDecoded("repos/\(repo.fullName)/git/refs",
-                                  json: ["ref": "refs/heads/\(branch)", "sha": commit.sha],
-                                  as: GHShaResp.self)
-        return commit.sha
+            await BranchGate.shared.setHead(key, commit: commit.sha, tree: tree.sha)
+            return commit.sha
+        }
     }
 
     // MARK: - shared Git Data API primitives
 
-    private func retryOnConflict(_ label: String, _ op: @escaping @Sendable () async throws -> String) async throws -> String {
+    private func retryOnConflict(_ label: String, key: String,
+                                 _ op: @escaping @Sendable () async throws -> String) async throws -> String {
         let maxRetries = 3
         var lastError: Error?
         for attempt in 0..<maxRetries {
             do {
                 return try await op()
             } catch let e as GitHubError where e.isConflict {
+                // Someone genuinely moved the branch outside this app — drop
+                // the cached HEAD so the retry reads fresh from the network.
+                await BranchGate.shared.clearHead(key)
                 lastError = e
                 try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 0.5 * 1_000_000_000))
             }
@@ -144,8 +160,14 @@ extension GitHubAPI {
         throw WriteError.conflictAfterRetries(label)
     }
 
-    /// (parentCommitSHA, baseTreeSHA) for branch HEAD.
+    /// (parentCommitSHA, baseTreeSHA) for branch HEAD. Prefers the HEAD cached
+    /// by the previous commit on this branch — GitHub's ref read is eventually
+    /// consistent right after a write, and this app is the branch's only
+    /// writer, so the cached value is more trustworthy than a fresh read.
     private func headTree(_ repo: RepoRef, branch: String) async throws -> (String, String) {
+        if let cached = await BranchGate.shared.head(BranchGate.key(repo, branch)) {
+            return (cached.commit, cached.tree)
+        }
         let ref = try await getDecoded("repos/\(repo.fullName)/git/ref/heads/\(branch)", as: GHRefResp.self)
         let commit = try await getDecoded("repos/\(repo.fullName)/git/commits/\(ref.object.sha)", as: GHCommitResp.self)
         return (ref.object.sha, commit.tree?.sha ?? "")
@@ -169,6 +191,9 @@ extension GitHubAPI {
                                            as: GHShaResp.self)
         let body = try JSONSerialization.data(withJSONObject: ["sha": commit.sha, "force": false])
         _ = try await sendRetrying(makeRequest("PATCH", "repos/\(repo.fullName)/git/refs/heads/\(branch)", body: body))
+        // The ref moved — remember the new HEAD so the next write on this
+        // branch commits against it without a (possibly stale) ref re-read.
+        await BranchGate.shared.setHead(BranchGate.key(repo, branch), commit: commit.sha, tree: tree.sha)
         return commit.sha
     }
 

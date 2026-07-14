@@ -151,13 +151,33 @@ The maintainer must configure the GitHub App once:
     registry repo for the user. Without it, "Create" falls back to opening
     `github.com/new` and the user connects the repo afterward.
 
-### Writes are atomic (Git Data API)
+### Writes are atomic (Git Data API) — and serialized + HEAD-cached
 
 `publish` and `remove` walk the same six-call atomic-commit dance the Go CLI
 uses (`ref → commit → recursive tree → blobs → new tree with null-SHA deletes →
 commit → patch ref`), retrying up to 3× on 409/422. Bulk import uses a single
 commit (`bulkPush`), handling both an empty repo (create the ref) and an
 existing branch (base_tree + parent).
+
+Unlike the CLI (a short-lived process, fresh read per invocation), the app is
+long-lived and fires writes back-to-back, so all three writes flow through
+`BranchGate` (`GitHubWrites` + `BranchGate.swift`):
+
+- **Per-branch FIFO lock.** Consecutive UI actions (delete, delete, add…)
+  queue instead of racing each other into ref conflicts.
+- **Cached HEAD.** GitHub's `GET /git/ref` is eventually consistent right
+  after a write; re-reading it can return the *previous* HEAD and make the
+  next `PATCH refs` (force:false) fail 409/422 — the "registry kept changing
+  under us" error — even though the app is the branch's only writer. After
+  every successful commit the gate remembers `(commit, tree)` and the next
+  write commits straight on top of it, skipping the stale ref read. A genuine
+  conflict (someone pushed out-of-band) clears the cache so the retry reads
+  fresh.
+
+The UI layer is optimistic to match: `remove` drops the row (and sweeps local
+copies) before the network call and restores it on failure; publish/add/import
+upsert rows from local frontmatter instead of re-listing the whole tree (which
+would be eventually-consistent anyway right after the write).
 
 ### Install · Add · Remove-everywhere (CLI parity)
 

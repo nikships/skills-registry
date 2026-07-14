@@ -243,26 +243,30 @@ final class AppState: ObservableObject {
     /// Remove a skill end-to-end, mirroring `skills-registry remove`: delete
     /// the `<slug>/` subtree from the registry, then sweep the two local
     /// footprints (MCP download cache + every agent dot-folder copy).
+    ///
+    /// Optimistic: the row disappears from the UI immediately; the registry
+    /// delete runs behind it (serialized by `BranchGate`). On failure the row
+    /// is restored. No post-op re-list — the local mutation is authoritative,
+    /// and GitHub's tree listing is eventually consistent right after a write
+    /// anyway (a re-list could resurrect the slug).
     func remove(_ slug: String) async {
         guard let api, let repo else { return }
+        let removed = skills.filter { $0.slug == slug }
+        skills.removeAll { $0.slug == slug }
+
+        // Local cleanup first — instant, and independent of the network.
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let cwd = FileManager.default.currentDirectoryPath
+        let cacheCleared = LocalRemove.removeFromCache(slug: slug)
+        let dotFolders = LocalRemove.removeFromDotFolders(slug: slug, home: home, cwd: cwd)
+        showToast(removeSummary(slug: slug, cacheCleared: cacheCleared, dotFolders: dotFolders.count), .ok)
+        refreshMetaSkillStatus()
+
         do {
             _ = try await api.delete(repo, slug: slug, message: "remove: \(slug)", branch: branch)
-            // Drop it locally right away — GitHub's tree listing is eventually
-            // consistent just after the ref update, so the re-list below can
-            // still return the slug. Re-apply the removal afterward to be sure.
-            skills.removeAll { $0.slug == slug }
-
-            // Local cleanup: MCP cache + agent dot-folders (matches remove.go).
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let cwd = FileManager.default.currentDirectoryPath
-            let cacheCleared = LocalRemove.removeFromCache(slug: slug)
-            let dotFolders = LocalRemove.removeFromDotFolders(slug: slug, home: home, cwd: cwd)
-
-            showToast(removeSummary(slug: slug, cacheCleared: cacheCleared, dotFolders: dotFolders.count), .ok)
-            await refreshSkills()
-            skills.removeAll { $0.slug == slug }
-            refreshMetaSkillStatus()
         } catch {
+            // Roll back: the registry still has it, so the UI must too.
+            skills = (skills + removed).sorted { $0.slug < $1.slug }
             showToast("Remove failed: \(error.localizedDescription)", .error)
         }
     }
@@ -360,6 +364,8 @@ final class AppState: ObservableObject {
                 let rel = stripSlugPrefix(try Scan.filesForUpload(slug: sk.slug, folder: sk.folder), slug: sk.slug)
                 _ = try await api.publish(repo, slug: sk.slug, files: rel,
                                           message: "add: \(sk.slug)", branch: branch)
+                // Reflect the successful publish immediately — no re-list.
+                upsertSkill(SkillSummary(slug: sk.slug, name: sk.name, description: sk.description))
                 if !targets.isEmpty {
                     _ = try LocalInstall.install(slug: sk.slug, files: rel, targets: targets, home: home, cwd: home)
                 }
@@ -370,7 +376,6 @@ final class AppState: ObservableObject {
                 ? "Added \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
                 : "Added + installed \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
             showToast(skipped > 0 ? "\(base); skipped \(skipped) already in registry" : base, .ok)
-            await refreshSkills()
             refreshMetaSkillStatus()
         } catch {
             showToast("Add failed: \(error.localizedDescription)", .error)
@@ -388,7 +393,7 @@ final class AppState: ObservableObject {
         }
         let text = (try? String(contentsOfFile: main, encoding: .utf8)) ?? ""
         let folderName = (folder as NSString).lastPathComponent
-        let (name, _) = Frontmatter.parseSummary(text, slug: folderName)
+        let (name, desc) = Frontmatter.parseSummary(text, slug: folderName)
         let slug = slugify(name.isEmpty ? folderName : name)
         // Normalize both sides so a separator/case-only variant already in the
         // registry is detected (mirrors Go scan.DedupeAgainst).
@@ -400,11 +405,19 @@ final class AppState: ObservableObject {
         do {
             let rel = stripSlugPrefix(try Scan.filesForUpload(slug: slug, folder: folder), slug: slug)
             _ = try await api.publish(repo, slug: slug, files: rel, message: "publish: \(slug)", branch: branch)
+            // Reflect the successful publish immediately — no re-list (which is
+            // eventually consistent right after a write anyway).
+            upsertSkill(SkillSummary(slug: slug, name: name.isEmpty ? slug : name, description: desc))
             showToast("Published \(slug)", .ok)
-            await refreshSkills()
         } catch {
             showToast("Publish failed: \(error.localizedDescription)", .error)
         }
+    }
+
+    /// Insert or replace a summary row in the sorted local list.
+    private func upsertSkill(_ summary: SkillSummary) {
+        skills.removeAll { $0.slug == summary.slug }
+        skills = (skills + [summary]).sorted { $0.slug < $1.slug }
     }
 
     /// `Scan.filesForUpload` prefixes every path with "<slug>/"; both publish
@@ -449,9 +462,12 @@ final class AppState: ObservableObject {
             _ = try await api.bulkPush(repo, files: files,
                                        message: "import: \(fresh.count) skill(s)",
                                        branch: branch, progress: progress)
+            // Reflect the successful import immediately — no re-list.
+            for sk in fresh {
+                upsertSkill(SkillSummary(slug: sk.slug, name: sk.name, description: sk.description))
+            }
             let base = "Imported \(fresh.count) skill(s)"
             showToast(skipped > 0 ? "\(base); skipped \(skipped) already in registry" : base, .ok)
-            await refreshSkills()
         } catch {
             showToast("Import failed: \(error.localizedDescription)", .error)
         }
