@@ -33,6 +33,20 @@ Mini jobs: importing the same certificate into a temporary keychain can produce
 an ambiguous signing identity. Notarization still uses the repository secrets
 `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`.
 
+If signing reports `errSecInternalComponent`, unlock the login keychain once
+from an interactive Terminal in the Mini's logged-in GUI session, then grant
+the signing tools access:
+
+```bash
+security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+  "$HOME/Library/Keychains/login.keychain-db"
+```
+
+Enter the password only at the interactive prompt. Never place it in a
+workflow, command argument, environment variable, or log. Do not guess an
+empty password and do not import a duplicate P12.
+
 ### Operations
 
 The runner is installed separately from runners for other repositories:
