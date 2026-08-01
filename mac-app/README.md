@@ -283,26 +283,29 @@ macOS app source** (`mac-app/Sources/**`, `mac-app/Resources/**`,
 — the same auto-publish model as the CLI's `release.yml`. The patch version
 auto-increments from the latest `macapp-v*` tag; trigger a `workflow_dispatch`
 with an explicit `version` to override (or leave it empty to auto-increment).
-The workflow uses the Mini's existing login-keychain Developer ID identity,
-builds + nested-signs the bundle (including `Sparkle.framework`'s XPC
-services, `Autoupdate`, and `Updater.app`), notarizes + staples, EdDSA-signs
-the zip with `sign_update`, appends an `<item>` to `mac-app/appcast.xml` on
-`main`, **creates and pushes the `macapp-v<version>` tag itself**, and attaches
+The workflow imports the Developer ID certificate into an isolated temporary
+keychain for CI signing, builds + nested-signs the bundle (including
+`Sparkle.framework`'s XPC services, `Autoupdate`, and `Updater.app`),
+notarizes + staples, EdDSA-signs the zip with `sign_update`, appends an
+`<item>` to `mac-app/appcast.xml` on `main`, **creates and pushes the
+`macapp-v<version>` tag itself**, and attaches
 `SkillsRegistry-macos-arm64.zip` (+ `.sha256`) to the release. The appcast
 commit isn't in the trigger paths, so it never re-runs the workflow. Required
 repo secrets:
 
 | Secret | Purpose |
 |---|---|
+| `APPLE_DEVELOPER_CERTIFICATE_P12_BASE64` / `APPLE_DEVELOPER_CERTIFICATE_PASSWORD` | base64 **Developer ID Application** `.p12` (cert + private key) and its password for the isolated CI keychain |
 | `APPLE_DEVELOPER_ID_APPLICATION` | identity name, e.g. `Developer ID Application: … (TEAMID)` |
 | `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_SPECIFIC_PASSWORD` | `notarytool` credentials |
 | `SPARKLE_PRIVATE_KEY` | base64 Sparkle EdDSA private key matching `SUPublicEDKey` in `Info.plist` |
 
-> The Mini must have a *Developer ID Application* certificate in its logged-in
-> `login` keychain — an "Apple Development" cert cannot notarize. Do not
-> import a duplicate P12 into the workflow. Generate the Sparkle key pair with
-> `generate_keys` (the public key is already in `Info.plist`); export the
-> private half with `generate_keys -x` for `SPARKLE_PRIVATE_KEY`.
+> The certificate must be a *Developer ID Application* certificate — an "Apple
+> Development" cert cannot notarize. CI imports it only into an isolated
+> temporary keychain, never into the normal login-keychain search list. Generate
+> the Sparkle key pair with `generate_keys` (the public key is already in
+> `Info.plist`); export the private half with `generate_keys -x` for
+> `SPARKLE_PRIVATE_KEY`.
 
 The app icon is generated on the fly by `scripts/make-icon.sh` (no checked-in
 binary asset) — pure `sips` + `iconutil` + a tiny AppKit drawing program.

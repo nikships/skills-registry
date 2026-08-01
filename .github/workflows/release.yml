@@ -146,6 +146,17 @@ jobs:
         with:
           go-version: "1.25"
           cache-dependency-path: cli/go.sum
+      - name: Remove stale isolated signing keychain
+        if: matrix.os == 'darwin'
+        run: |
+          security delete-keychain "${{ runner.temp }}/skills-registry-signing.keychain" 2>/dev/null || true
+      - name: Import certificate into isolated signing keychain
+        if: matrix.os == 'darwin'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          keychain: ${{ runner.temp }}/skills-registry-signing
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
       - name: Select Xcode on NVMe
         if: matrix.os == 'darwin'
         shell: bash
@@ -156,13 +167,10 @@ jobs:
           echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
           echo "$XCODE_APP/Contents/Developer/usr/bin" >> "$GITHUB_PATH"
           xcodebuild -version
-      - name: Verify Aqua login-keychain identity
-        if: matrix.os == 'darwin'
-        shell: bash
-        run: |
-          set -euo pipefail
-          security find-identity -v -p codesigning
-          security find-identity -v -p codesigning | grep -q "Developer ID Application"
+          CODESIGN_KEYCHAIN="${{ runner.temp }}/skills-registry-signing.keychain"
+          security find-identity -v -p codesigning "$CODESIGN_KEYCHAIN"
+          security find-identity -v -p codesigning "$CODESIGN_KEYCHAIN" \
+            | grep -q "Developer ID Application"
       - name: Build
         working-directory: cli
         env:
@@ -180,6 +188,7 @@ jobs:
         if: matrix.os == 'darwin'
         working-directory: cli/dist
         env:
+          CODESIGN_KEYCHAIN: ${{ runner.temp }}/skills-registry-signing.keychain
           CODESIGN_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -194,9 +203,10 @@ jobs:
           codesign --force \
             --options runtime \
             --timestamp \
+            --keychain "$CODESIGN_KEYCHAIN" \
             --sign "$CODESIGN_IDENTITY" \
             "$out"
-          codesign --verify --strict --verbose=2 "$out"
+          codesign --verify --strict --verbose=2 --keychain "$CODESIGN_KEYCHAIN" "$out"
           # Notarize. notarytool wants a zip; --wait blocks until Apple
           # accepts or rejects. We cannot `stapler staple` a bare Mach-O
           # (only .app/.dmg/.pkg), but once the CDHash is in Apple's
@@ -220,6 +230,14 @@ jobs:
             exit 1
           fi
           rm "${out}.notarize.zip"
+      - name: Restore login keychain search list
+        if: ${{ always() && matrix.os == 'darwin' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+          security list-keychains -d user -s "$LOGIN_KEYCHAIN"
+          security default-keychain -d user -s "$LOGIN_KEYCHAIN"
       - name: Package archive
         working-directory: cli
         env:

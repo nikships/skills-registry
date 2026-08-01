@@ -85,7 +85,7 @@ Prefer a GUI? There's a native macOS app (SwiftUI, Apple Silicon) for managing y
 Native macOS CI and release jobs run on a dedicated, Aqua-session self-hosted
 runner labeled `mac-mini`; Linux, Windows, and untrusted fork jobs remain on
 GitHub-hosted runners. The Mini requires its external NVMe volume mounted for
-Xcode and uses its existing login-keychain Developer ID identity for signing.
+Xcode and uses an isolated CI keychain for its Developer ID signing identity.
 See [`.github/AGENTS.md`](.github/AGENTS.md) for runner operations and signing
 guidance.
 

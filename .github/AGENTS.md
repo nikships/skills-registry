@@ -27,15 +27,18 @@ queue rather than running concurrently.
 
 ### Signing
 
-The Mini's logged-in `login` keychain already contains the Developer ID
-Application identity. Do not add `apple-actions/import-codesign-certs` to these
-Mini jobs: importing the same certificate into a temporary keychain can produce
-an ambiguous signing identity. Notarization still uses the repository secrets
-`APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`.
+The Mini's logged-in `login` keychain contains the Developer ID Application
+identity, but the release workflows use an isolated temporary keychain loaded
+from `APPLE_DEVELOPER_CERTIFICATE_P12_BASE64` and
+`APPLE_DEVELOPER_CERTIFICATE_PASSWORD`. This avoids relying on interactive
+login-keychain access and avoids duplicate-identity ambiguity by passing the
+temporary keychain explicitly to every `codesign` invocation. The release
+workflows restore the login keychain search list afterward. Notarization still
+uses `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`.
 
-If signing reports `errSecInternalComponent`, unlock the login keychain once
-from an interactive Terminal in the Mini's logged-in GUI session, then grant
-the signing tools access:
+If the isolated-keychain setup is unavailable and signing must use the login
+keychain, unlock it once from an interactive Terminal in the Mini's logged-in
+GUI session, then grant the signing tools access:
 
 ```bash
 security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
@@ -45,7 +48,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
 
 Enter the password only at the interactive prompt. Never place it in a
 workflow, command argument, environment variable, or log. Do not guess an
-empty password and do not import a duplicate P12.
+empty password. Do not add a P12 to the normal login-keychain search list.
 
 ### Operations
 

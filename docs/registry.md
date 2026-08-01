@@ -33,8 +33,8 @@ User-facing deliverables, **single repo**, three languages.
 labeled `mac-mini`: Swift app tests, the macOS app release, and the Darwin CLI
 release artifacts. Linux, Windows, and fork pull-request jobs stay on
 GitHub-hosted runners. The Mini's Xcode is mounted at
-`/Volumes/NVMe/Xcode.app`, and signing uses its existing login-keychain
-Developer ID identity rather than importing a duplicate certificate. See
+`/Volumes/NVMe/Xcode.app`, and release signing uses an isolated temporary
+keychain loaded from the existing Developer ID secret. See
 [`.github/AGENTS.md`](../.github/AGENTS.md) for operations and recovery notes.
 
 ### 1.1 Hosted MCP — what runs where

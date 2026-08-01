@@ -21,6 +21,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 
 CONFIG="debug"
 SIGN_ID="${CODESIGN_IDENTITY:-}"
+CODESIGN_KEYCHAIN="${CODESIGN_KEYCHAIN:-}"
 NOTARIZE=0
 VERSION="${APP_VERSION:-}"
 while [ $# -gt 0 ]; do
@@ -91,6 +92,10 @@ fi
 if [ -n "$SIGN_ID" ]; then
     echo "▸ Code-signing with: $SIGN_ID"
     xattr -cr "$APP"
+    CODESIGN_ARGS=()
+    if [ -n "$CODESIGN_KEYCHAIN" ]; then
+        CODESIGN_ARGS+=(--keychain "$CODESIGN_KEYCHAIN")
+    fi
 
     SPARKLE_ENTITLEMENTS="$ROOT/Resources/sparkle-entitlements.plist"
     FW="$APP/Contents/Frameworks/Sparkle.framework"
@@ -101,19 +106,25 @@ if [ -n "$SIGN_ID" ]; then
         # then the framework bundle itself.
         for xpc in "$VDIR/XPCServices"/*.xpc; do
             [ -d "$xpc" ] && codesign --force --options runtime --timestamp \
-                --entitlements "$SPARKLE_ENTITLEMENTS" --sign "$SIGN_ID" "$xpc"
+                "${CODESIGN_ARGS[@]}" --entitlements "$SPARKLE_ENTITLEMENTS" \
+                --sign "$SIGN_ID" "$xpc"
         done
         [ -e "$VDIR/Autoupdate" ] && codesign --force --options runtime --timestamp \
-            --entitlements "$SPARKLE_ENTITLEMENTS" --sign "$SIGN_ID" "$VDIR/Autoupdate"
+            "${CODESIGN_ARGS[@]}" --entitlements "$SPARKLE_ENTITLEMENTS" \
+            --sign "$SIGN_ID" "$VDIR/Autoupdate"
         [ -d "$VDIR/Updater.app" ] && codesign --force --options runtime --timestamp \
-            --entitlements "$SPARKLE_ENTITLEMENTS" --sign "$SIGN_ID" "$VDIR/Updater.app"
-        codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$FW"
+            "${CODESIGN_ARGS[@]}" --entitlements "$SPARKLE_ENTITLEMENTS" \
+            --sign "$SIGN_ID" "$VDIR/Updater.app"
+        codesign --force --options runtime --timestamp "${CODESIGN_ARGS[@]}" \
+            --sign "$SIGN_ID" "$FW"
     fi
 
     # Main executable, then the whole bundle (no --deep: we signed nested parts).
-    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/SkillsRegistry"
-    codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
-    codesign --verify --deep --strict --verbose=2 "$APP"
+    codesign --force --options runtime --timestamp "${CODESIGN_ARGS[@]}" \
+        --sign "$SIGN_ID" "$APP/Contents/MacOS/SkillsRegistry"
+    codesign --force --options runtime --timestamp "${CODESIGN_ARGS[@]}" \
+        --sign "$SIGN_ID" "$APP"
+    codesign --verify --deep --strict --verbose=2 "${CODESIGN_ARGS[@]}" "$APP"
 else
     echo "▸ Ad-hoc signing (unsigned distribution)…"
     codesign --force --deep --sign - "$APP" || echo "  (ad-hoc sign skipped)"

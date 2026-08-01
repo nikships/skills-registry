@@ -11,6 +11,10 @@ name: Release macOS app
 # so it never re-runs this workflow.
 #
 # Required repo secrets:
+#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64  base64 Developer ID Application
+#                                           .p12 (cert + key) for the isolated
+#                                           CI signing keychain
+#   APPLE_DEVELOPER_CERTIFICATE_PASSWORD    password for that .p12
 #   APPLE_DEVELOPER_ID_APPLICATION          identity name, e.g.
 #                                           "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID                                Apple ID email for notarytool
@@ -64,11 +68,27 @@ jobs:
           echo "$XCODE_APP/Contents/Developer/usr/bin" >> "$GITHUB_PATH"
           xcodebuild -version
 
-      - name: Verify Aqua login-keychain identity
+      - name: Remove stale isolated signing keychain
+        if: runner.os == 'macOS'
+        run: |
+          security delete-keychain "${{ runner.temp }}/skills-registry-signing.keychain" 2>/dev/null || true
+
+      - name: Import certificate into isolated signing keychain
+        if: runner.os == 'macOS'
+        id: signing
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          keychain: ${{ runner.temp }}/skills-registry-signing
+          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+
+      - name: Verify isolated signing identity
         run: |
           set -euo pipefail
-          security find-identity -v -p codesigning
-          security find-identity -v -p codesigning | grep -q "Developer ID Application"
+          CODESIGN_KEYCHAIN="${{ runner.temp }}/skills-registry-signing.keychain"
+          security find-identity -v -p codesigning "$CODESIGN_KEYCHAIN"
+          security find-identity -v -p codesigning "$CODESIGN_KEYCHAIN" \
+            | grep -q "Developer ID Application"
 
       - name: Resolve version
         id: version
@@ -91,11 +111,15 @@ jobs:
       - name: Build + sign app bundle
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
+          CODESIGN_KEYCHAIN: ${{ runner.temp }}/skills-registry-signing.keychain
         run: bash scripts/bundle.sh --release --sign "${{ secrets.APPLE_DEVELOPER_ID_APPLICATION }}"
 
       - name: Verify signature
+        env:
+          CODESIGN_KEYCHAIN: ${{ runner.temp }}/skills-registry-signing.keychain
         run: |
-          codesign --verify --deep --strict --verbose=2 "build/Skills Registry.app"
+          codesign --verify --deep --strict --verbose=2 \
+            --keychain "$CODESIGN_KEYCHAIN" "build/Skills Registry.app"
           spctl -a -vvv -t install "build/Skills Registry.app" || echo "::warning::Gatekeeper check fails before notarization (expected)"
 
       - name: Notarize + staple
@@ -200,3 +224,11 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore login keychain search list
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+          security list-keychains -d user -s "$LOGIN_KEYCHAIN"
+          security default-keychain -d user -s "$LOGIN_KEYCHAIN"
