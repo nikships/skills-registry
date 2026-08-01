@@ -202,12 +202,12 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
   slugified-name match. The toast reports `registry · cache · N dot-folders`.
 
-**Home-scoped install (deliberate divergence from the CLI).** `AgentPickerSheet`
-only lists the home-based agents (`Agents.all().filter(\.underHome)`) and
-pre-checks the ones whose `<dot>` folder already exists. The cwd-based universal
-`.agents/skills` target — always-on in the CLI's picker — is intentionally
-skipped: a desktop app has no meaningful project working directory (the same
-rationale as `MetaSkill.detectedTargets`).
+**Install locations.** `AgentPickerSheet` lists the home-based agents plus the
+universal `.agents` target. In the macOS app, the latter uses the home directory
+as its install base and writes to `~/.agents/skills`. No locations are
+pre-selected: existing `<dot>` folders are marked as detected for information,
+but every destination must be chosen explicitly. The CLI's separate picker
+defaults remain unchanged.
 
 ---
 
@@ -283,23 +283,24 @@ macOS app source** (`mac-app/Sources/**`, `mac-app/Resources/**`,
 — the same auto-publish model as the CLI's `release.yml`. The patch version
 auto-increments from the latest `macapp-v*` tag; trigger a `workflow_dispatch`
 with an explicit `version` to override (or leave it empty to auto-increment).
-The workflow imports the Developer ID cert, builds + nested-signs the bundle
-(including `Sparkle.framework`'s XPC services, `Autoupdate`, and `Updater.app`),
-notarizes + staples, EdDSA-signs the zip with `sign_update`, appends an `<item>`
-to `mac-app/appcast.xml` on `main`, **creates and pushes the `macapp-v<version>`
-tag itself**, and attaches `SkillsRegistry-macos-arm64.zip` (+ `.sha256`) to the
-release. The appcast commit isn't in the trigger paths, so it never re-runs the
-workflow. Required repo secrets:
+The workflow uses the Mini's existing login-keychain Developer ID identity,
+builds + nested-signs the bundle (including `Sparkle.framework`'s XPC
+services, `Autoupdate`, and `Updater.app`), notarizes + staples, EdDSA-signs
+the zip with `sign_update`, appends an `<item>` to `mac-app/appcast.xml` on
+`main`, **creates and pushes the `macapp-v<version>` tag itself**, and attaches
+`SkillsRegistry-macos-arm64.zip` (+ `.sha256`) to the release. The appcast
+commit isn't in the trigger paths, so it never re-runs the workflow. Required
+repo secrets:
 
 | Secret | Purpose |
 |---|---|
-| `APPLE_DEVELOPER_CERTIFICATE_P12_BASE64` / `APPLE_DEVELOPER_CERTIFICATE_PASSWORD` | base64 **Developer ID Application** `.p12` (cert + private key) and its password |
 | `APPLE_DEVELOPER_ID_APPLICATION` | identity name, e.g. `Developer ID Application: … (TEAMID)` |
 | `APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_SPECIFIC_PASSWORD` | `notarytool` credentials |
 | `SPARKLE_PRIVATE_KEY` | base64 Sparkle EdDSA private key matching `SUPublicEDKey` in `Info.plist` |
 
-> The cert **must** be a *Developer ID Application* certificate — an "Apple
-> Development" cert cannot notarize. Generate the Sparkle key pair with
+> The Mini must have a *Developer ID Application* certificate in its logged-in
+> `login` keychain — an "Apple Development" cert cannot notarize. Do not
+> import a duplicate P12 into the workflow. Generate the Sparkle key pair with
 > `generate_keys` (the public key is already in `Info.plist`); export the
 > private half with `generate_keys -x` for `SPARKLE_PRIVATE_KEY`.
 

@@ -11,9 +11,6 @@ name: Release macOS app
 # so it never re-runs this workflow.
 #
 # Required repo secrets:
-#   APPLE_DEVELOPER_CERTIFICATE_P12_BASE64  base64 of the Developer ID
-#                                           Application .p12 (cert + key)
-#   APPLE_DEVELOPER_CERTIFICATE_PASSWORD    password for that .p12
 #   APPLE_DEVELOPER_ID_APPLICATION          identity name, e.g.
 #                                           "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID                                Apple ID email for notarytool
@@ -47,9 +44,10 @@ concurrency:
 jobs:
   release:
     name: Build, sign, notarize & release
-    runs-on: macos-15
+    runs-on: [self-hosted, mac-mini]
     defaults:
       run:
+        shell: bash
         working-directory: mac-app
     steps:
       - name: Checkout
@@ -57,8 +55,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Select Xcode on NVMe
+        run: |
+          set -euo pipefail
+          XCODE_APP="/Volumes/NVMe/Xcode.app"
+          test -d "$XCODE_APP/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          echo "$XCODE_APP/Contents/Developer/usr/bin" >> "$GITHUB_PATH"
+          xcodebuild -version
+
+      - name: Verify Aqua login-keychain identity
+        run: |
+          set -euo pipefail
+          security find-identity -v -p codesigning
+          security find-identity -v -p codesigning | grep -q "Developer ID Application"
 
       - name: Resolve version
         id: version
@@ -78,12 +88,6 @@ jobs:
           echo "build_number=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
           echo "Releasing macapp-v${VERSION}"
 
-      - name: Import codesigning certificate
-        uses: apple-actions/import-codesign-certs@v7
-        with:
-          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
-          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
-
       - name: Build + sign app bundle
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
@@ -98,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           ditto -c -k --sequesterRsrc --keepParent "build/Skills Registry.app" "build/SkillsRegistry-notarize.zip"
-          OUT=$(xcrun notarytool submit "build/SkillsRegistry-notarize.zip" \
+          OUT=$(/usr/bin/xcrun notarytool submit "build/SkillsRegistry-notarize.zip" \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
             --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
@@ -108,13 +112,13 @@ jobs:
           if [ "$STATUS" != "Accepted" ]; then
             ID=$(echo "$OUT" | jq -r '.id')
             echo "::error::Notarization failed: $STATUS"
-            xcrun notarytool log "$ID" --apple-id "${{ secrets.APPLE_ID }}" \
+            /usr/bin/xcrun notarytool log "$ID" --apple-id "${{ secrets.APPLE_ID }}" \
               --team-id "${{ secrets.APPLE_TEAM_ID }}" \
               --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" || true
             exit 1
           fi
-          xcrun stapler staple "build/Skills Registry.app"
-          xcrun stapler validate "build/Skills Registry.app"
+          /usr/bin/xcrun stapler staple "build/Skills Registry.app"
+          /usr/bin/xcrun stapler validate "build/Skills Registry.app"
           rm -f "build/SkillsRegistry-notarize.zip"
 
       - name: Zip + checksum

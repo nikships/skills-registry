@@ -3,14 +3,12 @@ import SkillsRegistryCore
 
 /// Reusable agent multi-select used by both "Install" (registry skill → local)
 /// and "Add" (external source → publish + install). Lists the home-based
-/// agents from `Agents.all()` (`underHome == true`) and pre-checks those whose
-/// `<dot>` folder already exists on disk, so an existing setup is the default.
+/// agents from `Agents.all()` (`underHome == true`) plus the universal
+/// `.agents` target. The app uses the home directory as the universal target's
+/// install base, so that row writes to `~/.agents/skills`.
 ///
-/// The cwd-based universal `.agents` target is intentionally skipped — a
-/// desktop app has no meaningful project working directory, the same rationale
-/// as `MetaSkill.detectedTargets`. This is a deliberate, documented divergence
-/// from the CLI install picker (whose universal `.agents/skills` target is
-/// always-on).
+/// Locations are never preselected. Existing folders are shown as detected
+/// information only; the user explicitly chooses every install destination.
 struct AgentPickerSheet: View {
     let title: String
     let subtitle: String
@@ -21,7 +19,7 @@ struct AgentPickerSheet: View {
     @State private var selected: Set<String> = []
     @State private var targets: [AgentTarget] = []
 
-    /// Home-based agents only (skip the cwd universal target).
+    /// The app's home directory is also the install base for `.agents`.
     private var home: String { FileManager.default.homeDirectoryForCurrentUser.path }
 
     var body: some View {
@@ -117,9 +115,8 @@ struct AgentPickerSheet: View {
     }
 
     private func load() {
-        targets = Agents.all().filter(\.underHome)
-        // Pre-check agents whose base dot-folder already exists on disk.
-        selected = Set(targets.filter { folderExists($0) }.map(\.dotDir))
+        targets = Agents.all().filter { $0.underHome || $0.universal }
+        selected = []
     }
 
     private func folderExists(_ t: AgentTarget) -> Bool {

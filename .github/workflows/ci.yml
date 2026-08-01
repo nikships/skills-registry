@@ -83,15 +83,24 @@ jobs:
 
   mac-app:
     name: macOS app (Swift — build + test)
-    runs-on: macos-15
+    # This repository is public. Keep fork PR code off the self-hosted Mini.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, mac-mini]
     defaults:
       run:
         working-directory: mac-app
     steps:
       - uses: actions/checkout@v5
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Select Xcode on NVMe
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_APP="/Volumes/NVMe/Xcode.app"
+          test -d "$XCODE_APP/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          echo "$XCODE_APP/Contents/Developer/usr/bin" >> "$GITHUB_PATH"
+          xcodebuild -version
 
       - name: Swift version
         run: swift --version

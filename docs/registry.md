@@ -29,6 +29,14 @@ User-facing deliverables, **single repo**, three languages.
 
 > **Source layout.** The hosted server (code, Dockerfile, Railway config) lives in [`infa-not-for-users/`](../infa-not-for-users) (maintainer-only). The Go CLI lives in [`cli/`](../cli); the macOS app lives in [`mac-app/`](../mac-app) (see its [README](../mac-app/README.md)). The hosted server is a service, not an installed deliverable.
 
+**CI routing.** Native macOS jobs use the dedicated Aqua-session runner
+labeled `mac-mini`: Swift app tests, the macOS app release, and the Darwin CLI
+release artifacts. Linux, Windows, and fork pull-request jobs stay on
+GitHub-hosted runners. The Mini's Xcode is mounted at
+`/Volumes/NVMe/Xcode.app`, and signing uses its existing login-keychain
+Developer ID identity rather than importing a duplicate certificate. See
+[`.github/AGENTS.md`](../.github/AGENTS.md) for operations and recovery notes.
+
 ### 1.1 Hosted MCP — what runs where
 
 The hosted server is a single FastMCP Streamable-HTTP process behind a TLS-terminating proxy:

@@ -106,9 +106,11 @@ jobs:
           git push origin "$tag"
 
           sha="$(git rev-parse "${tag}^{commit}")"
-          echo "version=$next" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$next"
+            echo "tag=$tag"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
 
   build-cli:
     name: Build skills-registry ${{ matrix.os }}/${{ matrix.arch }}
@@ -120,10 +122,10 @@ jobs:
         include:
           - os: darwin
             arch: amd64
-            runner: macos-latest
+            runner: [self-hosted, mac-mini]
           - os: darwin
             arch: arm64
-            runner: macos-latest
+            runner: [self-hosted, mac-mini]
           - os: linux
             arch: amd64
             runner: ubuntu-latest
@@ -144,12 +146,23 @@ jobs:
         with:
           go-version: "1.25"
           cache-dependency-path: cli/go.sum
-      - name: Import codesigning certificate
+      - name: Select Xcode on NVMe
         if: matrix.os == 'darwin'
-        uses: apple-actions/import-codesign-certs@v7
-        with:
-          p12-file-base64: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_P12_BASE64 }}
-          p12-password: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_APP="/Volumes/NVMe/Xcode.app"
+          test -d "$XCODE_APP/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          echo "$XCODE_APP/Contents/Developer/usr/bin" >> "$GITHUB_PATH"
+          xcodebuild -version
+      - name: Verify Aqua login-keychain identity
+        if: matrix.os == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          security find-identity -v -p codesigning
+          security find-identity -v -p codesigning | grep -q "Developer ID Application"
       - name: Build
         working-directory: cli
         env:
@@ -190,7 +203,7 @@ jobs:
           # ticket service, macOS performs a one-time online check on
           # first launch and caches the result.
           ditto -c -k --keepParent "$out" "${out}.notarize.zip"
-          submit_output="$(xcrun notarytool submit "${out}.notarize.zip" \
+          submit_output="$(/usr/bin/xcrun notarytool submit "${out}.notarize.zip" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
@@ -200,7 +213,7 @@ jobs:
           if [ "$status" != "Accepted" ]; then
             submission_id="$(printf '%s' "$submit_output" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')"
             echo "::error::Notarization failed with status: $status"
-            xcrun notarytool log "$submission_id" \
+            /usr/bin/xcrun notarytool log "$submission_id" \
               --apple-id "$APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" \
               --password "$APPLE_APP_SPECIFIC_PASSWORD" || true

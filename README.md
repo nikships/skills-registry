@@ -80,6 +80,15 @@ Prefer a GUI? There's a native macOS app (SwiftUI, Apple Silicon) for managing y
 
 <img src="docs/img/mac-app.png" alt="Skills Registry macOS app — three-pane layout with the skill list, rendered SKILL.md, and a per-skill file browser." width="100%">
 
+### CI and macOS releases
+
+Native macOS CI and release jobs run on a dedicated, Aqua-session self-hosted
+runner labeled `mac-mini`; Linux, Windows, and untrusted fork jobs remain on
+GitHub-hosted runners. The Mini requires its external NVMe volume mounted for
+Xcode and uses its existing login-keychain Developer ID identity for signing.
+See [`.github/AGENTS.md`](.github/AGENTS.md) for runner operations and signing
+guidance.
+
 
 
 ---

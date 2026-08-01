@@ -35,6 +35,21 @@ final class LocalInstallTests: XCTestCase {
         }
     }
 
+    func testWritesToUniversalAgentsTargetAlone() throws {
+        let universal = AgentTarget(dotDir: ".agents", display: "Universal",
+                                    universal: true, underHome: false)
+        let written = try LocalInstall.install(
+            slug: "demo",
+            files: ["SKILL.md": Data("# hi".utf8)],
+            targets: [universal],
+            home: home,
+            cwd: home)
+
+        XCTAssertEqual(written, ["\(home!)/.agents/skills/demo"])
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: "\(home!)/.agents/skills/demo/SKILL.md"))
+    }
+
     func testReinstallOverwritesExisting() throws {
         let t = target(".claude")
         _ = try LocalInstall.install(slug: "demo", files: ["SKILL.md": Data("v1".utf8)],
