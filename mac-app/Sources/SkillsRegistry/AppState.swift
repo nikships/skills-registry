@@ -26,6 +26,9 @@ final class AppState: ObservableObject {
     @Published var toast: ToastItem?
     @Published var cliInstalled = false
     @Published var cliVersion: String?
+    // Defaults to true until the async shell probe completes. A Finder-
+    // launched app cannot know its shell PATH from ProcessInfo alone.
+    @Published var cliInstallDirOnPath = true
 
     // Update / meta-skill prompts surfaced in the Home banner + Settings.
     @Published var cliUpdate: ReleaseInfo?
@@ -485,6 +488,7 @@ final class AppState: ObservableObject {
             _ = try await CLIInstaller.install(version: version)
             cliInstalled = true
             cliVersion = await CLIInstaller.installedVersion()
+            cliInstallDirOnPath = await CLIInstaller.shellInstallDirOnPath()
             cliUpdate = nil
             showToast("CLI installed to ~/.local/bin/skills-registry", .ok)
         } catch {
@@ -495,6 +499,9 @@ final class AppState: ObservableObject {
     func refreshCLIStatus() async {
         cliInstalled = CLIInstaller.isInstalled()
         cliVersion = await CLIInstaller.installedVersion()
+        cliInstallDirOnPath = cliInstalled
+            ? await CLIInstaller.shellInstallDirOnPath()
+            : true
     }
 
     // MARK: - update / meta-skill prompts

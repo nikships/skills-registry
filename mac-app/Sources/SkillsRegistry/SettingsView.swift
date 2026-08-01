@@ -203,7 +203,7 @@ struct SettingsView: View {
                     } label: { Label("Copy install command", systemImage: "doc.on.doc") }
                         .buttonStyle(GhostButtonStyle())
                 }
-                if state.cliInstalled && !CLIInstaller.installDirOnPath {
+                if state.cliInstalled && !state.cliInstallDirOnPath {
                     Text("Note: ~/.local/bin isn't on your PATH. Add it to use `skills-registry` from any shell.")
                         .font(Brand.monoSized(11)).foregroundStyle(Brand.warn).fixedSize(horizontal: false, vertical: true)
                 }

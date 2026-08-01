@@ -76,7 +76,7 @@ The agent reads its gateway skill, runs `skills-registry search` / `skills-regis
 
 ## Native macOS app
 
-Prefer a GUI? There's a native macOS app (SwiftUI, Apple Silicon) for managing your registry without the terminal: GitHub login, browse skills with rich markdown rendering and fuzzy search, publish/remove, bulk-import local skills, and a 1-click CLI install. It shares the same registry repo and config as the CLI. See [`mac-app/`](mac-app).
+Prefer a GUI? There's a native macOS app (SwiftUI, Apple Silicon) for managing your registry without the terminal: GitHub login, browse skills with rich markdown rendering and fuzzy search, publish/remove, bulk-import local skills, and a 1-click CLI install. It shares the same registry repo and config as the CLI. The app checks the login-shell PATH when it reports whether `~/.local/bin` is available, including when the app was launched from Finder. See [`mac-app/`](mac-app).
 
 <img src="docs/img/mac-app.png" alt="Skills Registry macOS app — three-pane layout with the skill list, rendered SKILL.md, and a per-skill file browser." width="100%">
 

@@ -76,11 +76,44 @@ public enum CLIInstaller {
         return binaryPath
     }
 
-    /// Whether `~/.local/bin` is on the user's PATH (best-effort).
+    /// Whether `~/.local/bin` is on the app process's PATH.
+    ///
+    /// Kept synchronous for callers that only need to inspect the current
+    /// process environment. The app UI should use `shellInstallDirOnPath()`
+    /// because Finder-launched apps do not inherit shell startup files.
     public static var installDirOnPath: Bool {
         let env = ProcessInfo.processInfo.environment
-        let path = env["PATH"] ?? ""
-        let target = AppConfig.cliInstallDir.path
-        return path.split(separator: ":").contains { String($0) == target }
+        return isInstallDirOnPath(processPath: env["PATH"], shellPath: nil)
+    }
+
+    /// Whether `~/.local/bin` is on the user's shell PATH.
+    ///
+    /// A macOS app launched from Finder does not inherit the PATH assembled by
+    /// the user's shell startup files. Check the app environment first, then
+    /// ask the user's login shell so Settings does not report a false warning
+    /// after a successful install.
+    public static func shellInstallDirOnPath() async -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        if installDirOnPath { return true }
+
+        let shell = env["SHELL"] ?? "/bin/zsh"
+        guard FileManager.default.isExecutableFile(atPath: shell) else { return false }
+        guard let result = try? await Subprocess.run(
+            shell, ["-ilc", "printf '%s\\n' \"$PATH\""])
+        else { return false }
+        guard result.exitCode == 0 else { return false }
+
+        // Startup files can write their own diagnostics. The requested printf
+        // is last, so use the final non-empty line rather than the full output.
+        let shellPath = result.stdout.split(whereSeparator: { $0.isNewline })
+            .last.map(String.init)
+        return isInstallDirOnPath(processPath: nil, shellPath: shellPath)
+    }
+
+    static func isInstallDirOnPath(processPath: String?, shellPath: String?,
+                                   target: String = AppConfig.cliInstallDir.path) -> Bool {
+        [processPath, shellPath].compactMap { $0 }.contains {
+            $0.split(separator: ":").contains { String($0) == target }
+        }
     }
 }
