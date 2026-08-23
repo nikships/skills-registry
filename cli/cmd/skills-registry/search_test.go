@@ -72,13 +72,9 @@ func TestScoreAndSortRanksByScoreAndSlug(t *testing.T) {
 	}
 }
 
-// TestScoreAndSortCrossLanguageCorpus mirrors
-// “test_search_skills_cross_language_corpus“ in
-// “infa-not-for-users/tests/test_github_api.py“ — same summaries,
-// same queries, same expected ordering. The two scorers (CLI + MCP)
-// must produce identical rankings or this test (and its Python twin)
-// will diverge.
-func TestScoreAndSortCrossLanguageCorpus(t *testing.T) {
+// TestScoreAndSortCorpus verifies stable rankings across representative
+// summaries and queries.
+func TestScoreAndSortCorpus(t *testing.T) {
 	summaries := []registry.Summary{
 		{Slug: "alpha_git", Name: "Alpha Git", Description: "Git helpers"},
 		{Slug: "beta_python", Name: "Beta Python", Description: "Python tooling"},

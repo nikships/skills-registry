@@ -41,11 +41,11 @@ func TestLoadFromFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SKILLS_REGISTRY", "")
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	if err := os.MkdirAll(filepath.Join(dir, "skills-mcp"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "skills-registry"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	body := "[registry]\nrepo = \"bob/skills\"\ndefault_branch = \"trunk\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "skills-mcp", "registry.toml"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "skills-registry", "registry.toml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load()

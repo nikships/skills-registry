@@ -1,11 +1,7 @@
 import Foundation
 
-/// fzf V1-style fuzzy scorer. MUST stay in lockstep with `fuzzyScore` in
-/// `cli/cmd/skills-registry/search.go` and `_fuzzy_score` in
-/// `infa-not-for-users/skills_mcp/github_api.py`. The constants below are
-/// duplicated by design; a cross-language corpus test pins the contract
-/// (`SkillsRegistryCoreTests` ↔ `TestScoreAndSortCrossLanguageCorpus` ↔
-/// `test_search_skills_cross_language_corpus`).
+/// fzf V1-style fuzzy scorer shared by the app and CLI. The constants are
+/// duplicated by design; their cross-language corpus tests pin the contract.
 enum FuzzyConst {
     static let baseMatchScore = 16
     static let boundaryBonus = 8
@@ -120,7 +116,7 @@ func scoreSkill(_ query: String, _ s: SkillSummary) -> Int {
 }
 
 /// Top-N summaries ranked by `scoreSkill`. An empty / whitespace-only query
-/// returns []. Ties break on slug ascending — identical to the Go/Python sort.
+/// returns []. Ties break on slug ascending, identical to the Go sort.
 public func scoreAndSort(_ summaries: [SkillSummary], query: String) -> [SkillSummary] {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.isEmpty { return [] }

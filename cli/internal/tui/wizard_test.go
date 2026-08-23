@@ -31,7 +31,7 @@ func TestNewWizardStartsAtScan(t *testing.T) {
 
 // TestWizardStepTitlesAreNonEmpty guards against an enum value being added
 // without a matching label in WizardStep.Title — a forgotten Title would
-// render the progress indicator as "Step 5 / 8 · Unknown".
+// render the progress indicator as "Step 5 / 7 · Unknown".
 func TestWizardStepTitlesAreNonEmpty(t *testing.T) {
 	for s := WizardStepScan; s <= WizardStepDone; s++ {
 		if title := s.Title(); title == "" || title == "Unknown" {
@@ -192,7 +192,7 @@ func TestWizardViewSurfacesChrome(t *testing.T) {
 	v := m.View()
 	wants := []string{
 		"Skills Registry",   // hero
-		"Step 1 / 8",        // progress caption
+		"Step 1 / 7",        // progress caption
 		"Scan local skills", // current step title
 		"enter",             // footer
 		"esc",               // footer
@@ -213,7 +213,7 @@ func TestWizardViewIndicatorAdvancesWithTransition(t *testing.T) {
 	m.transitioning = true
 	m.transitionTarget = WizardStepVisibility
 	v := m.View()
-	if !strings.Contains(v, "Step 3 / 8") {
+	if !strings.Contains(v, "Step 3 / 7") {
 		t.Errorf("View() did not surface upcoming step during transition:\n%s", v)
 	}
 }
@@ -893,12 +893,6 @@ func containsMsgKind(msgs []tea.Msg, want tea.Msg) bool {
 	case wizardCleanupDoneMsg:
 		for _, m := range msgs {
 			if _, ok := m.(wizardCleanupDoneMsg); ok {
-				return true
-			}
-		}
-	case wizardMCPDoneMsg:
-		for _, m := range msgs {
-			if _, ok := m.(wizardMCPDoneMsg); ok {
 				return true
 			}
 		}

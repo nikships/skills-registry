@@ -2,9 +2,6 @@ name: Release
 
 # Auto-cuts a patch release on every push to main that touches the Go CLI.
 # Use the workflow_dispatch input to force a minor or major bump.
-#
-# The hosted MCP server (infa-not-for-users/) is NOT released here — it
-# auto-deploys to Railway on every push to main and carries no version tag.
 on:
   push:
     branches: [main]
@@ -219,9 +216,9 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --wait --output-format json)"
           echo "$submit_output"
-          status="$(printf '%s' "$submit_output" | python3 -c 'import json,sys;print(json.load(sys.stdin)["status"])')"
+          status="$(printf '%s' "$submit_output" | /usr/bin/plutil -extract status raw -o - -)"
           if [ "$status" != "Accepted" ]; then
-            submission_id="$(printf '%s' "$submit_output" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')"
+            submission_id="$(printf '%s' "$submit_output" | /usr/bin/plutil -extract id raw -o - -)"
             echo "::error::Notarization failed with status: $status"
             /usr/bin/xcrun notarytool log "$submission_id" \
               --apple-id "$APPLE_ID" \

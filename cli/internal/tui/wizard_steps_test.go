@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -10,12 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 5: Agent select
-// ────────────────────────────────────────────────────────────────────────────
-
-// testAgents is a small fixture covering the locked + filterable + default
-// combinations that the agent multi-select renderer must distinguish.
 var testAgents = []WizardAgent{
 	{Display: "Universal", Hint: ".agents/skills", Locked: true, Value: "u"},
 	{Display: "Claude Code", Hint: ".claude/skills", Default: true, Value: "c"},
@@ -23,7 +16,6 @@ var testAgents = []WizardAgent{
 	{Display: "Factory", Hint: ".factory/skills", Default: true, Value: "f"},
 }
 
-// agentDepsFixture wires AgentChoices + a recording InstallAgents stub.
 func agentDepsFixture(t *testing.T) (WizardDeps, *int32, *[]any) {
 	t.Helper()
 	var calls int32
@@ -39,41 +31,29 @@ func agentDepsFixture(t *testing.T) (WizardDeps, *int32, *[]any) {
 	return deps, &calls, &lastPicked
 }
 
-// TestWizardAgentLoadOnEntry confirms that landing on the AgentSelect
-// step populates agentItems from deps.AgentChoices.
 func TestWizardAgentLoadOnEntry(t *testing.T) {
 	deps, _, _ := agentDepsFixture(t)
 	m := atStep(WizardStepPush).WithDeps(deps)
 	m.pushDone = true
-	// Press enter to fire the transition, then deliver the transition
-	// message ourselves so onEnterStep runs.
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	nm, _ = nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepAgentSelect})
 	wiz := nm.(WizardModel)
-	if !wiz.agentLoaded {
-		t.Fatal("agentLoaded = false after entering AgentSelect")
+	if !wiz.agentLoaded || len(wiz.agentItems) != len(testAgents) {
+		t.Fatalf("agent choices not loaded: loaded=%v count=%d", wiz.agentLoaded, len(wiz.agentItems))
 	}
-	if len(wiz.agentItems) != len(testAgents) {
-		t.Errorf("agentItems = %d, want %d", len(wiz.agentItems), len(testAgents))
-	}
-	// Defaults should be checked.
 	if len(wiz.agentSelected) < 2 {
 		t.Errorf("agentSelected = %d defaults checked, want >=2", len(wiz.agentSelected))
 	}
-	// Locked entry should sort first.
 	if !wiz.agentItems[0].Locked {
-		t.Errorf("first item not locked: %+v", wiz.agentItems[0])
+		t.Errorf("locked agent was not sorted first: %+v", wiz.agentItems[0])
 	}
 }
 
-// TestWizardAgentSpaceTogglesSelection covers the WIZARD-006 toggle
-// keymap: space flips the selection state of the cursor row.
 func TestWizardAgentSpaceTogglesSelection(t *testing.T) {
 	deps, _, _ := agentDepsFixture(t)
 	m := atStep(WizardStepAgentSelect).WithDeps(deps)
 	m.loadAgentChoices()
 	m.agentCursor = 0
-	// First space picks the unselected row at the cursor.
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
 	wiz := nm.(WizardModel)
 	before := len(wiz.agentSelected)
@@ -84,11 +64,6 @@ func TestWizardAgentSpaceTogglesSelection(t *testing.T) {
 	}
 }
 
-// TestWizardAgentFilterNarrowsRows verifies the filterable list narrows
-// in response to typed characters and recovers on backspace. We type
-// "cur" to single out Cursor — the other test agents (Claude Code,
-// Factory) and their hints ".claude/skills", ".factory/skills" don't
-// contain that substring.
 func TestWizardAgentFilterNarrowsRows(t *testing.T) {
 	deps, _, _ := agentDepsFixture(t)
 	m := atStep(WizardStepAgentSelect).WithDeps(deps)
@@ -98,24 +73,21 @@ func TestWizardAgentFilterNarrowsRows(t *testing.T) {
 	for _, ch := range []rune{'c', 'u', 'r'} {
 		nm, _ = nm.(WizardModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
 	}
-	narrow := len(nm.(WizardModel).agentFilteredIndices())
-	if narrow >= full {
+	if narrow := len(nm.(WizardModel).agentFilteredIndices()); narrow >= full {
 		t.Errorf("filter did not narrow rows: full=%d narrow=%d", full, narrow)
 	}
 	for range []rune{'c', 'u', 'r'} {
 		nm, _ = nm.(WizardModel).Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	if len(nm.(WizardModel).agentFilteredIndices()) != full {
-		t.Errorf("backspace did not restore filter")
+		t.Error("backspace did not restore filter")
 	}
 }
 
-// TestWizardAgentTabSelectsAllVisible exercises the bulk-select shortcut.
 func TestWizardAgentTabSelectsAllVisible(t *testing.T) {
 	deps, _, _ := agentDepsFixture(t)
 	m := atStep(WizardStepAgentSelect).WithDeps(deps)
 	m.loadAgentChoices()
-	// Clear defaults so we can observe the tab effect cleanly.
 	m.agentSelected = map[int]struct{}{}
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	wiz := nm.(WizardModel)
@@ -124,81 +96,57 @@ func TestWizardAgentTabSelectsAllVisible(t *testing.T) {
 	}
 }
 
-// TestWizardAgentEnterStartsInstall confirms enter fires the install
-// goroutine and the InstallAgents stub sees the locked + selected values.
-func TestWizardAgentEnterStartsInstall(t *testing.T) {
+func TestWizardAgentSelectionAndInstall(t *testing.T) {
 	deps, calls, lastPicked := agentDepsFixture(t)
 	m := atStep(WizardStepAgentSelect).WithDeps(deps)
 	m.loadAgentChoices()
 	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	wiz := nm.(WizardModel)
-	if !wiz.agentInstalling {
-		t.Fatal("enter did not flip agentInstalling")
+	if !wiz.agentInstalling || cmd == nil {
+		t.Fatal("enter did not start agent install")
 	}
-	if cmd == nil {
-		t.Fatal("enter did not return a Cmd")
-	}
-	// Drain the batch to fire the install func.
 	msgs := collectMsgs(cmd)
-	if atomic.LoadInt32(calls) != 1 {
-		t.Errorf("InstallAgents called %d times, want 1", *calls)
+	if atomic.LoadInt32(calls) != 1 || !containsMsgKind(msgs, wizardAgentInstallDoneMsg{}) {
+		t.Fatalf("install calls=%d messages=%+v", *calls, msgs)
 	}
-	// Locked Universal entry must be in picked.
-	found := false
-	for _, v := range *lastPicked {
-		if v == "u" {
-			found = true
+	for _, picked := range *lastPicked {
+		if picked == "u" {
+			return
 		}
 	}
-	if !found {
-		t.Error("InstallAgents did not receive the locked Universal value")
-	}
-	if !containsMsgKind(msgs, wizardAgentInstallDoneMsg{}) {
-		t.Error("install batch did not emit wizardAgentInstallDoneMsg")
-	}
+	t.Error("locked Universal target was not installed")
 }
 
-// TestWizardAgentInstallDoneAdvances confirms enter after install
-// completion transitions to the cleanup step.
 func TestWizardAgentInstallDoneAdvances(t *testing.T) {
 	m := atStep(WizardStepAgentSelect)
-	m.agentInstalling = false
 	m.agentInstallDone = true
-	m.agentPaths = []string{"/tmp/a"}
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	wiz := nm.(WizardModel)
-	if !wiz.transitioning {
-		t.Fatal("enter after install did not advance")
-	}
-	if wiz.transitionTarget != WizardStepCleanup {
-		t.Errorf("target = %v, want WizardStepCleanup", wiz.transitionTarget)
+	if !wiz.transitioning || wiz.transitionTarget != WizardStepCleanup {
+		t.Fatalf("target=%v transitioning=%v, want Cleanup", wiz.transitionTarget, wiz.transitioning)
 	}
 }
 
-// TestWizardAgentViewSurfacesRows checks the rendered panel includes the
-// locked strip, filter line, and a visible agent row.
 func TestWizardAgentViewSurfacesRows(t *testing.T) {
 	deps, _, _ := agentDepsFixture(t)
 	m := atStep(WizardStepAgentSelect).WithDeps(deps)
 	m.loadAgentChoices()
 	m.width, m.height = 120, 40
 	v := m.View()
-	wants := []string{"Install into agents", "Always included", "Universal", "Filter", "Claude Code"}
-	for _, w := range wants {
-		if !strings.Contains(v, w) {
-			t.Errorf("AgentSelect view missing %q:\n%s", w, v)
+	for _, want := range []string{"Install into agents", "Always included", "Universal", "Filter", "Claude Code"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("AgentSelect view missing %q:\n%s", want, v)
 		}
 	}
 }
 
-// TestWizardAgentViewSurfacesInstallSummary confirms the post-install
-// view shows the success count and a path preview.
 func TestWizardAgentViewSurfacesInstallSummary(t *testing.T) {
 	m := atStep(WizardStepAgentSelect)
-	m.agentInstalling = false
 	m.agentInstallDone = true
-	m.agentPaths = []string{"/tmp/.claude/skills/skills-registry/SKILL.md",
-		"/tmp/.factory/skills/skills-registry/SKILL.md"}
+	m.agentPaths = []string{
+		"/tmp/.claude/skills/skills-registry/SKILL.md",
+		"/tmp/.factory/skills/skills-registry/SKILL.md",
+	}
 	m.width, m.height = 120, 40
 	v := m.View()
 	if !strings.Contains(v, "installed into 2 folder") {
@@ -209,12 +157,6 @@ func TestWizardAgentViewSurfacesInstallSummary(t *testing.T) {
 	}
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 6: Cleanup
-// ────────────────────────────────────────────────────────────────────────────
-
-// TestWizardCleanupLoadedWithEntriesShowsPrompt confirms the prompt
-// renders when LoadCleanup returned >0 entries.
 func TestWizardCleanupLoadedWithEntriesShowsPrompt(t *testing.T) {
 	m := atStep(WizardStepCleanup)
 	entries := []WizardCleanupEntry{
@@ -231,29 +173,22 @@ func TestWizardCleanupLoadedWithEntriesShowsPrompt(t *testing.T) {
 	}
 	wiz.width, wiz.height = 120, 30
 	v := wiz.View()
-	wants := []string{"Tidy local copies", "Yes, delete", "No, keep them"}
-	for _, w := range wants {
-		if !strings.Contains(v, w) {
-			t.Errorf("cleanup prompt missing %q:\n%s", w, v)
+	for _, want := range []string{"Tidy local copies", "Yes, delete", "No, keep them"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("cleanup prompt missing %q:\n%s", want, v)
 		}
 	}
 }
 
-// TestWizardCleanupLoadedEmptyAutoCompletes confirms zero-entry results
-// short-circuit the prompt so the user isn't asked "delete 0 things".
 func TestWizardCleanupLoadedEmptyAutoCompletes(t *testing.T) {
 	m := atStep(WizardStepCleanup)
 	nm, _ := m.Update(wizardCleanupLoadedMsg{})
 	wiz := nm.(WizardModel)
 	if !wiz.cleanupChosen || !wiz.cleanupDone {
-		t.Fatalf("empty cleanup did not auto-complete: chosen=%v done=%v",
-			wiz.cleanupChosen, wiz.cleanupDone)
+		t.Fatalf("empty cleanup did not complete: chosen=%v done=%v", wiz.cleanupChosen, wiz.cleanupDone)
 	}
 }
 
-// TestWizardCleanupYesRunsDelete confirms "Yes" kicks off the delete
-// goroutine and the resulting wizardCleanupDoneMsg sets the deleted
-// count.
 func TestWizardCleanupYesRunsDelete(t *testing.T) {
 	var called int32
 	deps := WizardDeps{
@@ -262,32 +197,20 @@ func TestWizardCleanupYesRunsDelete(t *testing.T) {
 			return len(entries), 0
 		},
 	}
-	entries := []WizardCleanupEntry{{Path: "/tmp/a"}, {Path: "/tmp/b"}}
 	m := atStep(WizardStepCleanup).WithDeps(deps)
 	m.cleanupLoaded = true
-	m.cleanupEntries = entries
+	m.cleanupEntries = []WizardCleanupEntry{{Path: "/tmp/a"}, {Path: "/tmp/b"}}
 	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	wiz := nm.(WizardModel)
-	if !wiz.cleanupChosen || !wiz.cleanupYes {
-		t.Fatal("y did not lock in the Yes choice")
-	}
-	if !wiz.cleanupRunning {
-		t.Fatal("cleanupRunning not set when DeleteCleanup is wired")
-	}
-	if cmd == nil {
-		t.Fatal("y did not return a Cmd")
+	if !wiz.cleanupChosen || !wiz.cleanupYes || !wiz.cleanupRunning || cmd == nil {
+		t.Fatal("yes did not start cleanup")
 	}
 	msgs := collectMsgs(cmd)
-	if atomic.LoadInt32(&called) != 1 {
-		t.Errorf("DeleteCleanup called %d times, want 1", called)
-	}
-	if !containsMsgKind(msgs, wizardCleanupDoneMsg{}) {
-		t.Errorf("delete batch did not emit wizardCleanupDoneMsg; got %+v", msgs)
+	if atomic.LoadInt32(&called) != 1 || !containsMsgKind(msgs, wizardCleanupDoneMsg{}) {
+		t.Fatalf("delete calls=%d messages=%+v", called, msgs)
 	}
 }
 
-// TestWizardCleanupNoKeeps confirms "No" exits the step without firing
-// DeleteCleanup, even if it's wired.
 func TestWizardCleanupNoKeeps(t *testing.T) {
 	var called int32
 	deps := WizardDeps{
@@ -302,8 +225,7 @@ func TestWizardCleanupNoKeeps(t *testing.T) {
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
 	wiz := nm.(WizardModel)
 	if !wiz.cleanupChosen || wiz.cleanupYes {
-		t.Errorf("n did not lock in the No choice: chosen=%v yes=%v",
-			wiz.cleanupChosen, wiz.cleanupYes)
+		t.Errorf("n did not keep entries: chosen=%v yes=%v", wiz.cleanupChosen, wiz.cleanupYes)
 	}
 	if !wiz.cleanupDone {
 		t.Error("cleanupDone false after No choice")
@@ -313,347 +235,35 @@ func TestWizardCleanupNoKeeps(t *testing.T) {
 	}
 }
 
-// TestWizardCleanupDoneAdvances confirms enter after the deletion
-// finishes transitions to step 7.
-func TestWizardCleanupDoneAdvances(t *testing.T) {
+func TestWizardCleanupDoneAdvancesDirectlyToDone(t *testing.T) {
 	m := atStep(WizardStepCleanup)
 	m.cleanupLoaded = true
 	m.cleanupChosen = true
 	m.cleanupDone = true
-	m.cleanupYes = true
-	m.cleanupDeleted = 3
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	wiz := nm.(WizardModel)
-	if !wiz.transitioning {
-		t.Fatal("enter did not advance after cleanup done")
-	}
-	if wiz.transitionTarget != WizardStepMCPConnect {
-		t.Errorf("target = %v, want WizardStepMCPConnect", wiz.transitionTarget)
+	if !wiz.transitioning || wiz.transitionTarget != WizardStepDone {
+		t.Fatalf("target=%v transitioning=%v, want Done", wiz.transitionTarget, wiz.transitioning)
 	}
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 7: Connect MCP client
-//
-// The CLI never installs or boots an MCP server — this step just
-// captures the snippet from deps.MCPSnippet and renders it for the user
-// to paste into Claude / Cursor / VS Code.
-// ────────────────────────────────────────────────────────────────────────────
-
-// TestWizardMCPConnectCapturesSnippet wires MCPSnippet on the deps and
-// verifies that landing on the MCP step records the returned body.
-func TestWizardMCPConnectCapturesSnippet(t *testing.T) {
-	var calls int32
-	snippet := `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
-	deps := WizardDeps{
-		MCPSnippet: func() string {
-			atomic.AddInt32(&calls, 1)
-			return snippet
-		},
+func TestWizardCleanupViewSurfacesCounts(t *testing.T) {
+	m := atStep(WizardStepCleanup)
+	m.cleanupLoaded = true
+	m.cleanupEntries = []WizardCleanupEntry{
+		{Path: "/a", Source: "~/.claude/skills"},
+		{Path: "/b", Source: "~/.claude/skills"},
+		{Path: "/c", Source: "~/.cursor/skills"},
 	}
-	m := atStep(WizardStepCleanup).WithDeps(deps)
-	m.cleanupDone = true
-	m.cleanupChosen = true
-	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	nm, _ = nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepMCPConnect})
-	wiz := nm.(WizardModel)
-	if !wiz.mcpStarted {
-		t.Fatal("mcpStarted = false after entering WizardStepMCPConnect")
-	}
-	if atomic.LoadInt32(&calls) != 1 {
-		t.Errorf("MCPSnippet called %d times, want 1", calls)
-	}
-	// Deliver the wizardMCPDoneMsg the start command emitted so the
-	// snippet lands on the model.
-	nm2, _ := wiz.Update(wizardMCPDoneMsg{snippet: snippet})
-	wiz = nm2.(WizardModel)
-	if wiz.mcpSnippet != snippet {
-		t.Errorf("mcpSnippet = %q, want %q", wiz.mcpSnippet, snippet)
-	}
-	if !wiz.mcpDone {
-		t.Error("mcpDone = false after wizardMCPDoneMsg")
-	}
-}
-
-// TestWizardMCPSnippetPanelRenders checks the body shows the hosted
-// snippet and the Codex caveat.
-func TestWizardMCPSnippetPanelRenders(t *testing.T) {
-	m := atStep(WizardStepMCPConnect)
 	m.width, m.height = 120, 40
-	nm, _ := m.Update(wizardMCPDoneMsg{
-		snippet: "{\n  \"mcpServers\": {\"skills-registry\": {\"url\": \"https://mcp.skills-registry.dev/mcp\"}}\n}",
-	})
-	wiz := nm.(WizardModel)
-	if !wiz.mcpDone {
-		t.Fatal("mcpDone = false after wizardMCPDoneMsg")
-	}
-	v := wiz.View()
-	wants := []string{"Paste this", "mcpServers", "mcp.skills-registry.dev", "Codex"}
-	for _, w := range wants {
-		if !strings.Contains(v, w) {
-			t.Errorf("MCP panel missing %q:\n%s", w, v)
-		}
-	}
-}
-
-// TestWizardMCPEnterAdvancesAfterDone confirms enter on a finished MCP
-// step transitions to Done.
-func TestWizardMCPEnterAdvancesAfterDone(t *testing.T) {
-	m := atStep(WizardStepMCPConnect)
-	m.mcpDone = true
-	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	wiz := nm.(WizardModel)
-	if !wiz.transitioning {
-		t.Fatal("enter after mcpDone did not advance")
-	}
-	if wiz.transitionTarget != WizardStepDone {
-		t.Errorf("target = %v, want WizardStepDone", wiz.transitionTarget)
-	}
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 7 clipboard + quick-install panel
-// ────────────────────────────────────────────────────────────────────────────
-
-// TestWizardMCPClipboardSuccessRendersConfirmation stubs CopyToClipboard
-// to succeed and confirms View() contains "Copied to clipboard".
-func TestWizardMCPClipboardSuccessRendersConfirmation(t *testing.T) {
-	var calls int32
-	deps := WizardDeps{
-		MCPSnippet: func() string {
-			return `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
-		},
-		CopyToClipboard: func(string) error {
-			atomic.AddInt32(&calls, 1)
-			return nil
-		},
-	}
-	m := atStep(WizardStepMCPConnect).WithDeps(deps)
-	m.width, m.height = 120, 40
-	snippet := `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
-	nm, _ := m.Update(wizardMCPDoneMsg{snippet: snippet})
-	wiz := nm.(WizardModel)
-	// The clipboard cmd hasn't fired yet — deliver its result (idx=-1 = main snippet).
-	nm2, _ := wiz.Update(wizardMCPClipboardMsg{ok: true, idx: -1})
-	wiz = nm2.(WizardModel)
-	if !wiz.mcpClipboardOK {
-		t.Error("mcpClipboardOK = false after successful copy")
-	}
-	v := wiz.View()
-	if !strings.Contains(v, "Copied to clipboard") {
-		t.Errorf("expected 'Copied to clipboard' in view, got:\n%s", v)
-	}
-}
-
-// TestWizardMCPClipboardFailShowsFallbackHeadline stubs CopyToClipboard
-// to return an error and confirms the fallback "Paste this" headline is shown.
-func TestWizardMCPClipboardFailShowsFallbackHeadline(t *testing.T) {
-	deps := WizardDeps{
-		MCPSnippet: func() string {
-			return `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
-		},
-		CopyToClipboard: func(string) error {
-			return fmt.Errorf("no display")
-		},
-	}
-	m := atStep(WizardStepMCPConnect).WithDeps(deps)
-	m.width, m.height = 120, 40
-	snippet := `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`
-	nm, _ := m.Update(wizardMCPDoneMsg{snippet: snippet})
-	wiz := nm.(WizardModel)
-	nm2, _ := wiz.Update(wizardMCPClipboardMsg{ok: false, errMsg: "no display", idx: -1})
-	wiz = nm2.(WizardModel)
-	if wiz.mcpClipboardOK {
-		t.Error("mcpClipboardOK = true after failed copy")
-	}
-	v := wiz.View()
-	if !strings.Contains(v, "Paste this") {
-		t.Errorf("expected 'Paste this' fallback in view, got:\n%s", v)
-	}
-}
-
-// TestWizardMCPClipboardNilDepFallback verifies that nil CopyToClipboard
-// causes handleMCPDone to set mcpClipboardDone=true, mcpClipboardOK=false
-// without emitting any extra cmd.
-func TestWizardMCPClipboardNilDepFallback(t *testing.T) {
-	m := atStep(WizardStepMCPConnect) // no deps wired
-	nm, cmd := m.Update(wizardMCPDoneMsg{snippet: "some-snippet"})
-	wiz := nm.(WizardModel)
-	if !wiz.mcpClipboardDone {
-		t.Error("mcpClipboardDone = false with nil dep")
-	}
-	if wiz.mcpClipboardOK {
-		t.Error("mcpClipboardOK = true with nil dep")
-	}
-	// cmd must be nil (no clipboard goroutine spawned).
-	if cmd != nil {
-		t.Error("unexpected cmd returned when CopyToClipboard is nil")
-	}
-}
-
-// TestWizardMCPClipboardNotCalledForEmptySnippet confirms CopyToClipboard
-// is never called when the snippet is empty.
-func TestWizardMCPClipboardNotCalledForEmptySnippet(t *testing.T) {
-	var calls int32
-	deps := WizardDeps{
-		MCPSnippet: func() string { return "" },
-		CopyToClipboard: func(string) error {
-			atomic.AddInt32(&calls, 1)
-			return nil
-		},
-	}
-	m := atStep(WizardStepMCPConnect).WithDeps(deps)
-	_, _ = m.Update(wizardMCPDoneMsg{snippet: ""})
-	if atomic.LoadInt32(&calls) != 0 {
-		t.Errorf("CopyToClipboard called %d times for empty snippet, want 0", calls)
-	}
-}
-
-// TestWizardMCPQuickInstallPanelRenders checks that after wizardMCPDoneMsg
-// the View contains all three client labels and their commands.
-func TestWizardMCPQuickInstallPanelRenders(t *testing.T) {
-	m := atStep(WizardStepMCPConnect)
-	m.width, m.height = 120, 40
-	nm, _ := m.Update(wizardMCPDoneMsg{
-		snippet: `{"mcpServers":{"skills-registry":{"url":"https://mcp.skills-registry.dev/mcp"}}}`,
-	})
-	wiz := nm.(WizardModel)
-	v := wiz.View()
-	wants := []string{
-		"Claude Code",
-		"Codex CLI",
-		"Factory Droid",
-		"claude mcp add",
-		"codex mcp add",
-		"droid mcp add",
-	}
-	for _, w := range wants {
-		if !strings.Contains(v, w) {
-			t.Errorf("quick-install panel missing %q:\n%s", w, v)
-		}
-	}
-}
-
-// TestWizardMCPQuickInstallCursorNavigation checks ↓ advances and wraps,
-// ↑ retreats and wraps.
-func TestWizardMCPQuickInstallCursorNavigation(t *testing.T) {
-	m := atStep(WizardStepMCPConnect)
-	m.mcpDone = true
-	rows := len(mcpQuickInstallRows)
-
-	// ↓ advances cursor.
-	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	wiz := nm.(WizardModel)
-	if wiz.mcpQuickCursor != 1 {
-		t.Errorf("after ↓ cursor = %d, want 1", wiz.mcpQuickCursor)
-	}
-
-	// ↓ from last row wraps to 0.
-	wiz.mcpQuickCursor = rows - 1
-	nm2, _ := wiz.Update(tea.KeyMsg{Type: tea.KeyDown})
-	wiz = nm2.(WizardModel)
-	if wiz.mcpQuickCursor != 0 {
-		t.Errorf("after ↓ at last row cursor = %d, want 0", wiz.mcpQuickCursor)
-	}
-
-	// ↑ from row 0 wraps to last.
-	wiz.mcpQuickCursor = 0
-	nm3, _ := wiz.Update(tea.KeyMsg{Type: tea.KeyUp})
-	wiz = nm3.(WizardModel)
-	if wiz.mcpQuickCursor != rows-1 {
-		t.Errorf("after ↑ at row 0 cursor = %d, want %d", wiz.mcpQuickCursor, rows-1)
-	}
-}
-
-// TestWizardMCPQuickInstallCopiesRow pressing 'c' on row 1 (Codex CLI)
-// calls CopyToClipboard with the Codex command and sets mcpQuickCopied=1
-// only after the async wizardMCPClipboardMsg is delivered back.
-func TestWizardMCPQuickInstallCopiesRow(t *testing.T) {
-	var copied string
-	deps := WizardDeps{
-		CopyToClipboard: func(text string) error {
-			copied = text
-			return nil
-		},
-	}
-	m := atStep(WizardStepMCPConnect).WithDeps(deps)
-	m.mcpDone = true
-	m.mcpQuickCursor = 1 // Codex CLI
-	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	wiz := nm.(WizardModel)
-	// mcpQuickCopied must NOT be set yet — the clipboard write is async.
-	if wiz.mcpQuickCopied == 1 {
-		t.Error("mcpQuickCopied set before async write completed")
-	}
-	// Execute the returned cmd to trigger the actual clipboard write and
-	// deliver the resulting message.
-	if cmd != nil {
-		resultMsg := cmd()
-		if resultMsg != nil {
-			nm2, _ := wiz.Update(resultMsg)
-			wiz = nm2.(WizardModel)
-		}
-	}
-	if copied != mcpQuickInstallRows[1].command {
-		t.Errorf("copied %q, want %q", copied, mcpQuickInstallRows[1].command)
-	}
-	if wiz.mcpQuickCopied != 1 {
-		t.Errorf("mcpQuickCopied = %d after async write, want 1", wiz.mcpQuickCopied)
-	}
-}
-
-// TestWizardMCPQuickInstallCopyNilDep pressing 'c' with nil CopyToClipboard
-// must not panic and mcpQuickCopied must stay -1.
-func TestWizardMCPQuickInstallCopyNilDep(t *testing.T) {
-	m := atStep(WizardStepMCPConnect) // no deps
-	m.mcpDone = true
-	m.mcpQuickCopied = -1
-	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	wiz := nm.(WizardModel)
-	if wiz.mcpQuickCopied != -1 {
-		t.Errorf("mcpQuickCopied changed to %d with nil dep, want -1", wiz.mcpQuickCopied)
-	}
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// F2.3 — Step 8: Done
-// ────────────────────────────────────────────────────────────────────────────
-
-// TestWizardDoneViewSurfacesSummary checks the Done body lists repo,
-// skill count, agent count, and the launch-hub CTA.
-func TestWizardDoneViewSurfacesSummary(t *testing.T) {
-	m := atStep(WizardStepDone)
-	m.pushRepo = "owner/registry"
-	m.pushed = 12
-	m.agentPaths = []string{"/tmp/a", "/tmp/b", "/tmp/c"}
-	m.width, m.height = 120, 30
 	v := m.View()
-	wants := []string{"owner/registry", "12", "3", "continue to the hub"}
-	for _, w := range wants {
-		if !strings.Contains(v, w) {
-			t.Errorf("Done view missing %q:\n%s", w, v)
+	for _, want := range []string{".claude/skills", ".cursor/skills", "3 local"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("cleanup view missing %q:\n%s", want, v)
 		}
 	}
 }
 
-// TestWizardDoneEnterCompletes verifies that enter on Done sets
-// Completed()=true and emits a Quit Cmd (the launcher then interprets
-// this as "launch hub").
-func TestWizardDoneEnterCompletes(t *testing.T) {
-	m := atStep(WizardStepDone)
-	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	wiz := nm.(WizardModel)
-	if !wiz.Completed() {
-		t.Fatal("enter on Done did not set Completed()")
-	}
-	if cmd == nil {
-		t.Fatal("enter on Done did not return a Quit Cmd")
-	}
-}
-
-// TestWizardLoadAgentChoicesIsIdempotent guards against double-loading
-// if the user revisits the AgentSelect step (e.g. via a future "back"
-// button); the user's selection / filter must survive.
 func TestWizardLoadAgentChoicesIsIdempotent(t *testing.T) {
 	deps := WizardDeps{
 		AgentChoices: func() []WizardAgent { return testAgents },
@@ -671,72 +281,18 @@ func TestWizardLoadAgentChoicesIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestWizardCancelOverlayDuringAgentInstall covers the always-on escape
-// hatch: even after the install goroutine has fired, Esc must show the
-// cancel overlay.
 func TestWizardCancelOverlayDuringAgentInstall(t *testing.T) {
 	m := atStep(WizardStepAgentSelect)
 	m.agentInstalling = true
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	wiz := nm.(WizardModel)
-	if !wiz.cancelOverlay {
+	if !nm.(WizardModel).cancelOverlay {
 		t.Fatal("esc during agent install did not open cancel overlay")
 	}
 }
 
-// TestWizardCleanupViewSurfacesCounts checks the cleanup prompt surfaces
-// the per-source breakdown the user needs to make an informed decision.
-func TestWizardCleanupViewSurfacesCounts(t *testing.T) {
-	m := atStep(WizardStepCleanup)
-	m.cleanupLoaded = true
-	m.cleanupEntries = []WizardCleanupEntry{
-		{Path: "/a", Source: "~/.claude/skills"},
-		{Path: "/b", Source: "~/.claude/skills"},
-		{Path: "/c", Source: "~/.cursor/skills"},
-	}
-	m.width, m.height = 120, 40
-	v := m.View()
-	wants := []string{".claude/skills", ".cursor/skills", "3 local"}
-	for _, w := range wants {
-		if !strings.Contains(v, w) {
-			t.Errorf("cleanup view missing %q:\n%s", w, v)
-		}
-	}
-}
-
-// TestMCPConnectHandlesNilDeps ensures startMCPConnect doesn't crash
-// when MCPSnippet is unwired (test-mode invariant) and that the
-// downstream wizardMCPDoneMsg still settles the step.
-func TestMCPConnectHandlesNilDeps(t *testing.T) {
-	m := atStep(WizardStepMCPConnect).WithDeps(WizardDeps{})
-	cmd := m.startMCPConnect()
-	if !m.mcpStarted {
-		t.Error("mcpStarted = false after startMCPConnect")
-	}
-	if cmd == nil {
-		t.Fatal("startMCPConnect returned nil cmd")
-	}
-	msg := safeRun(cmd)
-	done, ok := msg.(wizardMCPDoneMsg)
-	if !ok {
-		t.Fatalf("cmd returned %T, want wizardMCPDoneMsg", msg)
-	}
-	if done.snippet != "" {
-		t.Errorf("snippet = %q with nil deps; want empty", done.snippet)
-	}
-	nm, _ := m.Update(done)
-	wiz := nm.(WizardModel)
-	if !wiz.mcpDone {
-		t.Error("mcpDone = false after empty wizardMCPDoneMsg")
-	}
-}
-
-// TestWizardAgentPlainEnterIsNoopWithoutDep verifies the test-mode path:
-// without an InstallAgents dep wired, enter still flips agentInstalling
-// → agentInstallDone immediately so the state machine stays exercisable.
-func TestWizardAgentPlainEnterIsNoopWithoutDep(t *testing.T) {
+func TestWizardAgentPlainEnterCompletesWithoutDep(t *testing.T) {
 	m := atStep(WizardStepAgentSelect)
-	m.loadAgentChoices() // no-op without dep
+	m.loadAgentChoices()
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	wiz := nm.(WizardModel)
 	if !wiz.agentInstalling || !wiz.agentInstallDone {
@@ -745,8 +301,6 @@ func TestWizardAgentPlainEnterIsNoopWithoutDep(t *testing.T) {
 	}
 }
 
-// TestWizardAgentInstalledAccessor confirms AgentsInstalled() reflects
-// the install path count.
 func TestWizardAgentInstalledAccessor(t *testing.T) {
 	m := atStep(WizardStepAgentSelect)
 	if m.AgentsInstalled() != 0 {
@@ -755,5 +309,23 @@ func TestWizardAgentInstalledAccessor(t *testing.T) {
 	m.agentPaths = []string{"/a", "/b"}
 	if m.AgentsInstalled() != 2 {
 		t.Errorf("AgentsInstalled() = %d, want 2", m.AgentsInstalled())
+	}
+}
+
+func TestWizardDoneViewAndEnter(t *testing.T) {
+	m := atStep(WizardStepDone)
+	m.pushRepo = "owner/registry"
+	m.pushed = 12
+	m.agentPaths = []string{"/tmp/a", "/tmp/b", "/tmp/c"}
+	m.width, m.height = 120, 30
+	v := m.View()
+	for _, want := range []string{"owner/registry", "12", "3", "continue to the hub"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("Done view missing %q:\n%s", want, v)
+		}
+	}
+	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !nm.(WizardModel).Completed() || cmd == nil {
+		t.Fatal("enter on Done did not complete and quit")
 	}
 }

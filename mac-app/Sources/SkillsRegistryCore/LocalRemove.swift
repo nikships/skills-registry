@@ -1,26 +1,22 @@
 import Foundation
 
-/// Local cleanup half of `skills-registry remove`. Port of `removeFromCache` +
-/// `removeFromDotFolders` (`cli/cmd/skills-registry/remove.go`) + the cache
-/// path resolution in `cli/internal/cache/cache.go`.
+/// Local cleanup half of `skills-registry remove`, matching the CLI's download
+/// cleanup and agent dot-folder sweep.
 ///
 /// The registry delete itself stays in `GitHubWrites.delete`; this enum only
-/// sweeps the two *local* footprints a skill leaves behind: the MCP server's
-/// download cache and any agent dot-folder copy.
+/// sweeps the two local footprints a skill leaves behind: the CLI download
+/// cache and any agent dot-folder copy.
 public enum LocalRemove {
-    /// Where the Python MCP server caches downloaded skills. Matches Go
-    /// `cache.CacheRoot()` / `cache.py::cache_root`:
-    ///   1. `$XDG_CACHE_HOME/skills-mcp/skills` if `XDG_CACHE_HOME` is set,
-    ///   2. `~/.cache/skills-mcp/skills` otherwise.
+    /// CLI download cache, honoring XDG_CACHE_HOME.
     public static func cacheRoot() -> String {
         if let base = ProcessInfo.processInfo.environment["XDG_CACHE_HOME"], !base.isEmpty {
-            return (base as NSString).appendingPathComponent("skills-mcp/skills")
+            return (base as NSString).appendingPathComponent("skills-registry/skills")
         }
         let home = NSHomeDirectory()
-        return (home as NSString).appendingPathComponent(".cache/skills-mcp/skills")
+        return (home as NSString).appendingPathComponent(".cache/skills-registry/skills")
     }
 
-    /// Wipe the MCP server's per-slug cache: `<root>/<slug>/` and the sibling
+    /// Wipe the CLI's per-slug download cache: `<root>/<slug>/` and the sibling
     /// `<root>/<slug>.meta.json`. Returns true if either existed before the
     /// call (so the caller can report "cache cleared").
     @discardableResult

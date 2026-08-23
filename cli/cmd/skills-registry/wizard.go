@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/nikships/skills-registry/cli/internal/agents"
@@ -19,7 +18,7 @@ import (
 
 // runWizard launches the onboarding wizard in alt-screen mode. The
 // wizard owns the entire bootstrap flow end-to-end (scan → repo →
-// push → agents → cleanup → MCP snippet → done). The legacy
+// push → agents → cleanup → done). The legacy
 // `bootstrap` subcommand is still available for headless / scripted
 // invocations.
 func runWizard(ctx context.Context) error {
@@ -79,7 +78,7 @@ func finishWizard(final tui.WizardModel) error {
 }
 
 // buildWizardDeps wires the real scan / create-repo / save-config /
-// push / agent-install / cleanup / MCP-install callbacks. Each closure
+// push / agent-install / cleanup callbacks. Each closure
 // captures the resolved `gh` path and the caller's home + cwd so the
 // wizard model doesn't need to know about any of that. The wizard's own
 // ctx is threaded into each callback via the `c` parameter at call time.
@@ -111,10 +110,6 @@ func buildWizardDeps(gh string) tui.WizardDeps {
 			return wizardLoadCleanup(c, gh, home, cwd, dotDirs, skills)
 		},
 		DeleteCleanup: wizardDeleteCleanup,
-		MCPSnippet:    bootstrap.MCPJSONSnippet,
-		CopyToClipboard: func(text string) error {
-			return clipboard.WriteAll(text)
-		},
 	}
 }
 

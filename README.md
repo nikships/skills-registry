@@ -8,8 +8,6 @@
 
 [![CI](https://github.com/nikships/skills-registry/actions/workflows/ci.yml/badge.svg)](https://github.com/nikships/skills-registry/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
-[![Built with FastMCP](https://img.shields.io/badge/built%20with-FastMCP-orange.svg)](https://github.com/jlowin/fastmcp)
 [![Stars](https://img.shields.io/github/stars/nikships/skills-registry?style=social)](https://github.com/nikships/skills-registry/stargazers)
 
 </div>
@@ -20,7 +18,7 @@
 
 AI tools like Claude Code, Cursor, Codex, Goose, and Windsurf auto-load every installed skill into the agent's startup context — tokens you pay for whether the agent uses them or not.
 
-`skills-registry` flips this: skills live in **one GitHub repo you own**, and each agent auto-loads only a tiny **gateway skill** — a pointer file telling it *how* to search and fetch the rest on demand. That one small skill is all any agent needs. (Prefer native MCP tools? An optional hosted server exposes the same fetch-on-demand calls — see [below](#optional-hosted-mcp-server).)
+`skills-registry` flips this: skills live in **one GitHub repo you own**, and each agent auto-loads only a tiny **gateway skill** — a pointer file telling it how to use the CLI to search and fetch the rest on demand. That one small skill is all any agent needs.
 
 **You get:**
 
@@ -59,7 +57,7 @@ The npm package is a thin launcher that downloads the same prebuilt binary from 
 
 The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
-- **First-time users** → **onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → **install the gateway skill into the agents you pick** → optionally delete the now-redundant local copies.
+- **First-time users** → **seven-step onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → **install the gateway skill into the agents you pick** → optionally delete the now-redundant local copies → show the registry URL.
 - **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Publish / Purge / Settings.
 - **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 
@@ -104,7 +102,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Open the dashboard | `skills-registry` |
 | Browse + durably install skills into selected agent dot-folders | `skills-registry list [--query QUERY] [--plain]` |
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
-| Pull one skill into the global cache (`~/.cache/skills-mcp/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
+| Pull one skill into the global cache (`~/.cache/skills-registry/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync [--all]` |
 | Pull a skill from someone else's repo into yours + install locally | `skills-registry add <source> [--all]` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |
@@ -136,7 +134,7 @@ skills-registry remove code-review
 `remove` is destructive. It deletes the slug from three places at once:
 
 1. The GitHub registry repo — single atomic commit via the Git Data API.
-2. The local cache (`~/.cache/skills-mcp/skills/<slug>/` + `<slug>.meta.json`).
+2. The local cache (`~/.cache/skills-registry/skills/<slug>/` + `<slug>.meta.json`).
 3. Every known AI tool dot-folder copy (`~/.claude/skills/<slug>/`, `~/.factory/skills/<slug>/`, `.agents/skills/<slug>/`, …).
 
 Interactive runs prompt for confirmation first. Pass `--yes` to skip it, or `--json` (which implies `--yes`) for machine-readable output. Removing a slug that isn't in the registry exits 1 cleanly — nothing destructive runs.
@@ -178,7 +176,7 @@ Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is se
 | One home for all your agents | ❌ duplicated | ✅ | ✅ |
 | Fetched on demand (no startup tokens) | ❌ | ❌ | ✅ |
 | Versioned + branchable | ❌ | ✅ | ✅ |
-| Works in any agent (skill or MCP) | partial | ❌ | ✅ |
+| Works in any supported agent | partial | ❌ | ✅ |
 | Share / fork between users | ❌ | clunky | ✅ (just clone the repo) |
 | No shell or SSH config needed | ✅ | ❌ | ✅ |
 
@@ -197,7 +195,7 @@ The wizard sets sensible defaults. Override via shell env when needed:
 | `SKILLS_REGISTRY_AUTO_UPDATE` | unset | Set to `1`/`true`/`yes` to opportunistically run `skills-registry update` before opening the hub. Errors are warning-logged, never fatal. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
-The registry repo itself (as an `owner/repo` slug) lives in `~/.config/skills-mcp/registry.toml`.
+The registry repo itself (as an `owner/repo` slug) lives in `~/.config/skills-registry/registry.toml`.
 
 ---
 
@@ -212,13 +210,7 @@ Install GitHub CLI from <https://cli.github.com/> and run `gh auth login`. `skil
 <details>
 <summary><strong>"No registry configured"</strong></summary>
 
-The wizard hasn't run yet, or `~/.config/skills-mcp/registry.toml` is missing. Run `skills-registry` (it opens the wizard first run), or set `SKILLS_REGISTRY=owner/repo` directly.
-</details>
-
-<details>
-<summary><strong>The MCP server doesn't show up in my client</strong></summary>
-
-Paste the wizard's JSON snippet into your client's MCP config and fully restart the client (not just reload). On first connect the client opens a browser to authorize the Skills Registry GitHub App on your registry repo — accept it. If the server says "no repo linked yet", install the GitHub App via the link in the error and retry; the webhook auto-links within seconds.
+The wizard hasn't run yet, or `~/.config/skills-registry/registry.toml` is missing. Run `skills-registry` (it opens the wizard first run), or set `SKILLS_REGISTRY=owner/repo` directly.
 </details>
 
 <details>
@@ -235,35 +227,9 @@ The first-time bulk push uses a single `git push` to dodge GitHub's secondary ra
 
 ---
 
-## Optional: hosted MCP server
-
-The gateway skill is all you need. But if your client supports MCP and you'd rather it call native `search_skills` / `get_skill` tools (no local binary required for reads), there's an optional hosted server. Add it by hand:
-
-```json
-{
-  "mcpServers": {
-    "skills-registry": {
-      "url": "https://mcp.skills-registry.dev/mcp"
-    }
-  }
-}
-```
-
-Drop it into your client's `mcp.json` (Claude Code, Claude Desktop, Cursor, VS Code+Copilot all use the same shape). On first connect, your client opens a browser to authorize the Skills Registry GitHub App on your registry repo. After that, every `search_skills` / `get_skill` call goes through the hosted server. Writes (`publish` / `sync` / `remove`) still go through the CLI — the hosted server is read-only.
-
-> **Codex.** Codex uses TOML instead of JSON, but it speaks the same Streamable HTTP. Add this to `~/.codex/config.toml`:
->
-> ```toml
-> [mcp_servers.skills-registry]
-> enabled = true
-> url = "https://mcp.skills-registry.dev/mcp"
-> ```
-
----
-
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill + CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) and the optional hosted MCP read tools (`search_skills`, `get_skill`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill and CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/nikships/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

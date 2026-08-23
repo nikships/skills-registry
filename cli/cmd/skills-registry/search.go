@@ -14,10 +14,7 @@ import (
 	"github.com/nikships/skills-registry/cli/internal/registry"
 )
 
-// Scoring constants for the fzf V1-style fuzzy matcher. These mirror
-// the values in “infa-not-for-users/skills_mcp/github_api.py“ —
-// bumping one without the other breaks the contract that the MCP and
-// CLI return the same ranking for the same registry.
+// Scoring constants for the fzf V1-style fuzzy matcher.
 const (
 	fuzzyBaseMatchScore   = 16
 	fuzzyBoundaryBonus    = 8
@@ -26,14 +23,12 @@ const (
 	fuzzyCaseBonus        = 1
 	fuzzyGapPenalty       = 2
 
-	// Cap on the number of results ``search`` surfaces. Matches the MCP
-	// tool's ``_SEARCH_TOP_N``.
+	// Cap on the number of results ``search`` surfaces.
 	searchTopN = 10
 )
 
-// Field weights for “scoreSkill“. Aligned with “_FIELD_WEIGHTS“ on
-// the Python side: name is the most semantically precise label, slug
-// and description are tiebreakers.
+// Field weights for “scoreSkill“: name is the most semantically precise
+// label, while slug and description are tiebreakers.
 var fieldWeights = []struct {
 	name   string
 	weight int
@@ -44,8 +39,7 @@ var fieldWeights = []struct {
 }
 
 // isWordBoundaryChar reports whether “r“ is one of the delimiters
-// that earns the matched-next char a boundary bonus. Mirrors
-// “_WORD_BOUNDARY_CHARS“ on the Python side.
+// that earns the matched-next char a boundary bonus.
 func isWordBoundaryChar(r rune) bool {
 	switch r {
 	case ' ', '\t', '\n', '_', '-', '/', '.', '\\', ':':
@@ -130,9 +124,8 @@ func runSearch(ctx context.Context, query string) error {
 	return nil
 }
 
-// findAlignment locates the tightest right-anchored alignment of
-// qLower in tLower. Returns nil if any query rune doesn't appear in
-// order. Mirrors “_find_alignment“ on the Python side.
+// findAlignment locates the tightest right-anchored alignment of qLower
+// in tLower. Returns nil if any query rune doesn't appear in order.
 func findAlignment(qLower, tLower []rune) []int {
 	// Forward pass — find any valid alignment; record end index.
 	qi := 0
@@ -166,7 +159,7 @@ func findAlignment(qLower, tLower []rune) []int {
 }
 
 // scoreCharMatch scores one matched rune in the alignment returned by
-// findAlignment. Mirrors “_char_score“ on the Python side.
+// findAlignment.
 func scoreCharMatch(
 	qPos, tPos int,
 	matches []int,
@@ -193,10 +186,7 @@ func scoreCharMatch(
 // text (0 if any query rune doesn't appear in order).
 //
 // See “findAlignment“ for the alignment logic and “scoreCharMatch“
-// for the per-rune weighting. MUST stay in lockstep with
-// “_fuzzy_score“ in
-// “infa-not-for-users/skills_mcp/github_api.py“ — both surfaces
-// (CLI + MCP) depend on identical ranking.
+// for the per-rune weighting.
 func fuzzyScore(query, text string) int {
 	if query == "" || text == "" {
 		return 0
@@ -225,8 +215,7 @@ func fuzzyScore(query, text string) int {
 }
 
 // scoreSkill scores a summary by summing per-field fuzzy scores under
-// the canonical field weights. Mirrors “_score_skill“ on the Python
-// side.
+// the canonical field weights.
 func scoreSkill(query string, s registry.Summary) int {
 	q := strings.TrimSpace(query)
 	if q == "" {

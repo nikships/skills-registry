@@ -4,7 +4,7 @@ import Foundation
 /// the copy half of `cli/cmd/skills-registry/install_local.go`
 /// (`installSkillIntoTargets` + `copyTree` + `copyFileForInstall`).
 ///
-/// Unlike `get`, this never touches the global MCP cache: it writes the
+/// Unlike `get`, this never touches the CLI download cache: it writes the
 /// skill's files straight into each target's `<dot>/skills/<slug>/`. The Go
 /// CLI fetches into a scratch dir and copies; the app already has the bytes in
 /// hand (from `GitHubReads.skillFileData` or `Scan.filesForUpload`), so it

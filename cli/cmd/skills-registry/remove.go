@@ -62,8 +62,8 @@ func newRemoveCmd() *cobra.Command {
 
   1. The <slug>/ subtree is deleted from the GitHub registry repo via
      the Git Data API (single atomic commit).
-  2. The Python MCP server's local cache (~/.cache/skills-mcp/skills/<slug>/
-     and <slug>.meta.json) is wiped so the next get_skill call re-fetches.
+  2. The CLI cache (~/.cache/skills-registry/skills/<slug>/ and
+     <slug>.meta.json) is wiped.
   3. Every known AI tool dot-folder (~/.claude/skills, ~/.factory/skills,
      etc. — see agents.All()) is scanned for a matching <slug>/ subdir
      and removed.
@@ -191,7 +191,7 @@ func confirmRemove(slug, repo string) (bool, error) {
 	return final.Value().(string) == "yes", nil
 }
 
-// removeFromCache wipes the Python MCP server's per-slug cache. The
+// removeFromCache wipes the CLI's per-slug cache. The
 // directory and the sibling `<slug>.meta.json` file are both removed
 // when present. Returns true if any of the two existed prior to the
 // call — used to populate the `removed_from` JSON array.

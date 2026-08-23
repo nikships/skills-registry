@@ -82,7 +82,7 @@ func DefaultHubCards() []HubCard {
 			ID:          HubActionSettings,
 			Icon:        "⚙",
 			Title:       "Settings",
-			Description: "Inspect or edit your repo, branch, cache, and MCP wiring.",
+			Description: "Inspect or edit your repository, branch, and cache settings.",
 		},
 	}
 }

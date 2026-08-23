@@ -1,6 +1,4 @@
 // Package registry talks to a GitHub-backed skill registry via `gh api`.
-// Mirrors src/skills_mcp/registry_api.py so the Python MCP server and the
-// Go CLI behave identically.
 package registry
 
 import (
@@ -99,7 +97,7 @@ type Client struct {
 	// production callers leave it empty.
 	GitBin string
 	// MirrorRoot, if set, overrides the default
-	// ~/.cache/skills-mcp/mirror/<owner>/<repo> directory used by the
+	// ~/.cache/skills-registry/mirror/<owner>/<repo> directory used by the
 	// git-backed read mirror. Tests inject a t.TempDir() so suites never
 	// touch the user's real cache; production callers leave it empty.
 	MirrorRoot string
@@ -1147,8 +1145,8 @@ func parseStatus(body string) int {
 // parseSummary extracts the skill display name + description from SKILL.md
 // frontmatter. Falls back to the slug + first paragraph.
 //
-// Mirrors src/skills_mcp/frontmatter.py: handles flat “key: value“ lines
-// AND YAML block scalars (“>“, “>-“, “|“, “|-“) — many SKILL.md files
+// Handles flat “key: value“ lines and YAML block scalars
+// (“>“, “>-“, “|“, “|-“) — many SKILL.md files
 // use the folded form for descriptions, and the previous version stored the
 // indicator character ("> " / ">-") verbatim as the description.
 func parseSummary(text, slug string) (string, string) {

@@ -1,9 +1,7 @@
 import Foundation
 
-/// Read/write `~/.config/skills-mcp/registry.toml`, the file the Go CLI and
-/// Python server both read for registry identity. Keeping the macOS app on the
-/// same file means the app, the CLI, and the hosted MCP all agree on which
-/// repo is "the registry". Mirrors `cli/internal/config/config.go`.
+/// Read/write `~/.config/skills-registry/registry.toml`, shared by the app and
+/// Go CLI so both agree on which repo is "the registry".
 public struct RegistryConfig: Equatable, Sendable {
     public var repo: String          // "owner/repo"
     public var defaultBranch: String // "main" by default
@@ -34,10 +32,10 @@ public struct RegistryConfig: Equatable, Sendable {
         let env = ProcessInfo.processInfo.environment
         if let base = env["XDG_CONFIG_HOME"], !base.isEmpty {
             return URL(fileURLWithPath: base)
-                .appendingPathComponent("skills-mcp/registry.toml")
+                .appendingPathComponent("skills-registry/registry.toml")
         }
         return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/skills-mcp/registry.toml")
+            .appendingPathComponent(".config/skills-registry/registry.toml")
     }
 
     /// Resolve the active config. The `SKILLS_REGISTRY` env override wins over

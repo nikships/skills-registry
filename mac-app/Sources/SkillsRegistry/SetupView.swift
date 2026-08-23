@@ -38,7 +38,7 @@ struct SetupView: View {
             Eyebrow(text: "Set up your registry")
             Text("Pick where your skills live")
                 .font(.system(size: 28, weight: .semibold)).foregroundStyle(Brand.fg)
-            Text("Create a fresh registry repository, or connect one the Skills Registry app can already access. This is shared with the CLI and the hosted MCP server.")
+            Text("Create a fresh registry repository, or connect one the Skills Registry app and CLI can access.")
                 .font(.system(size: 14)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
             if let id = state.identity {
@@ -158,7 +158,7 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Don't see your repo?", systemImage: "puzzlepiece.extension")
                     .font(.system(size: 14, weight: .semibold)).foregroundStyle(Brand.fg)
-                Text("Install the Skills Registry GitHub App on the repository you want, then refresh. This is also what lets the hosted MCP server serve your skills to coding agents.")
+                Text("Install the Skills Registry GitHub App on the repository you want, then refresh. This grants the app access to manage that registry.")
                     .font(.system(size: 13)).foregroundStyle(Brand.muted)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {

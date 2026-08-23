@@ -66,7 +66,7 @@
     }
 
     *, *::before, *::after { box-sizing: border-box; }
-    html { -webkit-text-size-adjust: 100%; overflow-x: clip; }
+    html { -webkit-text-size-adjust: 100%; overflow-x: clip; scroll-behavior: smooth; }
     body {
       margin: 0;
       background: var(--bg);
@@ -227,7 +227,6 @@
     .term-cmd { color: #f5f3ee; }
     .term-comment { color: rgba(247,244,237,0.42); }
     .term-ok { color: #6ee7a7; }
-    .term-warn { color: #fcd34d; }
     .term-accent { color: #ff9ec2; }
     .term-caret::after {
       content: "▌"; color: #ff9ec2; margin-left: 1px;
@@ -257,6 +256,8 @@
       color: var(--muted);
       margin-bottom: 8px;
     }
+    .accent-card { border-color: color-mix(in oklab, var(--accent) 32%, var(--border)); }
+    .accent-text { color: var(--accent); }
 
     /* Features */
     .features-grid {
@@ -336,25 +337,7 @@
       font-family: var(--font-mono); font-size: 12px; color: var(--muted);
     }
 
-    /* MCP tools */
-    .mcp-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
-    .mcp-grid > * { min-width: 0; }
-    .tool-list { display: grid; gap: 14px; }
-    .tool-row {
-      display: grid; grid-template-columns: 200px 1fr auto; gap: 20px; align-items: baseline;
-      padding: 18px 0;
-      border-top: 1px solid var(--border);
-    }
-    .tool-row:last-child { border-bottom: 1px solid var(--border); }
-    .tool-name { font-family: var(--font-mono); font-size: 14px; color: var(--fg); }
-    .tool-desc { color: var(--muted); font-size: 14px; }
-    .tool-kind {
-      font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--muted);
-      padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-pill);
-    }
-    .tool-kind.write { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 35%, var(--border)); }
-
+    /* Command examples */
     .code-block {
       background: #0a0a0a;
       color: #f5f3ee;
@@ -375,24 +358,13 @@
     .code-block .c { color: rgba(247,244,237,0.42); } /* comment */
     .code-block .v { color: #fcd34d; }   /* literal */
 
-    .code-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
-    .code-tab {
-      padding: 6px 12px;
-      border-radius: var(--radius-sm);
-      font-family: var(--font-mono); font-size: 12px;
-      color: var(--muted);
-      background: var(--surface);
-      border: 1px solid var(--border);
-      transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
-    }
-    .code-tab[aria-selected="true"] {
-      color: #0a0a0a; background: var(--fg);
-      border-color: var(--fg);
-      box-shadow:
-        rgba(255,255,255,0.4) 0 0.5px 0 0 inset,
-        rgba(0,0,0,0.3) 0 0 0 0.5px inset;
-    }
-    .code-panel[hidden] { display: none; }
+    .gateway-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
+    .gateway-grid > * { min-width: 0; }
+    .gateway-grid .section-head { margin-bottom: 0; }
+
+    .media-frame { margin: 0 0 36px; border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; box-shadow: var(--elev-ring); }
+    .media-frame img { display: block; width: 100%; height: auto; }
+    .media-frame figcaption { padding: 10px 14px; border-top: 1px solid var(--border); }
 
     /* Install split */
     .install-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; }
@@ -527,7 +499,7 @@
     /* Responsive */
     @media (max-width: 1024px) {
       section { padding-block: var(--section-y-tablet); }
-      .hero-grid, .problem-grid, .features-grid, .arch-grid, .mcp-grid, .install-grid, .cta-wrap {
+      .hero-grid, .problem-grid, .features-grid, .arch-grid, .gateway-grid, .install-grid, .cta-wrap {
         grid-template-columns: 1fr;
       }
       .hero { padding-block: 72px; }
@@ -560,8 +532,6 @@
       .stat .stat-num { font-size: 44px; }
       .stat .stat-label { max-width: none; }
       .card, .problem-card, .feature-cell, .arch-card { padding: 20px; }
-      .code-tabs { overflow-x: auto; padding-bottom: 2px; }
-      .code-tab { flex: 0 0 auto; }
       .code-block { font-size: 12px; line-height: 1.55; }
       .ds-table, .cli-table {
         display: block;
@@ -576,7 +546,6 @@
       }
       .cta-wrap { padding: 36px 28px; }
       .cta-wrap h2 { font-size: 32px; }
-      .tool-row { grid-template-columns: 1fr; gap: 6px; }
       .foot-grid { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 420px) {

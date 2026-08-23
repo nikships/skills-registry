@@ -1,17 +1,8 @@
-.venv/
-__pycache__/
-*.pyc
 .DS_Store
 
 # Build / packaging artifacts
 dist/
 build/
-*.egg-info/
-
-# Test coverage
-.coverage
-coverage.xml
-htmlcov/
 
 # Local env
 .env

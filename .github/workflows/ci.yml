@@ -5,39 +5,7 @@ on:
     branches: [main]
   pull_request: {}
 
-# Path-filter jobs at the job level via `paths-filter` would require a
-# third-party action; instead we keep both jobs cheap (uv + go setup are
-# both fast) and let each fail-fast on its own scope. The CLI job is the
-# user-facing gate; the server job is maintainer-only.
-
 jobs:
-  server:
-    name: Server (Python — infa-not-for-users)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infa-not-for-users
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - uses: astral-sh/setup-uv@v8.1.0
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --group dev
-
-      - name: Lint with ruff
-        run: uv run ruff check .
-
-      - name: Check formatting with ruff
-        run: uv run ruff format --check .
-
-      - name: Run tests
-        run: uv run pytest -v --cov=skills_mcp --cov-report=xml
-
   cli:
     name: CLI (Go — build, vet, test)
     runs-on: ubuntu-latest

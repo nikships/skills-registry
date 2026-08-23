@@ -32,7 +32,7 @@ func TestResolveDest(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 		got, _ := resolveDest("agp-9-upgrade", "", cache.CacheRoot())
-		want := filepath.Join(home, ".cache", "skills-mcp", "skills", "agp_9_upgrade")
+		want := filepath.Join(home, ".cache", "skills-registry", "skills", "agp_9_upgrade")
 		if got != want {
 			t.Fatalf("dest = %q, want %q", got, want)
 		}

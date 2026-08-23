@@ -19,7 +19,7 @@ import (
 // MainFileName is the marker that identifies a skill folder.
 const MainFileName = "SKILL.md"
 
-// Skill mirrors skills_mcp.Skill (Python).
+// Skill is a locally discovered skill folder.
 type Skill struct {
 	Slug        string
 	Name        string
