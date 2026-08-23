@@ -245,7 +245,7 @@ final class AppState: ObservableObject {
 
     /// Remove a skill end-to-end, mirroring `skills-registry remove`: delete
     /// the `<slug>/` subtree from the registry, then sweep the two local
-    /// footprints (MCP download cache + every agent dot-folder copy).
+    /// footprints (CLI download cache + every agent dot-folder copy).
     ///
     /// Optimistic: the row disappears from the UI immediately; the registry
     /// delete runs behind it (serialized by `BranchGate`). On failure the row
@@ -287,7 +287,7 @@ final class AppState: ObservableObject {
 
     /// Durably install a registry skill into the selected agent dot-folders:
     /// fetch every file under `<slug>/` and write it into each target's
-    /// `<dot>/skills/<slug>/`. The MCP download cache is never touched (that's
+    /// `<dot>/skills/<slug>/`. The CLI download cache is never touched (that's
     /// `get`'s job) — this is the durable equivalent of the CLI's install
     /// picker.
     func installRegistrySkill(_ slug: String, targets: [AgentTarget]) async {

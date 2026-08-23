@@ -34,7 +34,7 @@ struct SkillDetailView: View {
             Button("Remove", role: .destructive) { Task { await state.remove(slug) } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes the \(slug)/ folder from \(state.repo?.fullName ?? "the repo"), clears the MCP cache, and removes it from your agent folders. It can't be undone from here.")
+            Text("This deletes the \(slug)/ folder from \(state.repo?.fullName ?? "the repo"), clears its local download, and removes it from your agent folders. It can't be undone from here.")
         }
         .sheet(isPresented: $showInstall) {
             AgentPickerSheet(

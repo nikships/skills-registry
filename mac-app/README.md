@@ -6,13 +6,12 @@ rich markdown rendering and fuzzy search, publish a skill from a folder,
 **install** a registry skill into your agent folders, **add** skills from an
 external source (local path, `owner/repo`, a git URL, or a GitHub
 `/tree/<ref>/<path>` link) and publish + install them in one pass, **remove**
-one end-to-end (registry + MCP cache + agent folders), bulk-import the skills
-already sitting in your local AI-tool folders, and copy the one-click CLI
-install + hosted-MCP JSON from a Settings screen.
+one end-to-end (registry + local downloads + agent folders), bulk-import the
+skills already sitting in your local AI-tool folders, and install or update
+the CLI from Settings.
 
-It is the **third surface** on the same registry the Go CLI and the hosted
-Python MCP server already share — same `registry.toml`, same slug derivation,
-same fuzzy scorer, same frontmatter parsing.
+It complements the Go CLI with the same registry format, slug derivation,
+fuzzy scorer, and frontmatter parsing.
 
 > **Platform:** macOS 14+ (Sonoma), arm64 only. Swift 6 toolchain, SwiftPM (no
 > `.xcodeproj`). One UI dependency: [MarkdownUI](https://github.com/gonzalezreal/swift-markdown-ui).
@@ -58,18 +57,18 @@ Two SwiftPM targets:
 
 ```
 Sources/SkillsRegistryCore/
-  AppConfig.swift       client_id, app slug, hosted MCP URL, install paths, MCP JSON snippet
+  AppConfig.swift       GitHub App client_id and slug, project repo, CLI install path
   Models.swift          SkillSummary, SkillDetail, RepoRef, Identity, InstallationRepo, LocalSkill
   Slug.swift            slugify  ── shared cross-language contract
   FuzzyScore.swift      fzf-V1 scorer ── shared cross-language contract
   Frontmatter.swift     parseSummary/body/flat-YAML ── shared cross-language contract
-  RegistryConfig.swift  ~/.config/skills-mcp/registry.toml R/W (XDG-aware, SKILLS_REGISTRY override)
+  RegistryConfig.swift  ~/.config/skills-registry/registry.toml R/W (XDG-aware, SKILLS_REGISTRY override)
   Keychain.swift        user-to-server token storage
   Agents.swift          56-entry dot-folder catalogue (port of cli/internal/agents)
   Scan.swift            local skill discovery + filesForUpload
   SourceResolver.swift  resolve add source (local/owner-repo/git URL//tree link) → dir (+subpath)
   LocalInstall.swift    write a skill's files into <agent>/skills/<slug>/ (port of install_local.go)
-  LocalRemove.swift     wipe MCP cache + sweep agent dot-folders (port of remove.go locals)
+  LocalRemove.swift     clear CLI downloads + sweep agent dot-folders
   DeviceFlow.swift      GitHub App Device Flow (browser login, no client secret)
   GitHubAPI.swift       request plumbing + wire models
   GitHubReads.swift     currentUser, installations, listSkills, getSkill, skillFileData
@@ -96,7 +95,7 @@ Sources/SkillsRegistry/
   AgentPickerSheet.swift   reusable home-agent multi-select (Install + Add)
   MarkdownTheme.swift      brand-matched MarkdownUI theme
   ImportView.swift         bulk local import checklist
-  SettingsView.swift       App + agent-skill + CLI + MCP + registry/account cards
+  SettingsView.swift       App + agent-skill + CLI + registry/account cards
   Demo.swift               demo-mode fixtures
 ```
 
@@ -130,10 +129,9 @@ which mints a *user-to-server* token without ever embedding a client secret —
 that is what keeps a distributed desktop app self-contained and safe. The
 client id (`AppConfig.githubClientID`) is public by design.
 
-The resulting token can only touch repositories where the App is installed,
-which is also exactly what the hosted MCP server needs in order to serve those
-skills to coding agents. So "install the app on your registry repo" does double
-duty: it grants the desktop app write access **and** lights up the MCP server.
+The resulting token can only touch repositories where the App is installed.
+Installing the App on a registry grants the desktop app the repository access
+it needs while preserving GitHub's repository-level permission controls.
 
 The token is stored in the macOS **Keychain**. On 401 the app clears it and
 returns to the login screen (no silent secret-bearing refresh).
@@ -186,7 +184,7 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
 - **Install a registry skill locally.** The skill detail pane's **Install**
   button fetches every file under `<slug>/` (`GitHubReads.skillFileData`, raw
   bytes so binaries survive) and writes them into each picked agent's
-  `<dot>/skills/<slug>/` (`LocalInstall.install`). The MCP download cache is
+  `<dot>/skills/<slug>/` (`LocalInstall.install`). The CLI download cache is
   never touched — that's `get`'s job; this is the durable equivalent of the
   CLI's install picker. Re-installing overwrites in place.
 - **Add from a source.** The **Add** sidebar section accepts a local path,
@@ -198,7 +196,7 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   filtered out), then `publishAndInstall` publishes each and installs it into
   the agents you pick.
 - **Remove end-to-end.** `remove(_:)` deletes the `<slug>/` subtree from the
-  registry, then `LocalRemove` wipes the MCP cache (`<slug>/` +
+  registry, then `LocalRemove` clears the CLI download (`<slug>/` +
   `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
   slugified-name match. The toast reports `registry · cache · N dot-folders`.
 
@@ -213,32 +211,29 @@ defaults remain unchanged.
 
 ## The cross-language contract (READ BEFORE EDITING)
 
-The fuzzy scorer, slug derivation, and frontmatter parsing now have **three**
+The fuzzy scorer, slug derivation, and frontmatter parsing have **two**
 implementations that must stay in lockstep:
 
-| Concern | Python (hosted MCP) | Go (CLI) | Swift (this app) |
-|---|---|---|---|
-| Fuzzy scorer | `_fuzzy_score` / `_score_skill` in `infa-not-for-users/skills_mcp/github_api.py` | `fuzzyScore` / `scoreSkill` in `cli/cmd/skills-registry/search.go` | `fuzzyScore` / `scoreAndSort` in `Sources/SkillsRegistryCore/FuzzyScore.swift` |
-| Slug | `slugify` in `github_api.py` | `cli/internal/scan` + `registry` | `slugify` in `Slug.swift` |
-| Frontmatter | `frontmatter.py` | `cli/internal/scan` | `Frontmatter.swift` |
-| Meta-skill `SKILL.md` | — (read-only server) | `SkillMd` in `cli/internal/bootstrap/skillmd.go` | `SkillMdTemplate.swift` |
+| Concern | Go (CLI) | Swift (this app) |
+|---|---|---|
+| Fuzzy scorer | `fuzzyScore` / `scoreSkill` in `cli/cmd/skills-registry/search.go` | `fuzzyScore` / `scoreAndSort` in `Sources/SkillsRegistryCore/FuzzyScore.swift` |
+| Slug | `cli/internal/scan` + `registry` | `slugify` in `Slug.swift` |
+| Frontmatter | `cli/internal/scan` | `Frontmatter.swift` |
+| Meta-skill `SKILL.md` | CLI gateway template | `SkillMdTemplate.swift` |
 
-The Go and Swift `SKILL.md` templates must render **byte-for-byte identical**
-output — `SkillMdTemplateTests` pins the rendered length (6428 bytes for
-`owner/repo`) and key lines. Edit one, edit the other, refresh the test.
+The app's `SkillMdTemplateTests` pins the CLI-only gateway's key workflows,
+product-owned paths, and repository interpolation.
 
 The scorer constants (base 16, boundary 8, camel 7, consecutive 5, case 1, gap
 2, field weights name 2 / slug 1 / desc 1, top-N 10) are **duplicated by
 design**. A cross-language corpus test pins the contract:
 
-- Python: `test_search_skills_cross_language_corpus`
 - Go: `TestScoreAndSortCrossLanguageCorpus`
 - Swift: `testCrossLanguageCorpus` in
   `Tests/SkillsRegistryCoreTests/CoreContractTests.swift`
 
-**If you change any of these, update all three implementations and all three
-corpus tests in the same PR.** The write surface (publish/delete/bulkPush) is
-not shared with Python — the hosted server is read-only.
+**If you change any of these, update the app and CLI implementations and their
+corpus tests together.**
 
 ---
 
@@ -252,7 +247,7 @@ swift test                       # Core contract + cross-language corpus + updat
 UI is verified by launching in demo mode and driving it with cua-driver
 (macOS Accessibility computer-use). The app exposes stable
 `accessibilityIdentifier`s on the key controls (`signInWithGitHub`,
-`searchField`, `publishButton`, `importSelected`, `installCLI`, `copyMCP`,
+`searchField`, `publishButton`, `importSelected`, `installCLI`,
 `removeSkill`, `installSkill`, `addSourceField`, `addFetch`, `addSelected`,
 `agentPickerConfirm`, `nav-Browse` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.

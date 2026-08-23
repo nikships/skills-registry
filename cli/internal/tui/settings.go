@@ -12,10 +12,10 @@ import (
 // ────────────────────────────────────────────────────────────────────────────
 // SettingsModel — F3.3 hub "Settings" tile
 //
-// Surfaces the resolved registry config (repo, default branch, cache root,
-// hosted MCP URL) and lets the user edit the two mutable fields inline.
+// Surfaces the resolved registry config (repo, default branch, and cache root)
+// and lets the user edit the two mutable fields inline.
 // Repo and branch are the only writable values in registry.toml; cache
-// root and hosted MCP URL are derived at runtime and shown for diagnostics.
+// root is derived at runtime and shown for diagnostics.
 // ────────────────────────────────────────────────────────────────────────────
 
 // SettingsSaver persists the edited repo + branch and returns the path
@@ -35,10 +35,9 @@ const (
 
 // SettingsModel is the alt-screen sub-TUI launched from the hub's
 // Settings tile. It owns two textinput.Model fields (repo + branch) and
-// surfaces the read-only cache + hosted-MCP rows for diagnostics.
+// surfaces the read-only cache row for diagnostics.
 type SettingsModel struct {
 	cacheRoot string
-	hostedMCP string
 
 	// Original values captured at load time; updated on successful save.
 	origRepo   string
@@ -68,7 +67,7 @@ type SettingsModel struct {
 // NewSettings builds a settings model populated from the resolved
 // config. A nil saver renders the view as read-only — useful for tests
 // and for the (future) `--json` settings dump.
-func NewSettings(repo, branch, cacheRoot, hostedMCP string, saver SettingsSaver) SettingsModel {
+func NewSettings(repo, branch, cacheRoot string, saver SettingsSaver) SettingsModel {
 	repoInput := textinput.New()
 	repoInput.Placeholder = "owner/repo"
 	repoInput.SetValue(repo)
@@ -87,7 +86,6 @@ func NewSettings(repo, branch, cacheRoot, hostedMCP string, saver SettingsSaver)
 
 	return SettingsModel{
 		cacheRoot:   cacheRoot,
-		hostedMCP:   hostedMCP,
 		origRepo:    repo,
 		origBranch:  branch,
 		repoInput:   repoInput,
@@ -312,16 +310,15 @@ func (m SettingsModel) renderHeader() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, hero, strings.Repeat(" ", gap), right)
 }
 
-// renderBody renders the focused settings panel with all four fields.
+// renderBody renders the focused settings panel with all three fields.
 // The two editable fields render the live textinput when editing; the
-// other two render their resolved values verbatim in a muted style.
+// cache path renders its resolved value verbatim in a muted style.
 func (m SettingsModel) renderBody() string {
 	width := m.bodyWidth()
 	rows := []string{
 		m.renderField("Repository", m.repoFieldValue(), settingsFieldRepo, width),
 		m.renderField("Default branch", m.branchFieldValue(), settingsFieldBranch, width),
 		m.renderReadOnly("Cache location", m.cacheRoot, width),
-		m.renderReadOnly("Hosted MCP URL", m.hostedMCP, width),
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return PanelFocused.Width(width).Render(content)
@@ -372,8 +369,8 @@ func (m SettingsModel) renderField(label, value string, field settingsField, wid
 	)
 }
 
-// renderReadOnly formats a diagnostic row (cache / MCP path). These
-// fields never enter edit mode so the bullet stays dim and the value is
+// renderReadOnly formats a diagnostic row. These fields never enter edit
+// mode so the bullet stays dim and the value is
 // rendered with a muted, italic style.
 func (m SettingsModel) renderReadOnly(label, value string, width int) string {
 	bullet := normalBullet()
@@ -451,9 +448,7 @@ func (m SettingsModel) renderFooter() string {
 	return flowFooter(m.width, m.sparkleIdx, keys)
 }
 
-// labelWidth pins a column for the label so the values line up. Wide
-// enough for the longest of our four labels ("Hosted MCP URL") plus a
-// small breathing margin.
+// labelWidth pins a column for the label so the values line up.
 func labelWidth() int { return 18 }
 
 // fieldValueWidth returns how many display cells a field value may

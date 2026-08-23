@@ -30,8 +30,7 @@ func (s *stubSaver) fn() SettingsSaver {
 // terminal with a stub saver attached.
 func freshSettings(saver SettingsSaver) SettingsModel {
 	m := NewSettings("owner/repo", "main",
-		"/home/u/.cache/skills-mcp/skills",
-		"https://mcp.skills-registry.dev/mcp",
+		"/home/u/.cache/skills-registry/skills",
 		saver,
 	)
 	m.width, m.height = 100, 24
@@ -49,11 +48,8 @@ func TestNewSettingsCapturesAllFields(t *testing.T) {
 	if m.Branch() != "main" {
 		t.Errorf("Branch() = %q, want main", m.Branch())
 	}
-	if m.cacheRoot != "/home/u/.cache/skills-mcp/skills" {
+	if m.cacheRoot != "/home/u/.cache/skills-registry/skills" {
 		t.Errorf("cacheRoot = %q", m.cacheRoot)
-	}
-	if m.hostedMCP != "https://mcp.skills-registry.dev/mcp" {
-		t.Errorf("hostedMCP = %q", m.hostedMCP)
 	}
 	if m.focused != settingsFieldRepo {
 		t.Errorf("initial focus = %v, want repo", m.focused)
@@ -72,9 +68,7 @@ func TestSettingsViewSurfacesAllFields(t *testing.T) {
 		"Default branch",
 		"main",
 		"Cache location",
-		"/home/u/.cache/skills-mcp/skills",
-		"Hosted MCP URL",
-		"https://mcp.skills-registry.dev/mcp",
+		"/home/u/.cache/skills-registry/skills",
 	}
 	for _, want := range wants {
 		if !strings.Contains(v, want) {
@@ -432,7 +426,7 @@ func TestTruncateZeroWidth(t *testing.T) {
 // gracefully.
 func TestSettingsViewHandlesLongPath(t *testing.T) {
 	long := strings.Repeat("/very-long-path-segment", 20) // ~440 chars
-	m := NewSettings("owner/repo", "main", long, long, nil)
+	m := NewSettings("owner/repo", "main", long, nil)
 	m.width, m.height = 80, 24
 	v := m.View()
 	// Each line of the rendered body should fit within the terminal width.

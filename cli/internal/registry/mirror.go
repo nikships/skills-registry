@@ -3,14 +3,10 @@
 // `repos/{repo}/contents/...` walk required.
 //
 // On the read path the Go CLI shallow-clones the registry repo once into
-// ~/.cache/skills-mcp/mirror/<owner>/<repo>/ and subsequently fast-forwards
+// ~/.cache/skills-registry/mirror/<owner>/<repo>/ and subsequently fast-forwards
 // it with a single `git fetch --depth=1` + `git reset --hard FETCH_HEAD`.
 // Every per-skill SKILL.md read becomes a local file read instead of a
 // `gh api repos/.../contents/<slug>/SKILL.md` subprocess.
-//
-// The Python MCP server keeps using `gh api` exclusively — it has to run
-// in stripped GUI subprocess environments where `git` may be unavailable.
-// This file is CLI-only and never imported from Python via FastMCP.
 //
 // Opt out with the SKILLS_MIRROR_DISABLE env var; the wrappers in
 // registry.go fall through to the original gh-api impls in that case.
@@ -61,14 +57,13 @@ func (c *Client) mirrorDir() string {
 }
 
 // defaultMirrorRoot mirrors cache.CacheRoot's resolution rules but
-// points at a sibling `mirror/` dir so the existing per-slug skill
-// cache (`skills/`) used by the MCP server stays untouched.
+// points at a sibling `mirror/` directory.
 func defaultMirrorRoot() string {
 	if base := os.Getenv("XDG_CACHE_HOME"); base != "" {
-		return filepath.Join(base, "skills-mcp", "mirror")
+		return filepath.Join(base, "skills-registry", "mirror")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "skills-mcp", "mirror")
+	return filepath.Join(home, ".cache", "skills-registry", "mirror")
 }
 
 // ensureMirror brings the local mirror up to date with the remote

@@ -3,7 +3,7 @@ module github.com/nikships/skills-registry/cli
 go 1.24.5
 
 require (
-	github.com/atotto/clipboard v0.1.4
+	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0

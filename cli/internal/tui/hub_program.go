@@ -40,7 +40,6 @@ type SettingsFlowDeps struct {
 	Repo      string
 	Branch    string
 	CacheRoot string
-	HostedMCP string
 	Save      SettingsSaver
 }
 
@@ -174,7 +173,6 @@ func (m HubProgram) newFlow(action string) (tea.Model, tea.Cmd) {
 			m.deps.Settings.Repo,
 			m.deps.Settings.Branch,
 			m.deps.Settings.CacheRoot,
-			m.deps.Settings.HostedMCP,
 			m.deps.Settings.Save,
 		).WithOnExit(settingsFlowExit)
 		return flow, flow.Init()

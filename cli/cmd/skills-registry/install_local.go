@@ -1,6 +1,6 @@
 // Package main — durable local install of registry skills.
 //
-// `skills-registry get` writes into the global cache (~/.cache/skills-mcp/…)
+// `skills-registry get` writes into the global cache (~/.cache/skills-registry/…)
 // for temporary, agent-driven fetches. List / Manage / Add all share a
 // different installer: pull the skill once into a temp directory, then
 // copy it into each user-selected agent dot-folder, then delete the

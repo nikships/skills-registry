@@ -38,7 +38,7 @@ func newGetCmd() *cobra.Command {
 			return runGet(cmd.Context(), args[0], destFlag)
 		},
 	}
-	cmd.Flags().StringVar(&destFlag, "dest", "", "Where to write the skill (default ~/.cache/skills-mcp/skills/<slug>).")
+	cmd.Flags().StringVar(&destFlag, "dest", "", "Where to write the skill (default ~/.cache/skills-registry/skills/<slug>).")
 	return cmd
 }
 

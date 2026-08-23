@@ -93,25 +93,3 @@ func TestRefreshSkillMdNoExistingCopiesIsNoop(t *testing.T) {
 		t.Fatalf("rewrote %d copies on a clean machine, want 0", len(written))
 	}
 }
-
-func TestMCPJSONSnippetPointsAtHostedServer(t *testing.T) {
-	out := MCPJSONSnippet()
-	if !strings.Contains(out, HostedMCPURL) {
-		t.Fatalf("snippet missing hosted URL %q: %s", HostedMCPURL, out)
-	}
-	if !strings.Contains(out, "\"skills-registry\":") {
-		t.Fatalf("snippet missing server name: %s", out)
-	}
-	if strings.Contains(out, "\"command\"") || strings.Contains(out, "\"args\"") {
-		t.Fatalf("hosted snippet must not include stdio command/args: %s", out)
-	}
-	if !strings.Contains(out, "\"url\":") {
-		t.Fatalf("hosted snippet must declare a url: %s", out)
-	}
-}
-
-func TestHostedMCPURLIsHTTPS(t *testing.T) {
-	if !strings.HasPrefix(HostedMCPURL, "https://") {
-		t.Fatalf("HostedMCPURL must be HTTPS, got %q", HostedMCPURL)
-	}
-}

@@ -128,8 +128,7 @@ func runBootstrap(ctx context.Context, opts bootstrapOpts) error {
 		}
 	}
 
-	// 6. Print MCP JSON snippet
-	printWireUpSnippet(cfg.Repo)
+	printBootstrapComplete(cfg.Repo)
 	return nil
 }
 
@@ -221,16 +220,8 @@ func installAgentDocs(home, cwd, repo string, opts bootstrapOpts) error {
 	return nil
 }
 
-// printWireUpSnippet prints the hosted-MCP JSON snippet and a note about
-// Codex. The CLI never installs or boots an MCP server; the user just
-// pastes this into their client config.
-func printWireUpSnippet(repo string) {
-	fmt.Println("\n" + tui.TitleStyle.Render("Wire it up:"))
-	fmt.Println()
-	fmt.Println(tui.SubtitleStyle.Render("Claude Code / Claude Desktop / Cursor / VS Code (mcp.json):"))
-	fmt.Println(bootstrap.MCPJSONSnippet())
-	fmt.Println()
-	fmt.Println(tui.HintStyle.Render("· Codex requires stdio MCP — the hosted server doesn't support that yet."))
+// printBootstrapComplete prints the registry URL after setup finishes.
+func printBootstrapComplete(repo string) {
 	fmt.Println()
 	fmt.Printf("%s Your registry is live: %s\n",
 		tui.OkStyle.Render("✓"), repoURL(repo))

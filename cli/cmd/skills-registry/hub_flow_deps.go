@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nikships/skills-registry/cli/internal/bootstrap"
 	"github.com/nikships/skills-registry/cli/internal/cache"
 	"github.com/nikships/skills-registry/cli/internal/config"
 	"github.com/nikships/skills-registry/cli/internal/registry"
@@ -45,7 +44,6 @@ func buildSettingsDeps(cfg config.Config) tui.SettingsFlowDeps {
 		Repo:      cfg.Repo,
 		Branch:    cfg.DefaultBranch,
 		CacheRoot: cache.CacheRoot(),
-		HostedMCP: bootstrap.HostedMCPURL,
 		Save:      settingsSaver(),
 	}
 }

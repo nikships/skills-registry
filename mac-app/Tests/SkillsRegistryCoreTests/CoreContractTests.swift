@@ -178,11 +178,3 @@ final class RegistryConfigTests: XCTestCase {
         XCTAssertEqual(loaded, cfg)
     }
 }
-
-final class MCPSnippetTests: XCTestCase {
-    func testSnippetShape() {
-        let s = AppConfig.mcpJSONSnippet
-        XCTAssertTrue(s.contains("mcpServers"))
-        XCTAssertTrue(s.contains("https://mcp.skills-registry.dev/mcp"))
-    }
-}

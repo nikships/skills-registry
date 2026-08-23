@@ -1,6 +1,4 @@
-// Package config reads and writes ~/.config/skills-mcp/registry.toml.
-// Mirrors src/skills_mcp/config.py exactly so the Python MCP server and the
-// Go CLI agree on registry identity.
+// Package config reads and writes ~/.config/skills-registry/registry.toml.
 package config
 
 import (
@@ -44,10 +42,10 @@ var ErrMissing = errors.New("no registry configured (set SKILLS_REGISTRY=owner/r
 // Path returns the on-disk location of registry.toml, honoring XDG_CONFIG_HOME.
 func Path() string {
 	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
-		return filepath.Join(base, "skills-mcp", "registry.toml")
+		return filepath.Join(base, "skills-registry", "registry.toml")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "skills-mcp", "registry.toml")
+	return filepath.Join(home, ".config", "skills-registry", "registry.toml")
 }
 
 // Load resolves the active config. Env var wins over the file.

@@ -12,14 +12,9 @@ public enum AppConfig {
     public static let githubClientID = "Iv23liKPKypuQdJBJveT"
 
     /// The GitHub App slug, used to build install / management URLs.
-    /// Must match the app the `githubClientID` above belongs to
-    /// ("Skills Registry MCP"). The bare `skills-registry` slug is a
-    /// different, unrelated GitHub App.
+    /// Must match the app the `githubClientID` above belongs to. The external
+    /// slug is historical and must not be changed as part of product naming.
     public static let githubAppSlug = "skills-registry-mcp"
-
-    /// Hosted MCP endpoint users paste into their MCP client config. Mirrors
-    /// `cli/internal/bootstrap/install.go`'s `HostedMCPURL`.
-    public static let hostedMCPURL = "https://mcp.skills-registry.dev/mcp"
 
     /// owner/repo of the project itself — source of CLI release tarballs.
     public static let projectRepo = "nikships/skills-registry"
@@ -30,21 +25,8 @@ public enum AppConfig {
             .appendingPathComponent(".local/bin", isDirectory: true)
     }
 
-    /// GitHub App installation URL (handoff so the hosted MCP can serve the repo).
+    /// GitHub App installation URL for granting the app repository access.
     public static var appInstallURL: URL {
         URL(string: "https://github.com/apps/\(githubAppSlug)/installations/new")!
-    }
-
-    /// JSON snippet for an MCP client config. Mirrors `MCPJSONSnippet()`.
-    public static var mcpJSONSnippet: String {
-        """
-        {
-          "mcpServers": {
-            "skills-registry": {
-              "url": "\(hostedMCPURL)"
-            }
-          }
-        }
-        """
     }
 }

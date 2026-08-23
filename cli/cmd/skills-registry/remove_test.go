@@ -82,7 +82,7 @@ func writeRegistryConfig(t *testing.T, repo string) string {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("SKILLS_REGISTRY", "")
-	cfgDir := filepath.Join(dir, "skills-mcp")
+	cfgDir := filepath.Join(dir, "skills-registry")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatalf("mkdir config: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestRunRemoveDeletesRegistryAndLocalArtifacts(t *testing.T) {
 	bin := stubGHForRemove(t, successEntries())
 	installGHEnv(t, bin)
 
-	// Seed the Python MCP cache.
+	// Seed the CLI cache.
 	cacheRoot := cache.CacheRoot()
 	cacheSlugDir := filepath.Join(cacheRoot, "demo")
 	if err := os.MkdirAll(cacheSlugDir, 0o755); err != nil {

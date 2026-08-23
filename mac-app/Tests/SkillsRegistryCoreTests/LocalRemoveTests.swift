@@ -19,13 +19,13 @@ final class LocalRemoveTests: XCTestCase {
     func testCacheRootHonorsXDG() {
         setenv("XDG_CACHE_HOME", "/tmp/xdg", 1)
         defer { unsetenv("XDG_CACHE_HOME") }
-        XCTAssertEqual(LocalRemove.cacheRoot(), "/tmp/xdg/skills-mcp/skills")
+        XCTAssertEqual(LocalRemove.cacheRoot(), "/tmp/xdg/skills-registry/skills")
     }
 
     func testCacheRootFallsBackToHomeCache() {
         unsetenv("XDG_CACHE_HOME")
         let root = LocalRemove.cacheRoot()
-        XCTAssertTrue(root.hasSuffix("/.cache/skills-mcp/skills"), "got \(root)")
+        XCTAssertTrue(root.hasSuffix("/.cache/skills-registry/skills"), "got \(root)")
     }
 
     // MARK: removeFromCache

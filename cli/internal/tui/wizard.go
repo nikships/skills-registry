@@ -15,10 +15,10 @@ import (
 )
 
 // ────────────────────────────────────────────────────────────────────────────
-// WizardStep — the 8-step onboarding state machine
+// WizardStep — the 7-step onboarding state machine
 // ────────────────────────────────────────────────────────────────────────────
 
-// WizardStep enumerates the eight onboarding stages the wizard walks the user
+// WizardStep enumerates the seven onboarding stages the wizard walks the user
 // through. The order matches the legacy bootstrap CLI flow, so a user who
 // runs `skills-registry` for the first time sees the same sequence — just
 // inside an alt-screen Bubble Tea frame instead of a series of synchronous
@@ -39,10 +39,6 @@ const (
 	WizardStepAgentSelect
 	// WizardStepCleanup offers to delete the now-redundant local copies.
 	WizardStepCleanup
-	// WizardStepMCPConnect prints the hosted-MCP JSON snippet for the
-	// user to paste into their client config. The CLI never installs or
-	// boots an MCP server — this step is purely informational.
-	WizardStepMCPConnect
 	// WizardStepDone is the terminal summary panel; pressing enter here
 	// hands off to the hub launcher.
 	WizardStepDone
@@ -50,7 +46,7 @@ const (
 
 // wizardStepCount is the total number of steps; kept as a constant so the
 // step indicator stays in sync with the enum.
-const wizardStepCount = 8
+const wizardStepCount = 7
 
 // Title returns the user-facing label for the step. Used by the step
 // indicator and the panel header.
@@ -68,8 +64,6 @@ func (s WizardStep) Title() string {
 		return "Install into agents"
 	case WizardStepCleanup:
 		return "Tidy local copies"
-	case WizardStepMCPConnect:
-		return "Connect MCP client"
 	case WizardStepDone:
 		return "All set!"
 	}
@@ -89,7 +83,7 @@ type WizardDeps struct {
 	Scan func(ctx context.Context) ([]scan.Skill, error)
 	// CreateRepo provisions the GitHub repo and returns "owner/name".
 	CreateRepo func(ctx context.Context, name, visibility string) (string, error)
-	// SaveConfig persists the resolved repo into ~/.config/skills-mcp/registry.toml.
+	// SaveConfig persists the resolved repo into ~/.config/skills-registry/registry.toml.
 	// Wired immediately after CreateRepo so a later push failure doesn't
 	// orphan the registry.
 	SaveConfig func(repo string) error
@@ -116,13 +110,6 @@ type WizardDeps struct {
 	// failed counts. Best-effort — partial failures are surfaced via the
 	// returned `failed` count, never as an error.
 	DeleteCleanup func(entries []WizardCleanupEntry) (deleted, failed int)
-	// MCPSnippet returns the JSON snippet to paste into mcp.json. The CLI
-	// never installs an MCP server; this step is purely informational.
-	MCPSnippet func() string
-	// CopyToClipboard writes text to the system clipboard. Nil means no
-	// clipboard is available (headless / CI); any error is treated as a
-	// silent fallback — the headline reverts to the original Paste this text.
-	CopyToClipboard func(text string) error
 }
 
 // WizardAgent is one row in the embedded agent multi-select on step 5.
@@ -192,21 +179,6 @@ type wizardCleanupDoneMsg struct {
 	failed  int
 }
 
-// wizardMCPDoneMsg carries the snippet to render in step 7. The CLI
-// doesn't install an MCP server, so just the JSON body is needed.
-type wizardMCPDoneMsg struct {
-	snippet string
-}
-
-// wizardMCPClipboardMsg is the result of the async clipboard write
-// initiated by handleMCPDone. ok is true when the write succeeded.
-// idx is -1 for the main snippet auto-copy, or >=0 for a quick-install row.
-type wizardMCPClipboardMsg struct {
-	ok     bool
-	errMsg string
-	idx    int // -1 for main snippet, >=0 for quick-install row index
-}
-
 const (
 	// wizardTransitionDelay paces inter-step transitions. 180ms is short
 	// enough to feel snappy but long enough that the eye registers the
@@ -238,7 +210,7 @@ func wizardScanReveal() tea.Cmd {
 // ────────────────────────────────────────────────────────────────────────────
 
 // WizardModel is the alt-screen Bubble Tea model for the onboarding wizard.
-// All eight steps are wired to real business logic via WizardDeps; tests
+// All seven steps are wired to real business logic via WizardDeps; tests
 // drive the state machine with stub deps.
 type WizardModel struct {
 	ctx  context.Context
@@ -317,20 +289,6 @@ type WizardModel struct {
 	cleanupDone    bool
 	cleanupDeleted int
 	cleanupFailed  int
-
-	// Step 7: Connect MCP client. Purely informational — the CLI never
-	// installs or boots an MCP server. mcpStarted flips on step entry;
-	// mcpDone flips immediately after rendering the snippet so the enter
-	// key advances to Done.
-	mcpStarted       bool
-	mcpDone          bool
-	mcpSnippet       string
-	mcpClipboardDone bool
-	mcpClipboardOK   bool
-	// mcpQuickCursor is the 0-based index of the highlighted quick-install
-	// row. mcpQuickCopied is the index of the last row copied (-1 = none).
-	mcpQuickCursor int
-	mcpQuickCopied int
 }
 
 // NewWizard constructs the wizard frame with empty WizardDeps. Callers that
@@ -468,7 +426,7 @@ func (m WizardModel) dispatchStandardMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool)
 }
 
 // dispatchAsyncMsg routes long-operation messages (scan / push / agent
-// install / cleanup / MCP snippet).
+// install / cleanup).
 func (m WizardModel) dispatchAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case wizardScanDoneMsg:
@@ -492,12 +450,6 @@ func (m WizardModel) dispatchAsyncMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case wizardCleanupDoneMsg:
 		mm, cmd := m.handleCleanupDone(msg)
 		return mm, cmd, true
-	case wizardMCPDoneMsg:
-		mm, cmd := m.handleMCPDone(msg)
-		return mm, cmd, true
-	case wizardMCPClipboardMsg:
-		mm, cmd := m.handleMCPClipboard(msg)
-		return mm, cmd, true
 	}
 	return m, nil, false
 }
@@ -515,8 +467,7 @@ func (m WizardModel) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd)
 
 // spinnerActive returns true while the spinner glyph should keep animating.
 // Inter-step transitions, an in-flight scan, push, agent install, and
-// cleanup all qualify. Step 7 (MCP snippet) renders synchronously, so
-// it has no spinner state.
+// cleanup all qualify.
 func (m WizardModel) spinnerActive() bool {
 	switch {
 	case m.transitioning:
@@ -543,8 +494,8 @@ func (m WizardModel) handleTransitionDone(msg wizardTransitionMsg) (tea.Model, t
 
 // onEnterStep schedules side effects bound to entering a particular step.
 // Used to auto-start the push goroutine on landing in WizardStepPush, to
-// load the agent multi-select rows on step 5, to scan cleanup candidates
-// on step 6, and to snapshot the hosted-MCP snippet on step 7.
+// load the agent multi-select rows on step 5, and to scan cleanup candidates
+// on step 6.
 func (m *WizardModel) onEnterStep() tea.Cmd {
 	switch m.step {
 	case WizardStepRepoName:
@@ -563,10 +514,6 @@ func (m *WizardModel) onEnterStep() tea.Cmd {
 	case WizardStepCleanup:
 		if !m.cleanupLoaded {
 			return m.startCleanupLoad()
-		}
-	case WizardStepMCPConnect:
-		if !m.mcpStarted {
-			return m.startMCPConnect()
 		}
 	}
 	return nil
@@ -661,8 +608,6 @@ func (m WizardModel) handleStepKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentSelectKey(msg)
 	case WizardStepCleanup:
 		return m.handleCleanupKey(msg)
-	case WizardStepMCPConnect:
-		return m.handleMCPKey(msg)
 	case WizardStepDone:
 		return m.handleDoneKey(msg)
 	}
@@ -971,7 +916,7 @@ func (m WizardModel) renderHero() string {
 }
 
 // renderProgress renders the WIZARD-012 step indicator: a row of dots
-// (filled / ringed / hollow) and the "Step N / 8 · Title" caption.
+// (filled / ringed / hollow) and the "Step N / 7 · Title" caption.
 func (m WizardModel) renderProgress() string {
 	current := int(m.step) + 1
 	if m.transitioning {
@@ -1029,8 +974,6 @@ func (m WizardModel) renderStepBody() string {
 		return m.renderAgentSelectBody()
 	case WizardStepCleanup:
 		return m.renderCleanupBody()
-	case WizardStepMCPConnect:
-		return m.renderMCPBody()
 	case WizardStepDone:
 		return m.renderDoneBody()
 	}

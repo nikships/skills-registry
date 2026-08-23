@@ -7,11 +7,11 @@ import (
 )
 
 // TestCacheRootXDGCacheHome verifies that an explicit XDG_CACHE_HOME
-// wins over the HOME fallback, matching cache.py's resolution order.
+// wins over the HOME fallback.
 func TestCacheRootXDGCacheHome(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "/tmp/xdg-cache")
 	got := CacheRoot()
-	want := filepath.Join("/tmp/xdg-cache", "skills-mcp", "skills")
+	want := filepath.Join("/tmp/xdg-cache", "skills-registry", "skills")
 	if got != want {
 		t.Errorf("CacheRoot() = %q, want %q", got, want)
 	}
@@ -23,21 +23,21 @@ func TestCacheRootHomeFallback(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("HOME", "/tmp/test-home")
 	got := CacheRoot()
-	want := filepath.Join("/tmp/test-home", ".cache", "skills-mcp", "skills")
+	want := filepath.Join("/tmp/test-home", ".cache", "skills-registry", "skills")
 	if got != want {
 		t.Errorf("CacheRoot() = %q, want %q", got, want)
 	}
 }
 
 // TestCacheRootContainsExpectedSegments is a defensive check that
-// guarantees the path always ends in `skills-mcp/skills` so the hub's
+// guarantees the path always ends in `skills-registry/skills` so the hub's
 // Settings view never surfaces a misleading location.
 func TestCacheRootContainsExpectedSegments(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("HOME", "/tmp/somewhere")
 	got := CacheRoot()
-	if !strings.HasSuffix(got, filepath.Join("skills-mcp", "skills")) {
+	if !strings.HasSuffix(got, filepath.Join("skills-registry", "skills")) {
 		t.Errorf("CacheRoot() = %q, want suffix %q", got,
-			filepath.Join("skills-mcp", "skills"))
+			filepath.Join("skills-registry", "skills"))
 	}
 }

@@ -199,9 +199,9 @@ func TestRunGetJSONEmitsSlugAndPath(t *testing.T) {
 		t.Error("path should not be empty")
 	}
 	// Issue #29: the default destination must live under the global cache
-	// (~/.cache/skills-mcp/skills/<slug>/), not the cwd-relative .agents/
+	// (~/.cache/skills-registry/skills/<slug>/), not the cwd-relative .agents/
 	// tree the original code produced.
-	wantPrefix := filepath.Join(homeDir, ".cache", "skills-mcp", "skills")
+	wantPrefix := filepath.Join(homeDir, ".cache", "skills-registry", "skills")
 	if !strings.HasPrefix(payload.Path, wantPrefix) {
 		t.Errorf("path = %q, want prefix %q (default must use the global cache, not cwd/.agents)", payload.Path, wantPrefix)
 	}

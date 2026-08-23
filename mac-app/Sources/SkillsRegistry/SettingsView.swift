@@ -24,7 +24,6 @@ struct SettingsView: View {
                 appCard
                 agentSkillCard
                 cliCard
-                mcpCard
                 registryCard
             }
             .padding(24)
@@ -206,44 +205,6 @@ struct SettingsView: View {
                 if state.cliInstalled && !state.cliInstallDirOnPath {
                     Text("Note: ~/.local/bin isn't on your PATH. Add it to use `skills-registry` from any shell.")
                         .font(Brand.monoSized(11)).foregroundStyle(Brand.warn).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-    }
-
-    private var mcpCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
-                Label("MCP server for coding agents", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(Brand.fg)
-                Text("Add this to your MCP client (Claude, Cursor, …) to let agents search and read your skills. The hosted server is read-only and authorizes via the GitHub App you installed.")
-                    .font(.system(size: 13)).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
-
-                Text(AppConfig.mcpJSONSnippet)
-                    .font(Brand.monoSized(12)).foregroundStyle(Brand.fg2)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Brand.surfaceWarm)
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .textSelection(.enabled)
-
-                HStack(spacing: 10) {
-                    Button {
-                        Clipboard.copy(AppConfig.mcpJSONSnippet)
-                        state.showToast("Copied MCP config", .ok)
-                    } label: { Label("Copy JSON", systemImage: "doc.on.doc") }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .accessibilityIdentifier("copyMCP")
-                    Button {
-                        Clipboard.copy(AppConfig.hostedMCPURL)
-                        state.showToast("Copied MCP URL", .ok)
-                    } label: { Label("Copy URL", systemImage: "link") }
-                        .buttonStyle(GhostButtonStyle())
-                    Button {
-                        NSWorkspace.shared.open(AppConfig.appInstallURL)
-                    } label: { Label("Manage app access", systemImage: "arrow.up.right.square") }
-                        .buttonStyle(GhostButtonStyle())
                 }
             }
         }

@@ -4,9 +4,8 @@ import Foundation
 /// app that can't hold a client secret. We request a device code, the user
 /// authorizes in their browser, and we poll for a user-to-server token.
 ///
-/// Mirrors the spirit of the MCP's GitHub OAuth handshake (browser GitHub
-/// auth), but uses Device Flow + the GitHub App so the resulting token is
-/// scoped to the repos where the App is installed.
+/// Device Flow + the GitHub App scopes the resulting token to repositories
+/// where the App is installed.
 public struct DeviceCode: Sendable {
     public var deviceCode: String
     public var userCode: String
