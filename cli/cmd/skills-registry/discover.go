@@ -7,10 +7,13 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/nikships/skills-registry/cli/internal/config"
 	"github.com/nikships/skills-registry/cli/internal/discover"
 	"github.com/nikships/skills-registry/cli/internal/jsonout"
+	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
 // addFallbackHint is appended to every discover failure. The index is a
@@ -36,17 +39,27 @@ func newDiscoverCmd() *cobra.Command {
 		mode     string
 		category string
 		limit    int
+		plain    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "discover QUERY",
 		Short: "Search the public skill index for third-party skills to import",
-		Long: fmt.Sprintf(`Searches the public SkillNet index of third-party skills and prints the top
+		Long: fmt.Sprintf(`Searches the public SkillNet index of third-party skills and lists the top
 matches with their safety scores and importable GitHub URLs.
+
+On a terminal this opens an interactive picker: browse the hits, read each
+row's grades and source URL, and press enter to import one straight into your
+registry. Piped output, --plain, and --json print the result table instead and
+download nothing — pass a result's URL to "skills-registry add" to import it.
 
 This is the counterpart to "search": "search" fuzzy-ranks the skills already in
 your own registry, while "discover" queries a public index of tens of thousands
-of published skills. Nothing is downloaded — pass a result's URL to
-"skills-registry add" to import it.
+of published skills.
+
+An import from here is an untrusted import and travels the same gate as
+"skills-registry add <url>": it publishes to your registry only, no agent
+dot-folder is written unless you opt in, and a Poor safety grade or a local
+scan hit needs an extra confirmation.
 
 Modes:
   --mode keyword   literal term matching (default)
@@ -87,7 +100,10 @@ Examples:
 			if jsonout.Enabled() {
 				return runDiscoverJSON(cmd.Context(), q)
 			}
-			return runDiscover(cmd.Context(), cmd.OutOrStdout(), q)
+			if plain || !isTerminal() {
+				return runDiscover(cmd.Context(), cmd.OutOrStdout(), q)
+			}
+			return runDiscoverTUI(cmd.Context(), q)
 		},
 	}
 	cmd.Flags().StringVar(&mode, "mode", string(discover.ModeKeyword),
@@ -96,6 +112,8 @@ Examples:
 		"Restrict results to one index category (for example Productivity).")
 	cmd.Flags().IntVar(&limit, "limit", discover.DefaultLimit,
 		fmt.Sprintf("Maximum results to return (capped at %d).", discover.MaxLimit))
+	cmd.Flags().BoolVar(&plain, "plain", false,
+		"Print the result table instead of opening the interactive picker.")
 	return cmd
 }
 
@@ -109,6 +127,94 @@ func runDiscoverJSON(ctx context.Context, q discover.Query) error {
 		return err
 	}
 	return jsonout.Print(resp)
+}
+
+// discoverSearch runs one index query, swapped in tests so no suite reaches
+// the network.
+var discoverSearch = func(ctx context.Context, q discover.Query) (discover.Response, error) {
+	return discover.New().Search(ctx, q)
+}
+
+// runDiscoverTUI opens the interactive picker. A row picked there is imported
+// through the same untrusted gate `add --from-discover` uses: the flow is
+// handed the add dependency set, so this function contains no trust, grade, or
+// install logic of its own.
+//
+// Exit codes follow the flow's own report: a search failure is an error, while
+// esc, q, a declined confirmation, or an empty selection all exit 0 having
+// written nothing.
+func runDiscoverTUI(ctx context.Context, q discover.Query) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	flow := tui.NewDiscoverFlow(ctx, discoverFlowDeps(cfg, q))
+	out, err := tea.NewProgram(flow, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	if err != nil {
+		return err
+	}
+	final, ok := out.(tui.DiscoverFlowModel)
+	if !ok {
+		return nil
+	}
+	if searchErr := final.Err(); searchErr != nil {
+		return fmt.Errorf("%w\n%s", searchErr, addFallbackHint)
+	}
+	if toast, toastOK := final.Toast(); toast != "" {
+		if toastOK {
+			fmt.Println(tui.OkStyle.Render(toast))
+		} else {
+			fmt.Println(tui.ErrorStyle.Render(toast))
+		}
+	}
+	return nil
+}
+
+// discoverFlowDeps wires the picker to the index and to `add`'s own import
+// path. The add deps carry the gate hook, so a picked row is assessed exactly
+// as a folder URL passed on the command line would be.
+func discoverFlowDeps(cfg config.Config, q discover.Query) tui.DiscoverFlowDeps {
+	return tui.DiscoverFlowDeps{
+		Query: q.Text,
+		Repo:  cfg.Repo,
+		Search: func(searchCtx context.Context) ([]tui.DiscoverRow, error) {
+			resp, err := discoverSearch(searchCtx, q)
+			if err != nil {
+				return nil, err
+			}
+			return discoverRows(resp), nil
+		},
+		Add: buildDiscoverAddDeps(cfg),
+	}
+}
+
+// buildDiscoverAddDeps is the hub's add dependency set with the gate forced
+// into public-index mode: a row out of the index is untrusted whatever shape
+// its URL has, which is the same rule `add --from-discover` applies.
+func buildDiscoverAddDeps(cfg config.Config) tui.AddFlowDeps {
+	deps := buildAddFlowDeps(cfg)
+	deps.Gate = importGateHook(cfg, true)
+	return deps
+}
+
+// discoverRows maps the index payload onto the picker's row type. Order is
+// preserved: the index's own ranking stands, and the picker never re-sorts by
+// repository popularity.
+func discoverRows(resp discover.Response) []tui.DiscoverRow {
+	rows := make([]tui.DiscoverRow, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		rows = append(rows, tui.DiscoverRow{
+			Name:          r.Name,
+			Desc:          r.Description,
+			Author:        r.Author,
+			Category:      r.Category,
+			SkillURL:      r.SkillURL,
+			Safety:        r.Safety,
+			Completeness:  r.Completeness,
+			Executability: r.Executability,
+		})
+	}
+	return rows
 }
 
 func runDiscover(ctx context.Context, w io.Writer, q discover.Query) error {

@@ -110,17 +110,21 @@ func buildAddFlowDeps(cfg config.Config) tui.AddFlowDeps {
 		Publish:        registryPublishFn(cfg),
 		InstallTargets: installPickerTargets,
 		Install:        manageInstaller(cfg),
-		Gate:           hubImportGate(cfg),
+		Gate:           importGateHook(cfg, false),
 	}
 }
 
-// hubImportGate hands the hub's Add flow the same import gate the `add`
+// importGateHook hands an embedded Add flow the same import gate the `add`
 // subcommand uses, so a public folder URL pasted into the hub is held to the
 // same rules as one passed on the command line — including the provenance keys
 // an untrusted import carries into the registry.
-func hubImportGate(cfg config.Config) func(context.Context, string, string, []scan.Skill) (tui.ImportGate, error) {
+//
+// `fromDiscover` marks a source the user picked out of the public index. Such
+// a row is untrusted whatever shape its URL has, which is the rule
+// `add --from-discover` applies on the command line.
+func importGateHook(cfg config.Config, fromDiscover bool) func(context.Context, string, string, []scan.Skill) (tui.ImportGate, error) {
 	return func(ctx context.Context, source, dir string, skills []scan.Skill) (tui.ImportGate, error) {
-		g, err := buildGate(ctx, source, cfg, skills, false)
+		g, err := buildGate(ctx, source, cfg, skills, fromDiscover)
 		if err != nil {
 			return tui.ImportGate{}, err
 		}

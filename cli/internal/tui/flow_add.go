@@ -76,10 +76,28 @@ const (
 	addStatePublishing
 )
 
+// addFlowExit is one add flow's outcome, handed to a parent flow that embeds
+// it. `published` is authoritative: a parent must not infer "something was
+// written" from the toast's wording.
+type addFlowExit struct {
+	toast     string
+	ok        bool
+	published int
+}
+
 type AddFlowModel struct {
 	ctx  context.Context
 	repo string
 	deps AddFlowDeps
+
+	// onExit, when set, replaces the hub's flow-exit message with the one it
+	// returns, so a flow that embeds this one (the Discover picker) learns the
+	// outcome instead of the hub closing both at once.
+	onExit func(addFlowExit) tea.Msg
+	// presetSource is a source chosen elsewhere, which skips the input step.
+	presetSource string
+	// published counts the skills actually pushed, reported through onExit.
+	published int
 
 	state        addFlowState
 	source       InputModel
@@ -131,7 +149,28 @@ func NewAddFlow(ctx context.Context, repo string, deps AddFlowDeps) AddFlowModel
 	}
 }
 
+// NewAddFlowFromSource builds an add flow for a source the user already chose
+// elsewhere, so the flow opens on the resolve spinner rather than on an input
+// box asking for a source they just picked.
+func NewAddFlowFromSource(ctx context.Context, repo string, deps AddFlowDeps, source string) AddFlowModel {
+	m := NewAddFlow(ctx, repo, deps)
+	m.presetSource = source
+	m.sourceText = redactSourceUserInfo(source)
+	m.state = addStateLoading
+	return m
+}
+
+// WithOnExit wires the embedded ending. Leave it unset for the hub, which
+// consumes the default flow-exit message.
+func (m AddFlowModel) WithOnExit(fn func(addFlowExit) tea.Msg) AddFlowModel {
+	m.onExit = fn
+	return m
+}
+
 func (m AddFlowModel) Init() tea.Cmd {
+	if m.presetSource != "" {
+		return tea.Batch(sparkleTick(), m.spinner.Tick, m.startLoad(m.presetSource))
+	}
 	return tea.Batch(sparkleTick(), m.source.Init())
 }
 
@@ -466,6 +505,7 @@ func (m AddFlowModel) handlePublished(msg addPublishedMsg) (tea.Model, tea.Cmd) 
 	if msg.err != nil {
 		return m.exit("✗ add: "+flattenErr(msg.err), false)
 	}
+	m.published = len(msg.pushed)
 	if len(msg.installed) > 0 {
 		return m.exit(fmt.Sprintf("✓ added %d skill(s) from %s · installed locally", len(msg.pushed), m.sourceText), true)
 	}
@@ -474,7 +514,12 @@ func (m AddFlowModel) handlePublished(msg addPublishedMsg) (tea.Model, tea.Cmd) 
 
 func (m AddFlowModel) exit(toast string, ok bool) (tea.Model, tea.Cmd) {
 	m.runCleanup()
-	return m, flowExitCmd(toast, ok)
+	if m.onExit == nil {
+		return m, flowExitCmd(toast, ok)
+	}
+	exit := addFlowExit{toast: toast, ok: ok, published: m.published}
+	fn := m.onExit
+	return m, func() tea.Msg { return fn(exit) }
 }
 
 func (m *AddFlowModel) runCleanup() {
