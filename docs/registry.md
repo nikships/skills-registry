@@ -190,7 +190,11 @@ default_branch = "main"
 
 ## Gateway skill
 
-Bootstrap writes `<agent-dir>/skills/skills-registry/SKILL.md` for each selected agent. This generated gateway is CLI-only: it tells agents to use `skills-registry search`, `get`, and the other JSON-capable commands to discover and manage skills on demand.
+Bootstrap writes `<agent-dir>/skills/skills-registry/SKILL.md` for each selected agent. This generated gateway is CLI-only: it tells agents to use `skills-registry search`, `get`, and the other JSON-capable commands to find and manage skills on demand.
+
+Its search order is deliberate. Step 1 is `search` against the user's own registry, kept cheap and explicitly non-blocking: a miss is reported and the agent carries on with the user's actual task. Step 2 fires **only on that miss** — the agent says there is no local match, then may run `discover` against the public index. Public search is never an always-on step on every prompt. Importing a result requires an explicit user yes; the gateway forbids an agent from passing `--install` or `--allow-unsafe` on its own initiative, and repeats that nothing fetched is ever executed.
+
+The template has two implementations that must interpolate to identical bytes: `cli/internal/bootstrap/skillmd.go` and `mac-app/Sources/SkillsRegistryCore/SkillMdTemplate.swift`. `TestSkillMdMatchesSwiftTemplate` (Go) reads the Swift source, substitutes `\(registryRepo)`, and diffs the two, so an edit to one language that is not mirrored in the other fails CI. Both suites also assert the gateway stays CLI-only: no MCP endpoint or tool name may appear in it.
 
 The agent catalogue remains centralized in `cli/internal/agents/agents.go`. `.mcpjam/` is retained as the supported MCPJam agent directory; that directory name is agent compatibility, not a service dependency.
 

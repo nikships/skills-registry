@@ -68,7 +68,9 @@ That's it — your agents are wired up. Each one now carries the gateway skill (
 > *"What skills do I have available?"*
 > *"Get the `code-review` skill and use it on this PR."*
 
-The agent reads its gateway skill, runs `skills-registry search` / `skills-registry get` to discover and fetch what it needs, loads it into context, and cleans up the on-disk copy after. Nothing but the tiny gateway skill is ever preloaded. If the binary isn't on `PATH`, the skill tells the agent how to install it — so this self-heals.
+The agent reads its gateway skill, runs `skills-registry search` / `skills-registry get` to find and fetch what it needs, loads it into context, and cleans up the on-disk copy after. Nothing but the tiny gateway skill is ever preloaded. If the binary isn't on `PATH`, the skill tells the agent how to install it — so this self-heals.
+
+The gateway searches **your** registry first. Only when that comes up empty does it mention `discover` and the public index, and it must ask you before importing anything — so a normal prompt never fans out to a third-party index, and a stranger's skill never lands in your agent folders without you saying yes.
 
 ---
 
