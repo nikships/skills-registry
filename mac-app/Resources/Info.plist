@@ -46,5 +46,25 @@
     <integer>86400</integer>
     <key>SUAutomaticallyUpdate</key>
     <false/>
+    <!-- The public skill index is reachable over plain HTTP only: port 443 on
+         api-skillnet.openkg.cn serves an unrelated site behind a certificate
+         issued for skillnet.openkg.cn, so HTTPS cannot be verified and carries
+         no API. Without this exception App Transport Security cancels the
+         request and Discover reports "requires the use of a secure connection".
+         Scoped to that one host: ATS stays on everywhere else, and only search
+         terms travel the insecure hop (DiscoverClient attaches no credential).
+         ATSExceptionContractTests keeps this in sync with
+         DiscoverClient.defaultBaseURL. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>api-skillnet.openkg.cn</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
+    </dict>
 </dict>
 </plist>
