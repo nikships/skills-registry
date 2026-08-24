@@ -58,7 +58,7 @@ The npm package is a thin launcher that downloads the same prebuilt binary from 
 The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
 - **First-time users** → **seven-step onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → **install the gateway skill into the agents you pick** → optionally delete the now-redundant local copies → show the registry URL.
-- **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Publish / Purge / Settings.
+- **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Discover / Publish / Purge / Settings.
 - **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 
 <img src="docs/img/wizard.gif" alt="skills-registry onboarding wizard — scan local skills, name the registry repo, choose visibility, all in an alt-screen TUI." width="100%">
@@ -93,7 +93,7 @@ guidance.
 
 ## Daily use
 
-<img src="docs/img/hub.gif" alt="skills-registry dashboard hub — card grid for Manage / Sync / Add / Publish / Purge / Settings, opening into the searchable skill list." width="100%">
+<img src="docs/img/hub.gif" alt="skills-registry dashboard hub — card grid for Manage / Sync / Add / Discover / Publish / Purge / Settings, opening into the searchable skill list." width="100%">
 
 Run `skills-registry` for the dashboard, or use subcommands directly:
 
@@ -126,6 +126,8 @@ skills-registry discover pdf --category Productivity --limit 25
 skills-registry discover pdf --plain    # the table instead of the picker
 skills-registry discover pdf --json
 ```
+
+The dashboard hub's **Discover** card runs the same picker: it asks for a query, then opens the identical result list and import path. Nothing is sent to the index until you submit that query, so an idle dashboard makes no index request.
 
 On a terminal this opens an interactive picker: browse the ranked hits with a preview pane showing each skill's author, the index's three grades, and the exact GitHub folder it would fetch. Press Enter to import the selected row — it goes through the same gate as `add <url>`, so it publishes to your registry only, writes nothing into an agent folder unless you opt in, and needs an extra confirmation if the index graded it `Poor` for safety. Esc or `q` exits having written nothing.
 

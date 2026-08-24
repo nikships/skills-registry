@@ -32,6 +32,7 @@ const (
 	HubActionManage   = "manage"
 	HubActionSync     = "sync"
 	HubActionAdd      = "add"
+	HubActionDiscover = "discover"
 	HubActionPublish  = "publish"
 	HubActionPurge    = "purge"
 	HubActionSettings = "settings"
@@ -43,7 +44,7 @@ const (
 	HubActionRemove = "remove"
 )
 
-// DefaultHubCards returns the six tiles the dashboard ships with.
+// DefaultHubCards returns the seven tiles the dashboard ships with.
 // Exposed so the launcher can render the same labels in non-TUI fallback
 // paths and tests can reference the same data the production view does.
 func DefaultHubCards() []HubCard {
@@ -65,6 +66,12 @@ func DefaultHubCards() []HubCard {
 			Icon:        "➕",
 			Title:       "Add",
 			Description: "Clone a remote source and multi-select which skills to publish.",
+		},
+		{
+			ID:          HubActionDiscover,
+			Icon:        "🔍",
+			Title:       "Discover",
+			Description: "Search the public skill index and import one folder into your registry.",
 		},
 		{
 			ID:          HubActionPublish,
@@ -232,7 +239,11 @@ func (m HubModel) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
 // matching hjkl bindings walk the grid; enter emits hubLaunchMsg; q / esc /
 // ctrl+c exits the long-lived hub program.
 func (m HubModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	cols := m.grid.Cols(m.width)
+	// The column count is taken from the width the grid is actually rendered
+	// at, not from the terminal width: the two differ by the body margin, so
+	// reading it from m.width would walk the focus across a layout that is
+	// one column wider than the one on screen just below each threshold.
+	cols := m.grid.Cols(m.bodyWidth())
 	switch msg.String() {
 	case "ctrl+c", "q", "esc":
 		m.quit = true

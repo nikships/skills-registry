@@ -13,15 +13,18 @@ import (
 // View() exercises the wide-column layout. Loader stays nil so the
 // count chip immediately renders the muted "unavailable" caption — keeps
 // the spinner-tick branch out of the test.
+//
+// 122 rather than 120: bodyWidth reserves two columns for the margin, so
+// 122 is the narrowest terminal whose grid actually renders three columns.
 func freshHub() HubModel {
 	m := NewHub(context.Background(), "owner/repo", nil)
-	m.width, m.height = 120, 30
+	m.width, m.height = 122, 30
 	return m
 }
 
 // TestNewHubInitialState pins down the constructor contract: focus
 // starts at the first card, the user hasn't quit, and the grid carries
-// the five default tiles.
+// the seven default tiles.
 func TestNewHubInitialState(t *testing.T) {
 	m := freshHub()
 	if got := m.Selection(); got != "" {
@@ -30,15 +33,15 @@ func TestNewHubInitialState(t *testing.T) {
 	if m.Quit() {
 		t.Error("fresh hub Quit() = true")
 	}
-	if len(m.grid.Cards) != 6 {
-		t.Fatalf("default hub has %d cards, want 6", len(m.grid.Cards))
+	if len(m.grid.Cards) != 7 {
+		t.Fatalf("default hub has %d cards, want 7", len(m.grid.Cards))
 	}
 	if m.grid.Focused != 0 {
 		t.Errorf("fresh hub Focused = %d, want 0", m.grid.Focused)
 	}
 }
 
-// TestDefaultHubCardsCoverAllActions enumerates the six action constants
+// TestDefaultHubCardsCoverAllActions enumerates the seven action constants
 // and asserts each appears exactly once in the default card list. A
 // regression here would mean the launcher's switch statement loses a
 // branch.
@@ -48,6 +51,7 @@ func TestDefaultHubCardsCoverAllActions(t *testing.T) {
 		HubActionManage:   false,
 		HubActionSync:     false,
 		HubActionAdd:      false,
+		HubActionDiscover: false,
 		HubActionPublish:  false,
 		HubActionPurge:    false,
 		HubActionSettings: false,
@@ -166,6 +170,7 @@ func TestHubViewSurfacesChrome(t *testing.T) {
 		"Hub",        // hero suffix
 		"owner/repo", // repo chip
 		"Manage",     // first card
+		"Discover",   // public-index card
 		"Settings",   // last card
 		"navigate",   // footer
 		"select",     // footer
@@ -183,7 +188,7 @@ func TestHubViewSurfacesChrome(t *testing.T) {
 func TestHubCountLoaderSuccess(t *testing.T) {
 	loader := func(_ context.Context) (int, error) { return 42, nil }
 	m := NewHub(context.Background(), "owner/repo", loader)
-	m.width, m.height = 120, 30
+	m.width, m.height = 122, 30
 	nm, _ := m.Update(hubCountMsg{count: 42})
 	wiz := nm.(HubModel)
 	if !wiz.countLoaded {

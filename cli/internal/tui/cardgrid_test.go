@@ -19,8 +19,9 @@ func gridFixture() CardGrid {
 	})
 }
 
-// TestCardGridCols pins down the responsive thresholds called out in the
-// F3.1 spec: 3 columns at ≥120, 2 at ≥80, 1 below.
+// TestCardGridCols pins down the responsive thresholds: 4 columns at ≥160,
+// 3 at ≥120, 2 at ≥80, 1 below. The widest tier keeps the seven-tile hub in
+// two rows on a wide terminal.
 func TestCardGridCols(t *testing.T) {
 	g := gridFixture()
 	cases := []struct {
@@ -32,7 +33,9 @@ func TestCardGridCols(t *testing.T) {
 		{80, 2},
 		{119, 2},
 		{120, 3},
-		{200, 3},
+		{159, 3},
+		{160, 4},
+		{200, 4},
 	}
 	for _, tc := range cases {
 		if got := g.Cols(tc.width); got != tc.want {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/nikships/skills-registry/cli/internal/cache"
 	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/discover"
 	"github.com/nikships/skills-registry/cli/internal/importgate"
 	"github.com/nikships/skills-registry/cli/internal/registry"
 	"github.com/nikships/skills-registry/cli/internal/scan"
@@ -27,6 +28,7 @@ func buildHubDeps(ctx context.Context, cfg config.Config) tui.HubDeps {
 		},
 		Settings: buildSettingsDeps(cfg),
 		Add:      buildAddFlowDeps(cfg),
+		Discover: buildDiscoverHubDeps(cfg),
 		Publish:  buildPublishFlowDeps(),
 		Sync:     buildSyncFlowDeps(cfg),
 		Purge:    buildPurgeFlowDeps(),
@@ -163,6 +165,23 @@ func hubGateView(g gate) tui.ImportGate {
 	}
 	out.BlockSummary = strings.Join(reasons, " | ")
 	return out
+}
+
+// buildDiscoverHubDeps wires the hub's Discover card to the same index client
+// and untrusted import path the `discover` subcommand uses. The search runs
+// only when the card's query is submitted, so opening the dashboard contacts
+// nothing.
+func buildDiscoverHubDeps(cfg config.Config) tui.DiscoverHubDeps {
+	return tui.DiscoverHubDeps{
+		Search: func(ctx context.Context, query string) ([]tui.DiscoverRow, error) {
+			resp, err := discoverSearch(ctx, discover.Query{Text: query})
+			if err != nil {
+				return nil, fmt.Errorf("%w\n%s", err, addFallbackHint)
+			}
+			return discoverRows(resp), nil
+		},
+		Add: buildDiscoverAddDeps(cfg),
+	}
 }
 
 func buildPublishFlowDeps() tui.PublishFlowDeps {
