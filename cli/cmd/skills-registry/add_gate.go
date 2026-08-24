@@ -51,6 +51,11 @@ type gate struct {
 	// can say "not in the index" rather than printing three unscored lines
 	// with no explanation.
 	indexed bool
+	// category is the index's category for the source folder, empty when the
+	// index has no row for it or graded it without one. It is stamped onto an
+	// untrusted import's SKILL.md copy; an absent category is left absent
+	// rather than guessed.
+	category string
 	// reviews is one entry per skill under review, in the order they were
 	// passed. Empty for a trusted source: the gate does not second-guess a
 	// folder the user already owns.
@@ -84,17 +89,28 @@ func assessSource(source string, cfg config.Config, fromDiscover bool) trust.Ass
 	})
 }
 
-// lookupIndexScores resolves the public index's grades for a source URL.
+// indexRow is what the gate reads out of the public index for one source
+// folder: the grades it shows before the import, and the category it stamps
+// onto the imported copy.
+type indexRow struct {
+	scores   importgate.Scores
+	category string
+}
+
+// lookupIndexRow resolves the public index's row for a source URL.
 // Swapped in tests so no suite reaches the network.
-var lookupIndexScores = func(ctx context.Context, source string) (importgate.Scores, bool, error) {
+var lookupIndexRow = func(ctx context.Context, source string) (indexRow, bool, error) {
 	res, ok, err := discover.New().Lookup(ctx, source)
 	if err != nil || !ok {
-		return importgate.Scores{}, false, err
+		return indexRow{}, false, err
 	}
-	return importgate.Scores{
-		Safety:        res.Safety,
-		Completeness:  res.Completeness,
-		Executability: res.Executability,
+	return indexRow{
+		scores: importgate.Scores{
+			Safety:        res.Safety,
+			Completeness:  res.Completeness,
+			Executability: res.Executability,
+		},
+		category: res.Category,
 	}, true, nil
 }
 
@@ -111,8 +127,8 @@ func buildGate(ctx context.Context, source string, cfg config.Config, skills []s
 	if !g.untrusted() {
 		return g, nil
 	}
-	if scores, ok, err := lookupIndexScores(ctx, source); err == nil && ok {
-		g.scores, g.indexed = scores, true
+	if row, ok, err := lookupIndexRow(ctx, source); err == nil && ok {
+		g.scores, g.category, g.indexed = row.scores, row.category, true
 	}
 	for _, sk := range skills {
 		findings, err := skillscan.ScanSkill(sk.Folder, scan.MainFileName)

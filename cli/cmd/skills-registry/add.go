@@ -152,9 +152,14 @@ Nothing fetched is ever executed. Files under scripts/ are copied, never run.`,
 // the registry client, the candidate skills, the slugs already published, and
 // the import gate's verdict for the source.
 type addPlan struct {
-	cfg     config.Config
-	client  *registry.Client
-	gate    gate
+	cfg    config.Config
+	client *registry.Client
+	gate   gate
+	// root is the directory the source resolved into: the local folder, the
+	// clone root, or the temp dir a folder fetch wrote. Provenance stamping
+	// needs it to locate each skill folder within the source.
+	root    string
+	source  string
 	missing []scan.Skill
 	skipped []string
 }
@@ -211,7 +216,23 @@ func planAdd(ctx context.Context, source string, opts addOptions) (addPlan, func
 		cleanup()
 		return addPlan{}, noopCleanup, err
 	}
-	return addPlan{cfg: cfg, client: client, gate: g, missing: missing, skipped: skipped}, cleanup, nil
+	return addPlan{
+		cfg:     cfg,
+		client:  client,
+		gate:    g,
+		root:    dir,
+		source:  source,
+		missing: missing,
+		skipped: skipped,
+	}, cleanup, nil
+}
+
+// stamp writes the provenance keys onto the SKILL.md of each skill about to be
+// published, for an untrusted source only. Called after the gate has reviewed
+// the upstream files and before the first registry write, so the scan reads the
+// stranger's file and the registry receives the annotated copy.
+func (p addPlan) stamp(skills []scan.Skill) error {
+	return stampProvenance(p.gate.untrusted(), p.source, p.root, p.gate.category, skills)
 }
 
 // jsonSource renders the gate's assessment for the JSON payload.
@@ -250,6 +271,11 @@ func runAddJSON(ctx context.Context, source string, opts addOptions) error {
 	// written and the caller is told what to pass to proceed.
 	if len(refused) > 0 {
 		err := blockedError(refused)
+		jsonout.PrintError(err)
+		return err
+	}
+
+	if err := plan.stamp(allowed); err != nil {
 		jsonout.PrintError(err)
 		return err
 	}
@@ -349,6 +375,9 @@ func runAdd(ctx context.Context, source string, opts addOptions) error {
 		return nil
 	}
 
+	if err := plan.stamp(picked); err != nil {
+		return err
+	}
 	safeSource := redactSourceUserInfo(source)
 	if err := publishSkills(ctx, plan.client, picked, func(slug string) string {
 		return fmt.Sprintf("add: %s (from %s)", slug, safeSource)

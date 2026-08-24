@@ -20,10 +20,11 @@ import (
 // responses keyed by argv substring. Mirrors the registry package's
 // internal stubGH helper (we can't reuse it directly without exporting
 // it) so the remove subcommand can be exercised end-to-end against a
-// fake registry without making real GitHub calls. The shared helper
-// also captures stdin to a temp file so POST/PATCH bodies are
-// available — useful when a future test wants to assert on payload
-// shape.
+// fake registry without making real GitHub calls.
+//
+// Setting GH_STUB_BODIES to a file path makes the shim append every
+// request body it receives to that file, one per line, so a test can
+// assert on the bytes actually sent (see ghBodyCapture).
 func stubGHForRemove(t *testing.T, entries []map[string]any) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -39,6 +40,9 @@ func stubGHForRemove(t *testing.T, entries []map[string]any) string {
 state=` + filepath.Clean(statePath) + `
 stdin_file=$(mktemp)
 cat > "$stdin_file"
+if [ -n "$GH_STUB_BODIES" ]; then
+  { tr -d '\n' < "$stdin_file"; echo; } >> "$GH_STUB_BODIES"
+fi
 python3 - "$state" "$stdin_file" "$@" <<'PY'
 import fcntl, json, os, sys
 state = sys.argv[1]

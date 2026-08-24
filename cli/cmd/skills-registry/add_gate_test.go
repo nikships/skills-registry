@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -33,13 +34,44 @@ const cleanSkillMd = "---\nname: summarize\ndescription: Summarizes a document.\
 // the unscored case.
 func stubIndexLookup(t *testing.T, scores *importgate.Scores, found bool) {
 	t.Helper()
-	prev := lookupIndexScores
-	t.Cleanup(func() { lookupIndexScores = prev })
-	lookupIndexScores = func(context.Context, string) (importgate.Scores, bool, error) {
-		if !found || scores == nil {
-			return importgate.Scores{}, false, nil
+	stubIndexRow(t, indexRowOrNil(scores, ""), found)
+}
+
+// stubIndexCategory is stubIndexLookup for a test that also cares about the
+// category the index reported, which is what gets stamped onto the copy.
+func stubIndexCategory(t *testing.T, scores *importgate.Scores, category string) {
+	t.Helper()
+	stubIndexRow(t, indexRowOrNil(scores, category), true)
+}
+
+func indexRowOrNil(scores *importgate.Scores, category string) *indexRow {
+	if scores == nil {
+		return nil
+	}
+	return &indexRow{scores: *scores, category: category}
+}
+
+func stubIndexRow(t *testing.T, row *indexRow, found bool) {
+	t.Helper()
+	prev := lookupIndexRow
+	t.Cleanup(func() { lookupIndexRow = prev })
+	lookupIndexRow = func(context.Context, string) (indexRow, bool, error) {
+		if !found || row == nil {
+			return indexRow{}, false, nil
 		}
-		return *scores, true, nil
+		return *row, true, nil
+	}
+}
+
+// refuseIndexLookup installs a lookup that fails the test if it is called, for
+// a case where consulting the public index would itself be the bug.
+func refuseIndexLookup(t *testing.T, why string) {
+	t.Helper()
+	prev := lookupIndexRow
+	t.Cleanup(func() { lookupIndexRow = prev })
+	lookupIndexRow = func(context.Context, string) (indexRow, bool, error) {
+		t.Error(why)
+		return indexRow{}, false, nil
 	}
 }
 
@@ -368,12 +400,7 @@ func TestRunAddJSONUntrustedWithInstallWritesAgentFolders(t *testing.T) {
 func TestRunAddJSONTrustedSourceStillInstalls(t *testing.T) {
 	_, cwd, buf := addJSONEnv(t, "x/y", "summarize", cleanSkillMd, registryEntries("summarize", 3))
 	// A trusted source must not even consult the index.
-	prev := lookupIndexScores
-	t.Cleanup(func() { lookupIndexScores = prev })
-	lookupIndexScores = func(context.Context, string) (importgate.Scores, bool, error) {
-		t.Error("a trusted source must not query the public index")
-		return importgate.Scores{}, false, nil
-	}
+	refuseIndexLookup(t, "a trusted source must not query the public index")
 	failingGit(t)
 
 	// The configured registry is x/y, so x/y is the user's own owner.
@@ -419,6 +446,199 @@ func TestRunAddJSONUnscoredSourcePublishesAndReportsUnscored(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// --json: provenance keys on an untrusted import
+// ────────────────────────────────────────────────────────────────────────────
+
+// ghBodyCapture points the gh shim at a file collecting every request body and
+// returns the decoded blob contents the run uploaded. That is the only place
+// the bytes actually sent to the registry can be inspected, which is what makes
+// this an end-to-end assertion rather than a re-read of the temp dir.
+//
+// The capture is read as a JSON stream rather than line by line: blob uploads
+// run concurrently, so two bodies can land on one line.
+func ghBodyCapture(t *testing.T) func() []string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bodies.txt")
+	t.Setenv("GH_STUB_BODIES", path)
+	return func() []string {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read captured bodies: %v", err)
+		}
+		var out []string
+		dec := json.NewDecoder(strings.NewReader(string(raw)))
+		for {
+			var blob struct {
+				Content  string `json:"content"`
+				Encoding string `json:"encoding"`
+			}
+			if err := dec.Decode(&blob); err != nil {
+				break
+			}
+			if blob.Encoding != "base64" {
+				continue
+			}
+			decoded, derr := base64.StdEncoding.DecodeString(blob.Content)
+			if derr != nil {
+				t.Fatalf("decode blob: %v", derr)
+			}
+			out = append(out, string(decoded))
+		}
+		return out
+	}
+}
+
+// findPublished returns the uploaded blob that looks like the skill's SKILL.md.
+func findPublished(t *testing.T, blobs []string, marker string) string {
+	t.Helper()
+	for _, b := range blobs {
+		if strings.Contains(b, marker) {
+			return b
+		}
+	}
+	t.Fatalf("no uploaded blob contained %q; got %d blob(s): %v", marker, len(blobs), blobs)
+	return ""
+}
+
+// TestRunAddJSONUntrustedStampsProvenance is the headline acceptance criterion:
+// the bytes an untrusted import publishes carry source_url pointing at the
+// GitHub folder, and category as the index reported it.
+func TestRunAddJSONUntrustedStampsProvenance(t *testing.T) {
+	_, _, buf := addJSONEnv(t, "openclaw/openclaw", "summarize", cleanSkillMd, registryEntries("summarize", 3))
+	stubIndexCategory(t, &importgate.Scores{Safety: "Good"}, "AIGC")
+	bodies := ghBodyCapture(t)
+	failingGit(t)
+
+	if err := runAddJSON(context.Background(),
+		untrustedURL("openclaw/openclaw", "summarize"), addOptions{}); err != nil {
+		t.Fatalf("runAddJSON: %v (output %s)", err, buf.String())
+	}
+	published := findPublished(t, bodies(), "name: summarize")
+	const wantURL = "source_url: https://github.com/openclaw/openclaw/tree/" +
+		"0123456789abcdef0123456789abcdef01234567/skills/summarize"
+	for _, want := range []string{"category: AIGC", wantURL} {
+		if !strings.Contains(published, want) {
+			t.Errorf("published SKILL.md missing %q:\n%s", want, published)
+		}
+	}
+	// The upstream skill itself is unmodified.
+	if !strings.Contains(published, "Summarize the input.") {
+		t.Errorf("the upstream body did not survive the stamp:\n%s", published)
+	}
+}
+
+// TestRunAddJSONUntrustedOmitsCategoryWhenIndexHasNone: an index miss must not
+// invent a category, while source_url is always known.
+func TestRunAddJSONUntrustedOmitsCategoryWhenIndexHasNone(t *testing.T) {
+	_, _, buf := addJSONEnv(t, "openclaw/openclaw", "summarize", cleanSkillMd, registryEntries("summarize", 3))
+	stubIndexLookup(t, nil, false)
+	bodies := ghBodyCapture(t)
+	failingGit(t)
+
+	if err := runAddJSON(context.Background(),
+		untrustedURL("openclaw/openclaw", "summarize"), addOptions{}); err != nil {
+		t.Fatalf("runAddJSON: %v (output %s)", err, buf.String())
+	}
+	published := findPublished(t, bodies(), "name: summarize")
+	if strings.Contains(published, "category:") {
+		t.Errorf("an unscored import invented a category:\n%s", published)
+	}
+	if !strings.Contains(published, "source_url: https://github.com/openclaw/openclaw/tree/") {
+		t.Errorf("published SKILL.md is missing source_url:\n%s", published)
+	}
+}
+
+// TestRunAddJSONUntrustedKeepsUpstreamCategory: an upstream file that already
+// declares category keeps its own value; source_url is still added.
+func TestRunAddJSONUntrustedKeepsUpstreamCategory(t *testing.T) {
+	const withCategory = "---\nname: summarize\ndescription: Summarizes a document.\n" +
+		"category: Upstream Choice\n---\nSummarize the input.\n"
+	_, _, buf := addJSONEnv(t, "openclaw/openclaw", "summarize", withCategory, registryEntries("summarize", 3))
+	stubIndexCategory(t, &importgate.Scores{Safety: "Good"}, "AIGC")
+	bodies := ghBodyCapture(t)
+	failingGit(t)
+
+	if err := runAddJSON(context.Background(),
+		untrustedURL("openclaw/openclaw", "summarize"), addOptions{}); err != nil {
+		t.Fatalf("runAddJSON: %v (output %s)", err, buf.String())
+	}
+	published := findPublished(t, bodies(), "name: summarize")
+	if !strings.Contains(published, "category: Upstream Choice") {
+		t.Errorf("the upstream category was overwritten:\n%s", published)
+	}
+	if strings.Contains(published, "category: AIGC") {
+		t.Errorf("the index's category replaced the upstream one:\n%s", published)
+	}
+	if !strings.Contains(published, "source_url:") {
+		t.Errorf("source_url was not added alongside the kept category:\n%s", published)
+	}
+}
+
+// TestRunAddJSONTrustedSourceIsNotStamped: the stamp marks an import from
+// elsewhere, so a repository under the user's own owner publishes as before.
+func TestRunAddJSONTrustedSourceIsNotStamped(t *testing.T) {
+	_, _, buf := addJSONEnv(t, "x/y", "summarize", cleanSkillMd, registryEntries("summarize", 3))
+	refuseIndexLookup(t, "a trusted source must not query the public index")
+	bodies := ghBodyCapture(t)
+	failingGit(t)
+
+	if err := runAddJSON(context.Background(), untrustedURL("x/y", "summarize"), addOptions{}); err != nil {
+		t.Fatalf("runAddJSON: %v (output %s)", err, buf.String())
+	}
+	published := findPublished(t, bodies(), "name: summarize")
+	if published != cleanSkillMd {
+		t.Fatalf("a trusted add altered the file:\n%s\nwant:\n%s", published, cleanSkillMd)
+	}
+}
+
+// TestRunPublishJSONDoesNotStampProvenance is the second acceptance criterion:
+// `publish ./my-skill` invents neither key. A local folder is the user's own
+// content, not an import.
+func TestRunPublishJSONDoesNotStampProvenance(t *testing.T) {
+	prev := jsonout.Enabled()
+	t.Cleanup(func() { jsonout.SetEnabled(prev) })
+	jsonout.SetEnabled(true)
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(homeDir, ".cache"))
+	writeRegistryConfig(t, "x/y")
+	root := writeSkillFolder(t, "summarize", cleanSkillMd)
+
+	entries := []map[string]any{
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+		{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+		{"key": "GET repos/x/y/git/trees/base?recursive=1", "body": map[string]any{"tree": []any{}}},
+		{"key": "POST repos/x/y/git/blobs", "body": map[string]any{"sha": "blob-1"}},
+		{"key": "POST repos/x/y/git/trees", "body": map[string]any{"sha": "tree-1"}},
+		{"key": "POST repos/x/y/git/commits", "body": map[string]any{"sha": "abcdef1234567890abcdef1234567890abcdef12"}},
+		{"key": "PATCH repos/x/y/git/refs/heads/main", "body": map[string]any{"object": map[string]any{"sha": "abcdef1234567890abcdef1234567890abcdef12"}}},
+	}
+	installGHEnv(t, stubGHForRemove(t, entries))
+	bodies := ghBodyCapture(t)
+
+	t.Chdir(t.TempDir())
+	buf := captureJSONOut(t)
+	if err := runPublishJSON(context.Background(), filepath.Join(root, "summarize"), ""); err != nil {
+		t.Fatalf("runPublishJSON: %v (output %s)", err, buf.String())
+	}
+	published := findPublished(t, bodies(), "name: summarize")
+	for _, forbidden := range []string{"category:", "source_url:"} {
+		if strings.Contains(published, forbidden) {
+			t.Errorf("publish of a local folder added %q:\n%s", forbidden, published)
+		}
+	}
+	if published != cleanSkillMd {
+		t.Errorf("publish altered the local file:\n%s\nwant:\n%s", published, cleanSkillMd)
+	}
+	// The local folder on disk is the user's, and publish must not edit it.
+	if got := readSkillMd(t, filepath.Join(root, "summarize")); got != cleanSkillMd {
+		t.Errorf("publish rewrote the user's own file:\n%s", got)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Gate internals
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -429,12 +649,7 @@ func TestBuildGateSkipsReviewForTrustedSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
-	prev := lookupIndexScores
-	t.Cleanup(func() { lookupIndexScores = prev })
-	lookupIndexScores = func(context.Context, string) (importgate.Scores, bool, error) {
-		t.Error("a trusted source must not query the index")
-		return importgate.Scores{}, false, nil
-	}
+	refuseIndexLookup(t, "a trusted source must not query the index")
 	g, err := buildGate(context.Background(), "./local", cfg, skills, false)
 	if err != nil {
 		t.Fatalf("buildGate: %v", err)
@@ -479,10 +694,10 @@ func TestBuildGateSurvivesIndexFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
-	prev := lookupIndexScores
-	t.Cleanup(func() { lookupIndexScores = prev })
-	lookupIndexScores = func(context.Context, string) (importgate.Scores, bool, error) {
-		return importgate.Scores{}, false, os.ErrDeadlineExceeded
+	prev := lookupIndexRow
+	t.Cleanup(func() { lookupIndexRow = prev })
+	lookupIndexRow = func(context.Context, string) (indexRow, bool, error) {
+		return indexRow{}, false, os.ErrDeadlineExceeded
 	}
 	g, err := buildGate(context.Background(),
 		"https://github.com/openclaw/openclaw/tree/main/skills/summarize",
@@ -709,12 +924,7 @@ func TestPublishLocalFolderIsUngated(t *testing.T) {
 		{"key": "PATCH repos/x/y/git/refs/heads/main", "body": map[string]any{"object": map[string]any{"sha": "abcdef1234567890abcdef1234567890abcdef12"}}},
 	}
 	installGHEnv(t, stubGHForRemove(t, entries))
-	prevLookup := lookupIndexScores
-	t.Cleanup(func() { lookupIndexScores = prevLookup })
-	lookupIndexScores = func(context.Context, string) (importgate.Scores, bool, error) {
-		t.Error("publish must not consult the public index")
-		return importgate.Scores{}, false, nil
-	}
+	refuseIndexLookup(t, "publish must not consult the public index")
 
 	cwd := t.TempDir()
 	t.Chdir(cwd)
