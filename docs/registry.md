@@ -119,13 +119,39 @@ Behavior for an untrusted source:
 
 `--yes` deliberately does not clear a blocker: skipping prompts is not consent to import a skill graded unsafe. `--allow-unsafe` clears a blocker and nothing else — it never implies an install. On the `--json` path a refusal is both a `{"error": …}` payload naming `--allow-unsafe` and a non-zero exit, and nothing is published in that run. The payload also carries `source` (`origin`, `untrusted`, `reason`) and `install_skipped` / `install_skipped_reason` so a consumer never has to infer a skipped install from a short `installed` map.
 
-The index lookup (`discover.Client.Lookup`, keyed by `discover.SkillKey` so a revision difference between the pasted URL and the index's row does not matter) is a convenience: a failure or a miss degrades to unscored rather than blocking the import.
+The index lookup (`discover.Client.Lookup`, keyed by `discover.SkillKey` so a revision difference between the pasted URL and the index's row does not matter) is a convenience: a failure or a miss degrades to unscored rather than blocking the import. It also supplies the `category` stamped onto the imported copy; see [Import provenance](#import-provenance).
 
 Trusted sources are unchanged. A local path and a repository under the user's own owner publish and install as before, `publish` and `sync` are untouched (`publish` has never durable-installed and still does not), and a trusted `add` does not consult the public index at all.
 
 Nothing fetched is ever executed. `add` and `discover` copy `scripts/`, `references/`, and `assets/` as bytes; the only processes either spawns are `git` (clone-path sources) and `gh` (API calls). A test asserts that an executable `scripts/run.sh` in a fetched folder never runs.
 
-The hub's Add flow shares the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. Rendering decisions are made once on the cmd side so the two surfaces cannot disagree about whether a grade is missing. The macOS Discover pane is a separate ticket; `trust` and `importgate` are the surfaces it should call.
+The hub's Add flow shares the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. Rendering decisions are made once on the cmd side so the two surfaces cannot disagree about whether a grade is missing. The hook also receives the resolved directory, because the same call that reviews the fetched files is what then stamps them. The macOS Discover pane is a separate ticket; `trust` and `importgate` are the surfaces it should call.
+
+## Import provenance
+
+An imported skill is a copy. The registry commit records where it came from, but a commit message is not where an agent, a reviewer, or a shallow clone looks. So an **untrusted** import writes two extra frontmatter keys onto the copy before publishing it:
+
+```yaml
+---
+name: summarize
+description: Summarize URLs and PDFs.
+category: AIGC
+source_url: https://github.com/openclaw/openclaw/tree/<sha>/skills/summarize
+---
+```
+
+`cli/cmd/skills-registry/provenance.go` owns the stamp; `Frontmatter.merging` in `mac-app/Sources/SkillsRegistryCore/Frontmatter.swift` is the Swift mirror of `mergeFrontmatter`, and the two must stay in step.
+
+Rules:
+
+- **Untrusted only.** `trust.Assess` decides, through the same `gate` the import review uses. A local folder and a repository under the user's own owner publish byte-for-byte as before, and `publish` of a local folder never gains these keys — a folder the user wrote is not an import.
+- **The stamp runs after the gate, before the first write.** `skillscan` must read the stranger's file, not one the stamp has already edited; the registry must receive the annotated copy.
+- **`source_url` names the folder**, so it ends in the skill's own directory. It is rebuilt from `registry.ParseGitHubURL` plus the skill folder's position under the fetch root, which keeps a folder-of-skills import honest: each skill gets its own subfolder URL rather than the parent's. A `/blob/` URL naming `SKILL.md` resolves to its directory, matching what the fetch did. A source that named no ref (`owner/repo`, a bare repository URL) is pinned to `HEAD` rather than to a guessed branch. A non-GitHub remote has no folder-URL form to derive, so the source string is recorded as given, minus any userinfo.
+- **`category` comes from the index row** and is omitted when the index has no row or no category for it: an invented category is worse than an absent one. The value is third-party text written into a file agents load, so it is collapsed to one line and clipped to 64 runes, and `yamlScalar` quotes anything that could smuggle a second key into the block.
+- **An existing key is never overwritten** unless its value is empty (`category:`, `category: ""`). An indented `category:` inside a block scalar is that scalar's text, not a top-level key.
+- **Unrelated lines do not churn.** The document is edited line by line rather than parsed and re-serialized, so key order, comments, block scalars, and quoting style survive byte-for-byte; a missing key is appended just before the closing `---`. A document with no frontmatter gains a block holding only these keys. A document whose block is never closed is left untouched, because guessing where its metadata ends would risk rewriting the body.
+
+Both parsers already read flat YAML into a map and ignore keys they do not know, so the extra keys break nothing that reads frontmatter. `scan.Skill` now surfaces them as `Category` and `SourceURL`, both empty for a skill that does not carry them — which includes every skill published before the stamp existed. Swift `Frontmatter.parseSummary` still returns name and description with the extra keys present, and a test pins that.
 
 ## Configuration and cache
 

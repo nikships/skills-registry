@@ -26,7 +26,11 @@ type AddFlowDeps struct {
 	// the same rules as `skills-registry add <url>`. When nil, the flow treats
 	// every source as trusted, which is the behavior unit tests that omit the
 	// hook expect.
-	Gate func(ctx context.Context, source string, skills []scan.Skill) (ImportGate, error)
+	//
+	// `dir` is the directory the source resolved into, so the hook can also
+	// annotate the fetched copies once it has reviewed them. It reviews before
+	// it annotates, which is why the two are one hook rather than two.
+	Gate func(ctx context.Context, source, dir string, skills []scan.Skill) (ImportGate, error)
 }
 
 // ImportGate is the hub's view of the import gate for one source: whether the
@@ -397,7 +401,7 @@ func runAddLoad(ctx context.Context, deps AddFlowDeps, source string) addLoadedM
 	publishable, skipped := filterExisting(skills, existing)
 	out := addLoadedMsg{skills: publishable, skipped: skipped, cleanup: cleanup}
 	if deps.Gate != nil {
-		gate, gerr := deps.Gate(ctx, source, publishable)
+		gate, gerr := deps.Gate(ctx, source, dir, publishable)
 		if gerr != nil {
 			cleanup()
 			return addLoadedMsg{err: gerr}

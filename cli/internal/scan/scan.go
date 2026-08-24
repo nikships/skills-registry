@@ -26,7 +26,20 @@ type Skill struct {
 	Description string
 	Folder      string // absolute path to the folder containing SKILL.md
 	Source      string // human label, e.g. "~/.claude/skills"
+	// Category and SourceURL are the optional provenance keys an untrusted
+	// import stamps onto its copy of SKILL.md. Both are empty for a skill that
+	// does not carry them, which includes every skill published before the
+	// stamp existed and every folder the user wrote themselves.
+	Category  string
+	SourceURL string
 }
+
+// Frontmatter key names read beyond name and description. Both are optional:
+// they are written only onto a copy imported from an untrusted source.
+const (
+	CategoryKey  = "category"
+	SourceURLKey = "source_url"
+)
 
 // Hash returns the SHA-256 of the skill's SKILL.md file. Used for content-aware
 // dedupe when the same slug shows up in multiple dot-folders.
@@ -226,6 +239,8 @@ func load(src Source, mainPath string) (Skill, error) {
 		Description: desc,
 		Folder:      folder,
 		Source:      src.Label,
+		Category:    strings.TrimSpace(meta[CategoryKey]),
+		SourceURL:   strings.TrimSpace(meta[SourceURLKey]),
 	}, nil
 }
 

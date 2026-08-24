@@ -114,6 +114,45 @@ func TestDiscoverParsesFrontmatter(t *testing.T) {
 	}
 }
 
+// TestDiscoverReadsProvenanceKeys is the round-trip half of the import stamp:
+// a copy carrying `category` and `source_url` reports both, and the extra keys
+// do not disturb the name and description every listing row is built from.
+func TestDiscoverReadsProvenanceKeys(t *testing.T) {
+	root := t.TempDir()
+	const sourceURL = "https://github.com/openclaw/openclaw/tree/abc123/skills/summarize"
+	writeSkill(t, root, "summarize",
+		"---\nname: summarize\ndescription: Summarize URLs and PDFs.\n"+
+			"category: AIGC\nsource_url: "+sourceURL+"\n---\nBody.\n")
+	// A skill predating the stamp stays valid and simply reports neither key.
+	writeSkill(t, root, "legacy", "---\nname: legacy\ndescription: Older skill.\n---\nBody.\n")
+
+	out, err := Discover([]Source{{Path: root, Label: "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySlug := map[string]Skill{}
+	for _, s := range out {
+		bySlug[s.Slug] = s
+	}
+	got, ok := bySlug["summarize"]
+	if !ok {
+		t.Fatalf("missing summarize; got %v", bySlug)
+	}
+	if got.Name != "summarize" || got.Description != "Summarize URLs and PDFs." {
+		t.Errorf("the extra keys disturbed the summary: %+v", got)
+	}
+	if got.Category != "AIGC" {
+		t.Errorf("Category = %q, want AIGC", got.Category)
+	}
+	if got.SourceURL != sourceURL {
+		t.Errorf("SourceURL = %q, want %q", got.SourceURL, sourceURL)
+	}
+	legacy := bySlug["legacy"]
+	if legacy.Category != "" || legacy.SourceURL != "" {
+		t.Errorf("a skill without the keys reported %+v, want both empty", legacy)
+	}
+}
+
 func TestDiscoverSourcesScansDotDirs(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()

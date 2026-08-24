@@ -177,7 +177,7 @@ func TestAddFlowGateHookFailureAborts(t *testing.T) {
 			return []scan.Skill{{Slug: "x", Name: "x"}}, nil
 		},
 		Slugs: func(context.Context) (map[string]struct{}, error) { return map[string]struct{}{}, nil },
-		Gate: func(context.Context, string, []scan.Skill) (ImportGate, error) {
+		Gate: func(context.Context, string, string, []scan.Skill) (ImportGate, error) {
 			return ImportGate{}, context.DeadlineExceeded
 		},
 	}

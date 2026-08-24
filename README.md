@@ -199,6 +199,19 @@ A grade the index never assigned reads as `unscored`, never as a pass. **`unscor
 
 **Nothing fetched is ever executed.** `scripts/`, `references/`, and `assets/` are copied as bytes; `add` and `discover` never run any of it. The only process either command spawns is `git` (for a clone-path source) or `gh` (for API calls).
 
+**An untrusted import carries its provenance.** The copy written into your registry gains two frontmatter keys, so where it came from lives in the file rather than only in the commit message:
+
+```yaml
+---
+name: summarize
+description: Summarize URLs and PDFs.
+category: AIGC
+source_url: https://github.com/openclaw/openclaw/tree/1300b22/skills/summarize
+---
+```
+
+`source_url` is the GitHub *folder* URL, so it ends in the skill's own directory. `category` is the public index's, and is omitted when the index has no row for the folder — an absent category is never guessed. The body is the upstream skill unmodified, and an upstream file that already declares either key keeps its own value. Skills already in your registry without these keys stay valid, and `skills-registry publish ./my-skill` never adds them: a folder you wrote is not an import.
+
 ### Import a public skill repo
 
 `add` scans every nested `SKILL.md` in the source repo before publishing selected skills into your own registry. For example, a user can import the TweetClaw skill for OpenClaw and Xquik without copying files by hand:

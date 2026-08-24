@@ -1,13 +1,33 @@
 import Foundation
 
-/// SKILL.md frontmatter parsing. Mirrors `parseSummary` / `parseFlatYAML`
-/// in `cli/internal/registry/registry.go` (and `frontmatter.py`): handles
-/// flat `key: value` lines plus YAML folded/literal block scalars
-/// (`>`, `>-`, `|`, `|-`). Keep in sync with the Go/Python implementations.
+/// SKILL.md frontmatter parsing and provenance stamping. Mirrors
+/// `parseSummary` / `parseFlatYAML` in `cli/internal/registry/registry.go` and
+/// `mergeFrontmatter` in `cli/cmd/skills-registry/provenance.go`: handles flat
+/// `key: value` lines plus YAML folded/literal block scalars (`>`, `>-`, `|`,
+/// `|-`), and tolerates keys it does not know. Keep in sync with the Go
+/// implementations.
 public enum Frontmatter {
     private static let blockScalarMarkers: Set<String> = [
         ">", ">-", ">+", "|", "|-", "|+",
     ]
+
+    /// One frontmatter key to merge. A slice of these rather than a dictionary
+    /// so the written order is deterministic.
+    public struct Key: Sendable, Equatable {
+        public var name: String
+        public var value: String
+
+        public init(name: String, value: String) {
+            self.name = name
+            self.value = value
+        }
+    }
+
+    /// Key names the untrusted-import stamp writes. Two extra frontmatter keys
+    /// record where an imported copy came from, so provenance lives in the file
+    /// rather than only in the registry commit message.
+    public static let categoryKey = "category"
+    public static let sourceURLKey = "source_url"
 
     /// Extract the display name + description for a registry listing row.
     /// Falls back to `slug` for the name and the first paragraph for the
@@ -62,6 +82,108 @@ public enum Frontmatter {
         var rest = lines[(end + 1)...].joined(separator: "\n")
         while rest.hasPrefix("\n") { rest.removeFirst() }
         return rest
+    }
+
+    // MARK: - provenance stamping
+
+    /// Merge `keys` into `text`'s frontmatter, returning the rewritten document
+    /// or `nil` when nothing changed. Swift mirror of Go `mergeFrontmatter`.
+    ///
+    /// The document is edited line by line rather than parsed and
+    /// re-serialized, so every unrelated line — key order, comments, block
+    /// scalars, quoting style — survives byte-for-byte. A key already present
+    /// keeps its own value unless that value is empty; a missing key is
+    /// appended just before the closing `---`. A document with no frontmatter
+    /// gains a block holding only these keys. A document whose block is never
+    /// closed is left alone: guessing where its metadata ends would risk
+    /// rewriting the body.
+    public static func merging(_ text: String, keys: [Key]) -> String? {
+        let wanted = keys.filter { !$0.name.isEmpty }
+        guard !wanted.isEmpty else { return nil }
+        guard text.hasPrefix("---") else { return prepending(text, keys: wanted) }
+        var lines = text.components(separatedBy: "\n")
+        guard var end = closingFenceIndex(lines) else { return nil }
+        var changed = false
+        for k in wanted {
+            let line = "\(k.name): \(yamlScalar(k.value))"
+            if let at = topLevelKeyLine(Array(lines[1..<end]), key: k.name) {
+                if !frontmatterValue(lines[1 + at]).isEmpty { continue }
+                lines[1 + at] = line
+                changed = true
+                continue
+            }
+            lines.insert(line, at: end)
+            end += 1
+            changed = true
+        }
+        return changed ? lines.joined(separator: "\n") : nil
+    }
+
+    /// Give a document with no frontmatter one carrying just `keys`.
+    private static func prepending(_ text: String, keys: [Key]) -> String {
+        let block = keys.map { "\($0.name): \(yamlScalar($0.value))" }.joined(separator: "\n")
+        return "---\n\(block)\n---\n\(text)"
+    }
+
+    /// Index of the frontmatter block's closing `---`, or `nil` when the block
+    /// is never closed.
+    private static func closingFenceIndex(_ lines: [String]) -> Int? {
+        var i = 1
+        while i < lines.count {
+            if lines[i].trimmingCharacters(in: .whitespaces) == "---" { return i }
+            i += 1
+        }
+        return nil
+    }
+
+    /// Find a top-level `key:` line in a frontmatter block. Indented lines are
+    /// continuations (a block scalar's text, a nested mapping), so they never
+    /// match.
+    private static func topLevelKeyLine(_ block: [String], key: String) -> Int? {
+        for (i, raw) in block.enumerated() {
+            if raw.isEmpty || raw.hasPrefix(" ") || raw.hasPrefix("\t") { continue }
+            guard let colon = raw.firstIndex(of: ":") else { continue }
+            if String(raw[..<colon]).trimmingCharacters(in: .whitespaces) == key { return i }
+        }
+        return nil
+    }
+
+    /// A key line's value, with surrounding quotes stripped so `category: ""`
+    /// counts as empty and gets filled.
+    private static func frontmatterValue(_ line: String) -> String {
+        guard let colon = line.firstIndex(of: ":") else { return "" }
+        let raw = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        return trimQuotes(raw).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Characters YAML gives special meaning at the start of a plain scalar.
+    private static let yamlIndicators = Set("-?:,[]{}#&*!|>'\"%@`")
+
+    /// Render a value as a YAML scalar, quoting only when a plain one would be
+    /// ambiguous. A URL stays unquoted, because a colon is only special when
+    /// whitespace follows it. A category comes from a third-party index, so a
+    /// value carrying a newline, a quote, or a leading indicator is quoted
+    /// rather than trusted to be well behaved.
+    static func yamlScalar(_ v: String) -> String {
+        if v.isEmpty { return "\"\"" }
+        let needsQuoting = v.trimmingCharacters(in: .whitespacesAndNewlines) != v
+            || v.contains(where: { "\n\r\"'#".contains($0) })
+            || v.contains(": ")
+            || v.hasSuffix(":")
+            || yamlIndicators.contains(v.first!)
+        guard needsQuoting else { return v }
+        var escaped = ""
+        for c in v {
+            switch c {
+            case "\\": escaped += "\\\\"
+            case "\"": escaped += "\\\""
+            case "\n": escaped += "\\n"
+            case "\r": escaped += "\\r"
+            case "\t": escaped += "\\t"
+            default: escaped.append(c)
+            }
+        }
+        return "\"\(escaped)\""
     }
 
     // MARK: - flat YAML

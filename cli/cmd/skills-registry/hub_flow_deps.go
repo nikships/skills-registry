@@ -116,11 +116,17 @@ func buildAddFlowDeps(cfg config.Config) tui.AddFlowDeps {
 
 // hubImportGate hands the hub's Add flow the same import gate the `add`
 // subcommand uses, so a public folder URL pasted into the hub is held to the
-// same rules as one passed on the command line.
-func hubImportGate(cfg config.Config) func(context.Context, string, []scan.Skill) (tui.ImportGate, error) {
-	return func(ctx context.Context, source string, skills []scan.Skill) (tui.ImportGate, error) {
+// same rules as one passed on the command line — including the provenance keys
+// an untrusted import carries into the registry.
+func hubImportGate(cfg config.Config) func(context.Context, string, string, []scan.Skill) (tui.ImportGate, error) {
+	return func(ctx context.Context, source, dir string, skills []scan.Skill) (tui.ImportGate, error) {
 		g, err := buildGate(ctx, source, cfg, skills, false)
 		if err != nil {
+			return tui.ImportGate{}, err
+		}
+		// The scan above read the upstream files; the stamp rewrites them, so
+		// it can only run now.
+		if err := stampProvenance(g.untrusted(), source, dir, g.category, skills); err != nil {
 			return tui.ImportGate{}, err
 		}
 		return hubGateView(g), nil
