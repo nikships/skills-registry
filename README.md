@@ -105,7 +105,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Search the public skill index for third-party skills to import | `skills-registry discover <QUERY> [--mode keyword\|vector] [--category CAT] [--limit N]` |
 | Pull one skill into the global cache (`~/.cache/skills-registry/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync [--all]` |
-| Pull a skill from someone else's repo (or one folder of it) into yours + install locally | `skills-registry add <source> [--all]` |
+| Pull a skill from someone else's repo (or one folder of it) into yours | `skills-registry add <source> [--all] [--install] [--allow-unsafe]` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |
 | Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
 | Update the installed binary to the latest release | `skills-registry update` |
@@ -149,16 +149,67 @@ The safety, completeness, and executability columns are the index's own grades (
 
 **Transport, plainly:** the index endpoint is plain HTTP, because the host serves a TLS certificate that does not match it, so HTTPS cannot be verified. Your search terms therefore travel in plaintext. In exchange, the request carries no credentials whatsoever — no GitHub token, no `gh` auth header, no cookie, no registry contents — so a plaintext hop leaks nothing but the query itself. This is enforced by tests. Set `SKILLS_DISCOVER_URL` to point at a mirror or a local endpoint instead. If the index is unreachable, `discover` exits 1 and reminds you that `add <github-url>` still works without it.
 
+### Public skills are untrusted: the import gate
+
+A skill is prose your agents read as instructions. Publishing a stranger's `SKILL.md` into your own registry is one commit you can revert; **copying it into your agent dot-folders is different**, because from then on every agent loads it every session with no further prompt. So `add` treats the two differently depending on where the source came from.
+
+**Trusted** (behaves exactly as before — publish, then pick agent folders to install into):
+
+- a local directory (`./skills/pdf`)
+- a GitHub repository under your own registry's owner, in any URL shape
+
+**Untrusted** (gated):
+
+- any third-party `github.com` `/tree/` or `/blob/` URL
+- a third-party `owner/repo` shorthand
+- any non-GitHub git remote (nothing in the URL says who wrote it)
+- anything you pass with `--from-discover`, i.e. a pick out of the public index
+
+For an untrusted source:
+
+```bash
+# Default: publish to your registry. Nothing is written to any agent folder.
+skills-registry add https://github.com/openclaw/openclaw/blob/1300b22/skills/summarize
+
+# Opt in to the durable install into agent dot-folders.
+skills-registry add https://github.com/openclaw/openclaw/blob/1300b22/skills/summarize --install
+
+# Import despite a Poor safety grade or a local scan hit.
+skills-registry add https://github.com/some/repo/tree/main/skills/x --allow-unsafe
+```
+
+Before anything is written, `add` shows the public index's grades for the folder and the result of a local scan:
+
+```
+!  Untrusted source — a public GitHub repository owned by openclaw
+   Public skill index grades:
+     safety:        Good
+     completeness:  unscored
+     executability: unscored
+   Default: publish to your registry only. No agent dot-folder is written
+   unless you opt in, and nothing under scripts/ is ever run.
+   Local scan: no suspicious patterns. The local scan is a regex heuristic, not a guarantee: …
+```
+
+A grade the index never assigned reads as `unscored`, never as a pass. **`unscored` means unvetted, not safe.**
+
+`Poor` safety is a blocker: interactively you get an extra confirmation whose default answer is "cancel", and non-interactively (`--json`, or `--yes`) the skill is refused unless you pass `--allow-unsafe`. `--yes` deliberately does *not* clear a blocker — asking to skip prompts is not agreeing to import a skill graded unsafe.
+
+**The local scan is a heuristic warning layer, not a guarantee.** It is a small set of regexes over `SKILL.md` looking for three shapes: prompt injection (`ignore all previous instructions`, `do not tell the user`, jailbreak framing), credential exfiltration (reading `~/.ssh/id_*`, `.aws/credentials`, `.env`, or the environment *and* shipping it somewhere on the same line), and remote code execution (`curl … | sh`, `wget … | bash`, `eval "$(curl …)"`, `IEX (New-Object Net.WebClient).DownloadString …`). There is no model and no sandbox: obfuscation, a payload split across lines, and anything phrased indirectly all get through. A clean scan means "none of these patterns matched", never "this skill is safe". Read the source.
+
+**Nothing fetched is ever executed.** `scripts/`, `references/`, and `assets/` are copied as bytes; `add` and `discover` never run any of it. The only process either command spawns is `git` (for a clone-path source) or `gh` (for API calls).
+
 ### Import a public skill repo
 
 `add` scans every nested `SKILL.md` in the source repo before publishing selected skills into your own registry. For example, a user can import the TweetClaw skill for OpenClaw and Xquik without copying files by hand:
 
 ```bash
-skills-registry add Xquik-dev/tweetclaw
+skills-registry add Xquik-dev/tweetclaw          # third-party: registry only
+skills-registry add Xquik-dev/tweetclaw --install # …and into agent folders
 skills-registry get tweetclaw
 ```
 
-That keeps the public source repo as the import target while the user's registry owns the stored copy, version history, and local agent install. TweetClaw covers X/Twitter jobs such as tweet scraping, tweet and reply search, follower export, user lookup, media workflows, tweet monitoring, webhooks, giveaway draws, and approval-gated posting.
+That keeps the public source repo as the import target while the user's registry owns the stored copy and version history. TweetClaw covers X/Twitter jobs such as tweet scraping, tweet and reply search, follower export, user lookup, media workflows, tweet monitoring, webhooks, giveaway draws, and approval-gated posting.
 
 ### Import one skill folder out of a monorepo
 
@@ -220,11 +271,13 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 | `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
 | `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
 | `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
-| `skills-registry add <source> --json` | `{"pushed": [...slugs], "skipped": [...slugs], "installed": {<slug>: [...paths]}}` |
+| `skills-registry add <source> --json` | `{"pushed": [...slugs], "skipped": [...slugs], "installed": {<slug>: [...paths]}, "source": {"origin", "untrusted", "reason"}, "install_skipped": bool, "install_skipped_reason": "…"}` |
 | `skills-registry remove <slug> --json` | `{"slug", "removed_from": [...], "sha", "repo"}` |
 | `skills-registry update --json` | `{"updated", "version", "asset", "path", "message"}` |
 
 Destructive commands (`sync`, `remove`) auto-promote `--yes` when `--json` is set, so piped invocations never hang on a Bubble Tea prompt that can't render.
+
+`add --json` respects the import gate. For an untrusted source it publishes but writes no agent dot-folder unless `--install` is set, and says so via `install_skipped` / `install_skipped_reason`. A skill blocked by a `Poor` safety grade or a local scan hit is refused with `{"error": "refused 1 skill(s) — …; pass --allow-unsafe to import anyway (…)"}` and exit 1; nothing is published in that run. `--yes` does not clear a block.
 
 ---
 

@@ -484,7 +484,9 @@ func TestRunAddJSONEmitsPushedAndSkipped(t *testing.T) {
 
 	buf := captureJSONOut(t)
 	t.Chdir(root)
-	if err := runAddJSON(context.Background(), "./source"); err != nil {
+	// A local path is a trusted source, so the durable install still happens
+	// without --install: the import gate only changes the untrusted default.
+	if err := runAddJSON(context.Background(), "./source", addOptions{}); err != nil {
 		t.Fatalf("runAddJSON: %v", err)
 	}
 	var payload addJSONResult

@@ -15,9 +15,11 @@ import (
 
 	"github.com/nikships/skills-registry/cli/internal/agents"
 	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/importgate"
 	"github.com/nikships/skills-registry/cli/internal/jsonout"
 	"github.com/nikships/skills-registry/cli/internal/registry"
 	"github.com/nikships/skills-registry/cli/internal/scan"
+	"github.com/nikships/skills-registry/cli/internal/trust"
 	"github.com/nikships/skills-registry/cli/internal/tui"
 )
 
@@ -29,29 +31,67 @@ import (
 // drift. `installed` maps each published slug to the list of absolute
 // paths the durable install copied into, allowing the consumer to
 // correlate trivially via map lookup (e.g. looking up a slug from `pushed`).
+//
+// The remaining fields report the import gate, so a consumer never has to
+// infer from a short `pushed` array that something was held back:
+//
+//   - `source` names where the skill came from and whether that origin is
+//     trusted. It is always present.
+//   - `refused` lists every skill that was NOT published, each with the
+//     grades and scan findings behind the refusal. A non-empty `refused`
+//     accompanies a non-zero exit, so a scripted caller can fail on either.
+//   - `install_skipped` is true when a durable install was deliberately not
+//     performed because the source is untrusted and --install was absent.
 type addJSONResult struct {
-	Pushed    []string            `json:"pushed"`
-	Skipped   []string            `json:"skipped"`
-	Installed map[string][]string `json:"installed,omitempty"`
+	Pushed         []string            `json:"pushed"`
+	Skipped        []string            `json:"skipped"`
+	Installed      map[string][]string `json:"installed,omitempty"`
+	Source         addJSONSource       `json:"source"`
+	Refused        []importgate.Review `json:"refused,omitempty"`
+	InstallSkipped bool                `json:"install_skipped"`
+	// InstallSkippedReason explains InstallSkipped in prose, empty when no
+	// install was skipped.
+	InstallSkippedReason string `json:"install_skipped_reason,omitempty"`
 }
 
-var (
-	ghShorthandRe      = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	windowsDrivePathRe = regexp.MustCompile(`^[A-Za-z]:`)
-)
+// addJSONSource is the gate's view of the source in the JSON payload.
+type addJSONSource struct {
+	Origin    string `json:"origin"`
+	Untrusted bool   `json:"untrusted"`
+	Reason    string `json:"reason"`
+}
+
+// addOptions carries one `add` invocation's flags. Grouped into a struct
+// because the gate needs most of them and a six-argument call site says
+// nothing about which bool is which.
+type addOptions struct {
+	// yes skips the ordinary publish confirmation. It does NOT clear a gate
+	// block: agreeing to skip prompts is not agreeing to import a skill
+	// graded Poor for safety.
+	yes bool
+	// all publishes every skill found in the source without the multi-select.
+	all bool
+	// install opts an untrusted import into the durable agent-folder install.
+	// A trusted source keeps its existing behavior and ignores this.
+	install bool
+	// allowUnsafe is the escape hatch past a Poor safety grade or a local
+	// scan hit.
+	allowUnsafe bool
+	// fromDiscover marks a source handed over by the public index, which is
+	// untrusted whatever shape its URL has.
+	fromDiscover bool
+}
+
+var windowsDrivePathRe = regexp.MustCompile(`^[A-Za-z]:`)
 
 func newAddCmd() *cobra.Command {
-	var (
-		yes bool
-		all bool
-	)
+	var opts addOptions
 	cmd := &cobra.Command{
 		Use:   "add <source>",
-		Short: "Add skills from an external source (path, owner/repo, git URL, or GitHub folder URL) to the registry + install locally",
+		Short: "Add skills from an external source (path, owner/repo, git URL, or GitHub folder URL) to the registry",
 		Long: `Resolves the source, discovers every SKILL.md inside it, lets you
-multi-select what to publish, pushes the selected skills to your GitHub
-registry repo, and durably installs them into the agent dot-folders you
-pick (always at least .agents/skills).
+multi-select what to publish, and pushes the selected skills to your GitHub
+registry repo.
 
 Accepted sources:
 
@@ -63,78 +103,162 @@ Accepted sources:
 
 A GitHub folder URL is fetched through the GitHub Contents API with your
 existing gh credentials, so importing one skill out of a large monorepo
-never clones the repository.`,
+never clones the repository.
+
+Untrusted sources are gated. A local folder, and a repository under your own
+registry's owner, are trusted and behave as before: they publish and durably
+install into the agent dot-folders you pick. Anything else — a public GitHub
+folder URL, a third-party owner/repo, or a row out of ` + "`discover`" + ` — is
+treated as a stranger's SKILL.md:
+
+  · it publishes to your registry and stops there. Pass --install to also copy
+    it into agent dot-folders, where every agent would load it each session.
+  · the public index's safety, completeness, and executability grades are
+    shown first; a grade the index never assigned reads as "` + importgate.UnscoredLabel + `",
+    which means unvetted, not safe.
+  · a Poor safety grade, or a hit from the local heuristic scan of SKILL.md,
+    needs --allow-unsafe (or an extra confirmation interactively).
+
+Nothing fetched is ever executed. Files under scripts/ are copied, never run.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A refused import, an unreachable source, or a failed publish is
+			// an outcome rather than a misuse of the command, so neither the
+			// usage block nor cobra's own error line belongs in the output;
+			// main prints the error once. Argument-count validation still
+			// shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			if jsonout.Enabled() {
-				cmd.SilenceErrors = true
-				return runAddJSON(cmd.Context(), args[0])
+				return runAddJSON(cmd.Context(), args[0], opts)
 			}
-			return runAdd(cmd.Context(), args[0], yes || shouldAutoYes(), all)
+			opts.yes = opts.yes || shouldAutoYes()
+			return runAdd(cmd.Context(), args[0], opts)
 		},
 	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt.")
-	cmd.Flags().BoolVar(&all, "all", false, "Publish every skill found in the source.")
+	cmd.Flags().BoolVarP(&opts.yes, "yes", "y", false,
+		"Skip the publish confirmation. Does not clear a safety block.")
+	cmd.Flags().BoolVar(&opts.all, "all", false, "Publish every skill found in the source.")
+	cmd.Flags().BoolVar(&opts.install, "install", false,
+		"Also install into agent dot-folders. Required for an untrusted source; trusted sources prompt as before.")
+	cmd.Flags().BoolVar(&opts.allowUnsafe, "allow-unsafe", false,
+		"Import despite a Poor safety grade or a local scan hit.")
+	cmd.Flags().BoolVar(&opts.fromDiscover, "from-discover", false,
+		"Mark the source as a public-index pick, so the untrusted gate applies whatever its URL shape.")
 	return cmd
 }
 
-// runAddJSON is the --json code path: skips the multi-select prompt,
-// publishes every SKILL.md found in the resolved source that isn't
-// already in the registry, and emits {pushed, skipped}. Failures
-// surface as {"error": "..."} + a non-zero exit.
-func runAddJSON(ctx context.Context, source string) error {
+// addPlan is the resolved state shared by the JSON and interactive paths:
+// the registry client, the candidate skills, the slugs already published, and
+// the import gate's verdict for the source.
+type addPlan struct {
+	cfg     config.Config
+	client  *registry.Client
+	gate    gate
+	missing []scan.Skill
+	skipped []string
+}
+
+// planAdd resolves the source, discovers its skills, dedupes against the
+// registry, and builds the import gate. The gate is built before anything is
+// published, so an untrusted source is reviewed while nothing has been written
+// yet.
+//
+// The returned cleanup removes the fetched temp dir and is never nil.
+func planAdd(ctx context.Context, source string, opts addOptions) (addPlan, func(), error) {
 	cfg, err := config.Load()
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return addPlan{}, noopCleanup, err
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return addPlan{}, noopCleanup, err
 	}
 	dir, cleanup, err := resolveSource(ctx, source)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return addPlan{}, noopCleanup, err
 	}
-	defer cleanup()
 	skills, err := scan.Discover([]scan.Source{{Path: dir, Label: source}})
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		cleanup()
+		return addPlan{}, noopCleanup, err
 	}
 	if len(skills) == 0 {
-		err := fmt.Errorf("no SKILL.md files found under %s", source)
-		jsonout.PrintError(err)
-		return err
+		cleanup()
+		return addPlan{}, noopCleanup, fmt.Errorf("no SKILL.md files found under %s", source)
 	}
 	existing, err := client.Slugs(ctx)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		cleanup()
+		return addPlan{}, noopCleanup, err
 	}
-	missing, mismatches := scan.DedupeAgainst(skills, existing)
-	pushed := []string{}
-	skipped := []string{}
-
-	// Any skill that already exists (exactly or via normalization) is skipped.
-	// We populate the skipped slice with the local slugs so the JSON consumer
-	// knows which of their inputs were bypassed.
+	// Mismatches (a slug differing from the registry's only by separators or
+	// case) are already in the registry, so they are reported as skipped
+	// rather than republished under a second name.
+	missing, _ := scan.DedupeAgainst(skills, existing)
 	missingSet := map[string]struct{}{}
 	for _, sk := range missing {
 		missingSet[sk.Slug] = struct{}{}
 	}
+	skipped := []string{}
 	for _, sk := range skills {
 		if _, ok := missingSet[sk.Slug]; !ok {
 			skipped = append(skipped, sk.Slug)
 		}
 	}
+	g, err := buildGate(ctx, source, cfg, missing, opts.fromDiscover)
+	if err != nil {
+		cleanup()
+		return addPlan{}, noopCleanup, err
+	}
+	return addPlan{cfg: cfg, client: client, gate: g, missing: missing, skipped: skipped}, cleanup, nil
+}
 
+// jsonSource renders the gate's assessment for the JSON payload.
+func (p addPlan) jsonSource() addJSONSource {
+	return addJSONSource{
+		Origin:    string(p.gate.assessment.Origin),
+		Untrusted: p.gate.assessment.Untrusted,
+		Reason:    p.gate.assessment.Reason,
+	}
+}
+
+// runAddJSON is the --json code path: skips the multi-select prompt and
+// publishes every SKILL.md found in the resolved source that isn't already in
+// the registry. Failures surface as {"error": "..."} + a non-zero exit.
+//
+// The import gate applies here too, and non-interactively it can only be
+// cleared by a flag:
+//
+//   - an untrusted source does not durable-install unless --install is set,
+//     and the payload's install_skipped says so;
+//   - a skill blocked by a Poor safety grade or a local scan hit is refused
+//     unless --allow-unsafe is set. The refusal is both an explicit `refused`
+//     entry and a non-zero exit, so neither a payload reader nor an exit-code
+//     checker can mistake it for success.
+func runAddJSON(ctx context.Context, source string, opts addOptions) error {
+	plan, cleanup, err := planAdd(ctx, source, opts)
+	if err != nil {
+		jsonout.PrintError(err)
+		return err
+	}
+	defer cleanup()
+
+	allowed, refused := allowedSkills(plan.gate, plan.missing, opts.allowUnsafe)
+	untrusted := plan.gate.untrusted()
+	// A refusal must not half-publish: with anything blocked, nothing is
+	// written and the caller is told what to pass to proceed.
+	if len(refused) > 0 {
+		err := blockedError(refused)
+		jsonout.PrintError(err)
+		return err
+	}
+
+	installTargets := jsonInstallTargets(untrusted, opts.install)
 	installed := map[string][]string{}
-	universal := universalInstallTargets()
+	pushed := []string{}
 	safeSource := redactSourceUserInfo(source)
-	for _, sk := range missing {
+	for _, sk := range allowed {
 		files := map[string][]byte{}
 		if err := walkSkillIntoFiles(sk, files); err != nil {
 			jsonout.PrintError(err)
@@ -142,17 +266,16 @@ func runAddJSON(ctx context.Context, source string) error {
 		}
 		bySlug := rekeyBySlug(sk.Slug, files)
 		msg := fmt.Sprintf("add: %s (from %s)", sk.Slug, safeSource)
-		if _, err := client.Publish(ctx, sk.Slug, bySlug, msg); err != nil {
+		if _, err := plan.client.Publish(ctx, sk.Slug, bySlug, msg); err != nil {
 			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
 			jsonout.PrintError(err)
 			return err
 		}
 		pushed = append(pushed, sk.Slug)
-		// JSON code path: no picker available, so the durable install
-		// lands in the locked-universal targets (currently just
-		// `.agents/skills`). Matches the spec's "always-on" guarantee
-		// while keeping the non-interactive path scriptable.
-		paths, err := installSkillIntoTargets(ctx, client, sk.Slug, universal)
+		if len(installTargets) == 0 {
+			continue
+		}
+		paths, err := installSkillIntoTargets(ctx, plan.client, sk.Slug, installTargets)
 		if err != nil {
 			err = fmt.Errorf("install %s locally: %w", sk.Slug, err)
 			jsonout.PrintError(err)
@@ -160,37 +283,52 @@ func runAddJSON(ctx context.Context, source string) error {
 		}
 		installed[sk.Slug] = paths
 	}
-	// Note: mismatches are currently handled as simple skips in the JSON
-	// output to keep the payload compatible with the JSON-004 contract.
-	_ = mismatches
-	return jsonout.Print(addJSONResult{Pushed: pushed, Skipped: skipped, Installed: installed})
+	out := addJSONResult{
+		Pushed:    pushed,
+		Skipped:   plan.skipped,
+		Installed: installed,
+		Source:    plan.jsonSource(),
+	}
+	if untrusted && !opts.install {
+		out.InstallSkipped = true
+		out.InstallSkippedReason = fmt.Sprintf(
+			"%s is untrusted (%s), so no agent dot-folder was written; pass %s to install",
+			redactSourceUserInfo(source), plan.gate.assessment.Reason, installFlag)
+	}
+	return jsonout.Print(out)
 }
 
-func runAdd(ctx context.Context, source string, yes, all bool) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+// jsonInstallTargets decides where the non-interactive path installs. A
+// trusted source keeps the historical always-install behavior; an untrusted
+// one installs only when the user passed --install.
+func jsonInstallTargets(untrusted, install bool) []agents.Target {
+	if untrusted && !install {
+		return nil
 	}
-	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
-	if err != nil {
-		return err
-	}
+	return universalInstallTargets()
+}
 
-	dir, cleanup, err := resolveSource(ctx, source)
+func runAdd(ctx context.Context, source string, opts addOptions) error {
+	plan, cleanup, err := planAdd(ctx, source, opts)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	skills, err := scan.Discover([]scan.Source{{Path: dir, Label: source}})
+	renderGate(os.Stdout, plan.gate)
+	ok, err := confirmUntrusted(plan.gate, opts)
 	if err != nil {
 		return err
 	}
-	if len(skills) == 0 {
-		return fmt.Errorf("no SKILL.md files found under %s", source)
+	if !ok {
+		fmt.Println("Cancelled.")
+		return nil
 	}
-
-	picked, err := selectSkillsForAdd(skills, yes, all, source, cfg.Repo)
+	// Every block was cleared above, by confirmUntrusted's extra prompt or by
+	// --allow-unsafe, so the full candidate set reaches the multi-select. The
+	// interactive path refuses nothing silently: a user who saw the warning
+	// and said yes gets to choose from everything the source offered.
+	picked, err := selectSkillsForAdd(plan.missing, opts.yes, opts.all, source, plan.cfg.Repo)
 	if err != nil {
 		return err
 	}
@@ -202,21 +340,57 @@ func runAdd(ctx context.Context, source string, yes, all bool) error {
 		return nil
 	}
 
-	targets, err := promptInstallTargets(yes, len(picked))
+	targets, cancelled, err := resolveInstallTargets(plan.gate, opts, len(picked))
 	if err != nil {
 		return err
 	}
-	if targets == nil {
+	if cancelled {
+		fmt.Println("Cancelled.")
 		return nil
 	}
 
 	safeSource := redactSourceUserInfo(source)
-	if err := publishSkills(ctx, client, picked, func(slug string) string {
+	if err := publishSkills(ctx, plan.client, picked, func(slug string) string {
 		return fmt.Sprintf("add: %s (from %s)", slug, safeSource)
 	}); err != nil {
 		return err
 	}
-	return installPickedLocally(ctx, client, picked, targets)
+	if len(targets) == 0 {
+		fmt.Println(tui.HintStyle.Render(
+			"Registry updated. No agent dot-folder was written; pass " + installFlag + " to install."))
+		return nil
+	}
+	return installPickedLocally(ctx, plan.client, picked, targets)
+}
+
+// resolveInstallTargets decides which agent dot-folders receive a durable
+// install, and reports whether the user cancelled at the picker.
+//
+// A trusted source behaves as it always has: the picker opens (or --yes takes
+// the locked-universal set). An untrusted source installs nothing unless the
+// user asked for it, either with --install or by answering yes to the extra
+// prompt; only then does the picker open.
+func resolveInstallTargets(g gate, opts addOptions, count int) ([]agents.Target, bool, error) {
+	if !g.untrusted() {
+		targets, err := promptInstallTargets(opts.yes, count)
+		return targets, targets == nil && err == nil, err
+	}
+	if !opts.install {
+		if opts.yes {
+			return nil, false, nil
+		}
+		wanted, err := confirmChoice(
+			fmt.Sprintf("Also install %d untrusted skill(s) into agent folders?", count),
+			"Every agent then loads this SKILL.md each session. The registry write happens either way.",
+			"No, registry only (recommended)",
+			"Yes, choose agent folders",
+		)
+		if err != nil || !wanted {
+			return nil, false, err
+		}
+	}
+	targets, err := promptInstallTargets(opts.yes, count)
+	return targets, targets == nil && err == nil, err
 }
 
 // promptInstallTargets asks the user which agent dot-folders should
@@ -347,8 +521,7 @@ func resolveSourceWithNotice(ctx context.Context, source string, announce bool) 
 }
 
 func isLocalSourcePath(source string) bool {
-	return strings.HasPrefix(source, "./") || strings.HasPrefix(source, "/") ||
-		strings.HasPrefix(source, "../") || strings.HasPrefix(source, "~")
+	return trust.IsLocalPath(source)
 }
 
 func resolveLocalSource(source string) (string, func(), error) {
@@ -374,9 +547,10 @@ func resolveLocalSource(source string) (string, func(), error) {
 // `git@…`) is cloned as-is. A full commit SHA is dropped because
 // `git clone --branch <sha>` fails.
 func cloneURLAndRef(source string, target registry.GitHubTarget, isGitHub bool) (string, string) {
+	owner, repo, isShorthand := trust.ParseOwnerRepo(source)
 	switch {
-	case ghShorthandRe.MatchString(source):
-		return "https://github.com/" + source + ".git", ""
+	case isShorthand:
+		return "https://github.com/" + owner + "/" + repo + ".git", ""
 	case isGitHub && target.RefIsSHA():
 		return target.CloneURL(), ""
 	case isGitHub:
