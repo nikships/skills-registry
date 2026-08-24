@@ -324,10 +324,11 @@ func runAdd(ctx context.Context, source string, opts addOptions) error {
 		fmt.Println("Cancelled.")
 		return nil
 	}
-	candidates, refused := allowedSkills(plan.gate, plan.missing, true)
-	_ = refused // cleared above by confirmUntrusted or --allow-unsafe.
-
-	picked, err := selectSkillsForAdd(candidates, opts.yes, opts.all, source, plan.cfg.Repo)
+	// Every block was cleared above, by confirmUntrusted's extra prompt or by
+	// --allow-unsafe, so the full candidate set reaches the multi-select. The
+	// interactive path refuses nothing silently: a user who saw the warning
+	// and said yes gets to choose from everything the source offered.
+	picked, err := selectSkillsForAdd(plan.missing, opts.yes, opts.all, source, plan.cfg.Repo)
 	if err != nil {
 		return err
 	}
