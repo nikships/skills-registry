@@ -32,7 +32,52 @@ The headless `skills-registry bootstrap` command performs the same setup and end
 
 The bulk initial import uses `git push` over HTTPS with credentials configured by `gh auth setup-git`. Day-to-day `publish`, `add`, `sync`, and `remove` operations use the GitHub Git Data API through the authenticated `gh` CLI. Reads use a shallow local mirror when available and fall back to `gh api`.
 
-Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
+Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
+
+## Discover
+
+`search` ranks the user's own registry. `discover QUERY` is the outward-facing counterpart: it queries the public SkillNet index and returns importable GitHub URLs. It is headless, has no TUI, and downloads nothing.
+
+The client lives in `cli/internal/discover/`, deliberately separate from the cobra command so the TUI, the hub, and the macOS app can import it. `discover.Client.Search` is the only entry point; `discover.Response` is the published payload:
+
+```json
+{
+  "source": "skillnet",
+  "query": "pdf",
+  "mode": "keyword",
+  "results": [
+    {
+      "name": "summarize",
+      "description": "…",
+      "author": "openclaw",
+      "category": "AIGC",
+      "skill_url": "https://github.com/openclaw/openclaw/blob/<sha>/skills/summarize",
+      "safety": "Good",
+      "completeness": "Good",
+      "executability": "Good"
+    }
+  ]
+}
+```
+
+Contract rules:
+
+- `skill_url` is exactly the `/blob/<sha>/<dir>` shape `registry.ParseGitHubURL` accepts, so a result feeds straight into `add` with no rewriting.
+- The three score fields carry SkillNet's `evaluation.<score>.level` (`Good`, `Average`, or `Poor`) and are **empty when the index has no score**. An absent score means unscored and must render as such (the CLI prints `unscored`); it must never be presented as a pass.
+- The index's other fields are dropped, not passed through. Repository star counts in particular are never surfaced or ranked on: they belong to the host repository, not the individual skill.
+- Rows are deduplicated on `(name, skill_url)`, first occurrence winning, so the index's own ranking order survives.
+- `results` is always a non-nil slice, so it encodes as `[]` rather than `null`.
+- Flags are `--mode keyword|vector` (default `keyword`), `--category`, `--limit` (default 10, capped at 50), and the persistent `--json`.
+
+Transport and failure behavior:
+
+- The endpoint is `SKILLS_DISCOVER_URL`, defaulting to `http://api-skillnet.openkg.cn/v1/search`. Tests and the macOS app override it.
+- The endpoint is plain **HTTP**: the host serves a certificate that does not match it, so HTTPS cannot be verified and query terms travel in plaintext.
+- Because of that, the request attaches no credentials at all — no GitHub token, no `gh` auth header, no cookie, no registry contents. The client builds its own `http.Request` rather than reusing any GitHub transport, and tests assert that no `Authorization`-class header and no token-bearing query parameter is ever sent.
+- One 10-second timeout covers DNS through body read, and the response body is size-capped.
+- Every failure (unreachable host, timeout, non-2xx, non-JSON body) fails closed: no partial results, exit 1, and `{"error": "..."}` on the `--json` path. The human-readable error states that `skills-registry add <github-url>` still works without the index.
+
+Tests use `httptest` exclusively; no test contacts the live index.
 
 ## Add sources
 

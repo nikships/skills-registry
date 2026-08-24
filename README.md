@@ -102,6 +102,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Open the dashboard | `skills-registry` |
 | Browse + durably install skills into selected agent dot-folders | `skills-registry list [--query QUERY] [--plain]` |
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
+| Search the public skill index for third-party skills to import | `skills-registry discover <QUERY> [--mode keyword\|vector] [--category CAT] [--limit N]` |
 | Pull one skill into the global cache (`~/.cache/skills-registry/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync [--all]` |
 | Pull a skill from someone else's repo (or one folder of it) into yours + install locally | `skills-registry add <source> [--all]` |
@@ -113,6 +114,40 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `get` stays the cache-only fetch for one-shot agent reads.
 
 <img src="docs/img/demo.gif" alt="skills-registry list TUI — fuzzy-filterable skill list on the left with a live SKILL.md preview pane on the right, filtering as you type." width="100%">
+
+### `discover`: find third-party skills to import
+
+`search` fuzzy-ranks the skills already in your own registry. `discover` is the outward-facing counterpart: it queries the public [SkillNet](http://api-skillnet.openkg.cn) index of published skills (tens of thousands of them) and prints importable GitHub URLs.
+
+```bash
+skills-registry discover pdf
+skills-registry discover "summarize a youtube video" --mode vector
+skills-registry discover pdf --category Productivity --limit 25
+skills-registry discover pdf --json
+```
+
+```
+Skill index (skillnet): 2 results for "pdf" (keyword mode)
+
+  NAME       CATEGORY      SAFETY  AUTHOR    URL
+  ─────────  ────────────  ──────  ────────  ───
+  summarize  AIGC          Good    openclaw  https://github.com/openclaw/openclaw/blob/1300b22/skills/summarize
+  nano-pdf   Productivity  Good    clawdbot  https://github.com/clawdbot/clawdbot/blob/02aeff8/skills/nano-pdf
+
+  Import one with: skills-registry add <URL>
+```
+
+`--mode keyword` (the default) matches literal terms; `--mode vector` ranks by embedding similarity, which is better when you can describe what you want but not name it. `--limit` is capped at 50.
+
+`discover` downloads nothing. The `skill_url` column is exactly the `/blob/<sha>/<dir>` shape `add` accepts, so importing a result is a copy-paste:
+
+```bash
+skills-registry add https://github.com/openclaw/openclaw/blob/1300b22/skills/summarize
+```
+
+The safety, completeness, and executability columns are the index's own grades (`Good` / `Average` / `Poor`). A skill the index has not graded shows as `unscored`, which means unvetted, not safe — read any third-party skill's source before importing it. GitHub star counts are deliberately not shown: they belong to the host repository (the OpenClaw monorepo alone has 372k), so they say nothing about an individual skill.
+
+**Transport, plainly:** the index endpoint is plain HTTP, because the host serves a TLS certificate that does not match it, so HTTPS cannot be verified. Your search terms therefore travel in plaintext. In exchange, the request carries no credentials whatsoever — no GitHub token, no `gh` auth header, no cookie, no registry contents — so a plaintext hop leaks nothing but the query itself. This is enforced by tests. Set `SKILLS_DISCOVER_URL` to point at a mirror or a local endpoint instead. If the index is unreachable, `discover` exits 1 and reminds you that `add <github-url>` still works without it.
 
 ### Import a public skill repo
 
@@ -181,6 +216,7 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 |---|---|
 | `skills-registry list --json` | `[{"slug", "name", "description"}, …]` |
 | `skills-registry search [QUERY] --json` | `[{"slug", "name", "description"}, …]` |
+| `skills-registry discover <QUERY> --json` | `{"source", "query", "mode", "results": [{"name", "description", "author", "category", "skill_url", "safety", "completeness", "executability"}, …]}` |
 | `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
 | `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
 | `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
@@ -216,6 +252,7 @@ The wizard sets sensible defaults. Override via shell env when needed:
 | `SKILLS_REGISTRY_VERSION` | `latest` | Pin the installer to a release tag (`v0.7.0`, etc.). |
 | `SKILLS_BIN_DIR` | `~/.local/bin` | Where the installer drops the `skills-registry` binary. |
 | `SKILLS_REGISTRY_AUTO_UPDATE` | unset | Set to `1`/`true`/`yes` to opportunistically run `skills-registry update` before opening the hub. Errors are warning-logged, never fatal. |
+| `SKILLS_DISCOVER_URL` | `http://api-skillnet.openkg.cn/v1/search` | Endpoint `discover` searches. Point it at a mirror or a local index. Plain HTTP by necessity; no credentials are ever attached. |
 | `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` | OS default | Where the registry config and skill cache live. |
 
 The registry repo itself (as an `owner/repo` slug) lives in `~/.config/skills-registry/registry.toml`.
@@ -252,7 +289,7 @@ The first-time bulk push uses a single `git push` to dodge GitHub's secondary ra
 
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill and CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill and CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. `discover` is new; its `--json` payload is a published contract, but the human table's layout may still change. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/nikships/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

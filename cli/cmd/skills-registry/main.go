@@ -50,6 +50,7 @@ Running "skills-registry" with no subcommand drops you into the right place:
 Day-to-day, use:
   skills-registry list                     browse + durably install into agent dot-folders
   skills-registry search <query>           fuzzy-search your registry (top 10 matches; query is required)
+  skills-registry discover <query>         search the public skill index for third-party skills to import
   skills-registry get <slug>               temporary fetch into ~/.cache/skills-registry/skills/<slug>/
   skills-registry sync                     push local skills missing from the registry
   skills-registry add <source>             clone a source, multi-select what to publish + install
@@ -71,6 +72,7 @@ Day-to-day, use:
 		newBootstrapCmd(),
 		newListCmd(),
 		newSearchCmd(),
+		newDiscoverCmd(),
 		newGetCmd(),
 		newSyncCmd(),
 		newAddCmd(),
