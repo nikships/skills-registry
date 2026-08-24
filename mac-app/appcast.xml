@@ -6,6 +6,17 @@
     <description>Most recent updates to the Skills Registry macOS app</description>
     <language>en</language>
     <item>
+      <title>Version 0.1.13</title>
+      <sparkle:version>265</sparkle:version>
+      <sparkle:shortVersionString>0.1.13</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 24 Aug 2026 01:53:19 +0000</pubDate>
+      <enclosure url="https://github.com/nikships/skills-registry/releases/download/macapp-v0.1.13/SkillsRegistry-macos-arm64.zip"
+                 type="application/octet-stream"
+                 sparkle:edSignature="2npomBwnZHT5ojww9s1EI3oIA4Biqdop1Hu1+7eOEp/FWVlErPEvq/EQCNl2uicXHLoCHAfjZ57pPrx7EkNvAg=="
+                 length="2759178"/>
+    </item>
+    <item>
       <title>Version 0.1.12</title>
       <sparkle:version>263</sparkle:version>
       <sparkle:shortVersionString>0.1.12</sparkle:shortVersionString>
