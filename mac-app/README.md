@@ -3,12 +3,13 @@
 A native, Apple-Silicon SwiftUI app for managing your skills registry end to
 end: sign in with GitHub, create or connect a registry repo, browse skills with
 rich markdown rendering and fuzzy search, publish a skill from a folder,
-**install** a registry skill into your agent folders, **add** skills from an
-external source (local path, `owner/repo`, a git URL, or a GitHub
-`/tree/<ref>/<path>` link) and publish + install them in one pass, **remove**
-one end-to-end (registry + local downloads + agent folders), bulk-import the
-skills already sitting in your local AI-tool folders, and install or update
-the CLI from Settings.
+**install** a registry skill into your agent folders, **discover** third-party
+skills in the public index and import one behind the import gate, **add**
+skills from an external source (local path, `owner/repo`, a git URL, or a
+GitHub `/tree/<ref>/<path>` link) and publish + install them in one pass,
+**remove** one end-to-end (registry + local downloads + agent folders),
+bulk-import the skills already sitting in your local AI-tool folders, and
+install or update the CLI from Settings.
 
 It complements the Go CLI with the same registry format, slug derivation,
 fuzzy scorer, and frontmatter parsing.
@@ -67,6 +68,8 @@ Sources/SkillsRegistryCore/
   Agents.swift          56-entry dot-folder catalogue (port of cli/internal/agents)
   Scan.swift            local skill discovery + filesForUpload
   SourceResolver.swift  resolve add source (local/owner-repo/git URL/folder link) → dir
+  Discover.swift        public skill-index client ── mirrors cli/internal/discover
+  ImportGate.swift      grades, trust origins, write policy, provenance stamp ── mirrors importgate/trust
   GitHubTarget.swift    parse github.com repo/tree/blob URLs ── shared cross-language contract
   GitHubSubtree.swift   fetch one folder via the Contents API (port of registry/subtree.go)
   LocalInstall.swift    write a skill's files into <agent>/skills/<slug>/ (port of install_local.go)
@@ -90,9 +93,10 @@ Sources/SkillsRegistry/
   UpdateBanner.swift       dismissible CLI-update + meta-skill prompts
   LoginView.swift          sign-in pitch + DeviceCodeSheet
   SetupView.swift          create / connect / install-app
-  HomeView.swift           sidebar (Browse · Add · Import · Settings) + content router + UpdateBanner
+  HomeView.swift           sidebar (Browse · Discover · Add · Import · Settings) + content router + UpdateBanner
   BrowseView.swift         search list + skill rows + detail pane
   SkillDetailView.swift    MarkdownUI render + file rail + actions (Install/GitHub/Copy/Remove)
+  DiscoverView.swift       public-index search → grades + source preview → gated import
   AddView.swift            add from source → multi-select → publish + install
   AgentPickerSheet.swift   reusable home-agent multi-select (Install + Add)
   MarkdownTheme.swift      brand-matched MarkdownUI theme
@@ -200,6 +204,20 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   `registry.ParseGitHubURL`. You multi-select discovered skills (dups already
   in the registry are filtered out), then `publishAndInstall` publishes each
   and installs it into the agents you pick.
+- **Discover from the public index.** The **Discover** sidebar section searches
+  the public SkillNet index through `DiscoverClient` (the Swift mirror of
+  `cli/internal/discover`), so it reads the same JSON contract as
+  `skills-registry discover --json` without spawning the CLI. The request is
+  built in that client rather than through `GitHubAPI` and carries **no
+  credential** — the endpoint is plain HTTP because its certificate does not
+  match the host, so only the query terms leave the machine. A search fails
+  closed: an unreachable index, a timeout, a 5xx, or a non-JSON body renders an
+  inline error and no list, so "unreachable" and "no match" never look alike.
+  Importing a row resolves its `skill_url` through the same `SourceResolver`
+  fetch path (folder only, no clone), stamps `category` + `source_url` onto the
+  copy, and publishes it. The confirmation keeps the durable agent install
+  **off by default**, and a `Poor` safety grade needs a second acknowledgement;
+  `ImportGate.swift` owns those rules, mirroring `importgate` + `trust`.
 - **Remove end-to-end.** `remove(_:)` deletes the `<slug>/` subtree from the
   registry, then `LocalRemove` clears the CLI download (`<slug>/` +
   `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
@@ -225,6 +243,8 @@ implementations that must stay in lockstep:
 | Slug | `cli/internal/scan` + `registry` | `slugify` in `Slug.swift` |
 | Frontmatter | `cli/internal/scan` | `Frontmatter.swift` |
 | Meta-skill `SKILL.md` | CLI gateway template | `SkillMdTemplate.swift` |
+| Discover contract | `cli/internal/discover` | `Discover.swift` |
+| Import gate + trust + provenance | `cli/internal/importgate`, `cli/internal/trust`, `cmd/skills-registry/provenance.go` | `ImportGate.swift` |
 
 The app's `SkillMdTemplateTests` pins the CLI-only gateway's key workflows,
 product-owned paths, and repository interpolation.
@@ -246,7 +266,7 @@ corpus tests together.**
 
 ```bash
 swift test                       # Core contract + cross-language corpus + updates/meta-skill
-                                 # + install/remove/source-resolver (62 tests)
+                                 # + install/remove/source-resolver + discover/import-gate
 ```
 
 UI is verified by launching in demo mode and driving it with cua-driver
@@ -254,7 +274,9 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `accessibilityIdentifier`s on the key controls (`signInWithGitHub`,
 `searchField`, `publishButton`, `importSelected`, `installCLI`,
 `removeSkill`, `installSkill`, `addSourceField`, `addFetch`, `addSelected`,
-`agentPickerConfirm`, `nav-Browse` / `nav-Add` / `nav-Import` / `nav-Settings`)
+`agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
+`discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
+`nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.
 
 ---

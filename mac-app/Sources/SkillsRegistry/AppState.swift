@@ -388,6 +388,93 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - discover (public index → untrusted import)
+
+    /// Search the public skill index. Nothing is written and no credential is
+    /// attached; the client builds its own request rather than reusing the
+    /// GitHub transport (see `DiscoverClient`).
+    func discoverSearch(_ query: DiscoverQuery) async throws -> DiscoverResponse {
+        if isDemo { return try Self.demoDiscoverResponse(query) }
+        return try await DiscoverClient().search(query)
+    }
+
+    /// Import one row picked out of the public index.
+    ///
+    /// Untrusted by construction: the row's folder URL is fetched through the
+    /// Contents API (never a clone), stamped with `category` + `source_url`,
+    /// and published to the user's registry. `targets` is empty unless the
+    /// user explicitly opted into the durable agent-folder install, so the
+    /// default really is registry-only. Returns whether anything was
+    /// published.
+    @discardableResult
+    func importDiscovered(_ result: DiscoverResult, targets: [AgentTarget]) async -> Bool {
+        guard let api, let repo else { return false }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let cwd = FileManager.default.currentDirectoryPath
+        do {
+            let resolved = try await SourceResolver.resolve(
+                result.skillURL, home: home, cwd: cwd, folderFetcher: api)
+            defer { resolved.cleanup() }
+
+            let discovered = Scan.discover([Scan.Source(path: resolved.dir, label: result.skillURL)])
+            guard !discovered.isEmpty else {
+                showToast("No SKILL.md found at \(result.skillURL).", .error)
+                return false
+            }
+            let existing = Set(skills.map { normalizeForMatch($0.slug) })
+            let fresh = discovered.filter { !existing.contains(normalizeForMatch($0.slug)) }
+            guard !fresh.isEmpty else {
+                showToast("\(discovered[0].slug) is already in your registry.", .info)
+                return false
+            }
+            for sk in fresh {
+                try ImportProvenance.stamp(
+                    folder: sk.folder,
+                    sourceURL: ImportProvenance.sourceURL(
+                        for: result.skillURL,
+                        relativeFolder: Self.relativeFolder(sk.folder, under: resolved.dir)),
+                    category: result.category)
+            }
+            try await publishDiscovered(fresh, api: api, repo: repo, targets: targets, home: home)
+            refreshMetaSkillStatus()
+            return true
+        } catch {
+            showToast("Import failed: \(error.localizedDescription)", .error)
+            return false
+        }
+    }
+
+    /// Publish every fetched skill and, only when `targets` is non-empty,
+    /// durably install it. Split out so `importDiscovered` stays readable.
+    private func publishDiscovered(_ fresh: [LocalSkill], api: GitHubAPI, repo: RepoRef,
+                                   targets: [AgentTarget], home: String) async throws {
+        for sk in fresh {
+            let rel = stripSlugPrefix(try Scan.filesForUpload(slug: sk.slug, folder: sk.folder),
+                                      slug: sk.slug)
+            _ = try await api.publish(repo, slug: sk.slug, files: rel,
+                                      message: "add: \(sk.slug)", branch: branch)
+            upsertSkill(SkillSummary(slug: sk.slug, name: sk.name, description: sk.description))
+            if !targets.isEmpty {
+                _ = try LocalInstall.install(slug: sk.slug, files: rel, targets: targets,
+                                             home: home, cwd: home)
+            }
+        }
+        let names = fresh.map(\.slug).joined(separator: ", ")
+        showToast(targets.isEmpty
+                  ? "Imported \(names) into your registry"
+                  : "Imported \(names) and installed it into \(targets.count) agent\(targets.count == 1 ? "" : "s")",
+                  .ok)
+    }
+
+    /// A fetched skill folder's slash-separated path under the fetch root, so
+    /// each skill in a folder-of-skills import records its own `source_url`.
+    private static func relativeFolder(_ folder: String, under root: String) -> String {
+        let base = (root as NSString).standardizingPath
+        let path = (folder as NSString).standardizingPath
+        guard path != base, path.hasPrefix(base + "/") else { return "" }
+        return String(path.dropFirst(base.count + 1))
+    }
+
     /// Publish a skill from a local folder containing SKILL.md.
     func publishFolder(_ url: URL) async {
         guard let api, let repo else { return }

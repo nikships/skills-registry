@@ -200,6 +200,34 @@ final class SourceResolverTests: XCTestCase {
                        ["summarize"])
     }
 
+    /// Every URL shape the public index publishes in `skill_url` reaches the
+    /// fetcher unchanged — no rewriting between the index row and the fetch,
+    /// and never the clone path (`gitPath` is bogus, so a fall-through would
+    /// fail loudly).
+    func testDiscoverRowURLsReachTheFetcherUnchanged() async throws {
+        let sha = "0123456789abcdef0123456789abcdef01234567"
+        let cases: [(url: String, want: GitHubTarget)] = [
+            ("https://github.com/openclaw/openclaw/blob/\(sha)/skills/pdf",
+             GitHubTarget(owner: "openclaw", repo: "openclaw", ref: sha, path: "skills/pdf")),
+            ("https://github.com/o/r/blob/main/skills/pdf",
+             GitHubTarget(owner: "o", repo: "r", ref: "main", path: "skills/pdf")),
+            ("https://github.com/o/r/tree/main/skills/pdf",
+             GitHubTarget(owner: "o", repo: "r", ref: "main", path: "skills/pdf")),
+            ("https://github.com/o/r/tree/release/2026-01/skills/pdf",
+             GitHubTarget(owner: "o", repo: "r", ref: "release", path: "2026-01/skills/pdf")),
+        ]
+        for c in cases {
+            let fetcher = FakeFetcher(files: ["SKILL.md": "---\nname: pdf\n---\nBody."])
+            let resolved = try await SourceResolver.resolve(
+                c.url, home: "/tmp", cwd: "/tmp",
+                gitPath: "/nonexistent/git-binary", folderFetcher: fetcher)
+            defer { resolved.cleanup() }
+            XCTAssertEqual(fetcher.received, c.want, "resolve(\(c.url))")
+            XCTAssertEqual(Scan.discover([Scan.Source(path: resolved.dir, label: "t")]).map(\.slug),
+                           ["pdf"], "resolve(\(c.url))")
+        }
+    }
+
     func testResolveFolderWithoutSkillFileErrors() async {
         let fetcher = FakeFetcher(files: ["helper.go": "package utils"])
         do {
