@@ -14,6 +14,7 @@ type HubDeps struct {
 	Manage   ManageFlowDeps
 	Settings SettingsFlowDeps
 	Add      AddFlowDeps
+	Discover DiscoverHubDeps
 	Publish  PublishFlowDeps
 	Sync     SyncFlowDeps
 	Purge    PurgeFlowDeps
@@ -161,6 +162,9 @@ func (m HubProgram) newFlow(action string) (tea.Model, tea.Cmd) {
 		return flow, flow.Init()
 	case HubActionAdd:
 		flow := NewAddFlow(m.ctx, m.deps.Repo, m.deps.Add)
+		return flow, flow.Init()
+	case HubActionDiscover:
+		flow := newDiscoverHubFlow(m.ctx, m.deps.Repo, m.deps.Discover)
 		return flow, flow.Init()
 	case HubActionPublish:
 		flow := NewPublishFlow(m.ctx, m.deps.Publish)

@@ -19,8 +19,8 @@ type HubCard struct {
 }
 
 // CardGrid is a responsive card layout. Column count adapts to the outer
-// width: 3 at ≥120, 2 at ≥80, 1 below. Focus walks with the arrow / hjkl
-// keys and wraps at the edges so a held key cycles cleanly.
+// width: 4 at ≥160, 3 at ≥120, 2 at ≥80, 1 below. Focus walks with the arrow /
+// hjkl keys and wraps at the edges so a held key cycles cleanly.
 //
 // The grid is pure data — it owns no goroutines or tea.Cmds. HubModel
 // folds keystrokes into Move() and renders the result via Render().
@@ -34,10 +34,17 @@ func NewCardGrid(cards []HubCard) CardGrid {
 	return CardGrid{Cards: cards}
 }
 
-// Cols picks the column count for the given outer width. The thresholds
-// match the spec: 3 columns at ≥120, 2 at ≥80, 1 otherwise.
+// Cols picks the column count for the given outer width: 4 columns at ≥160,
+// 3 at ≥120, 2 at ≥80, 1 otherwise.
+//
+// The widest tier exists because the hub does not scroll: at 3 columns the
+// seven tiles need three rows, which pushes the footer off a standard-height
+// terminal. A 160-column terminal has room for four tiles per row, which puts
+// the whole grid back in two rows.
 func (g CardGrid) Cols(width int) int {
 	switch {
+	case width >= 160:
+		return 4
 	case width >= 120:
 		return 3
 	case width >= 80:
