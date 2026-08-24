@@ -36,7 +36,9 @@ Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`
 
 ## Discover
 
-`search` ranks the user's own registry. `discover QUERY` is the outward-facing counterpart: it queries the public SkillNet index and returns importable GitHub URLs. It is headless, has no TUI, and downloads nothing.
+`search` ranks the user's own registry. `discover QUERY` is the outward-facing counterpart: it queries the public SkillNet index and returns importable GitHub URLs.
+
+On a TTY it opens an interactive picker (see [Discover picker](#discover-picker)); `--json`, `--plain`, and a non-TTY stdout print the fixed-width table and download nothing.
 
 The client lives in `cli/internal/discover/`, deliberately separate from the cobra command so the TUI, the hub, and the macOS app can import it. `discover.Client.Search` is the only entry point; `discover.Response` is the published payload:
 
@@ -67,7 +69,7 @@ Contract rules:
 - The index's other fields are dropped, not passed through. Repository star counts in particular are never surfaced or ranked on: they belong to the host repository, not the individual skill.
 - Rows are deduplicated on `(name, skill_url)`, first occurrence winning, so the index's own ranking order survives.
 - `results` is always a non-nil slice, so it encodes as `[]` rather than `null`.
-- Flags are `--mode keyword|vector` (default `keyword`), `--category`, `--limit` (default 10, capped at 50), and the persistent `--json`.
+- Flags are `--mode keyword|vector` (default `keyword`), `--category`, `--limit` (default 10, capped at 50), `--plain`, and the persistent `--json`.
 
 Transport and failure behavior:
 
@@ -78,6 +80,20 @@ Transport and failure behavior:
 - Every failure (unreachable host, timeout, non-2xx, non-JSON body) fails closed: no partial results, exit 1, and `{"error": "..."}` on the `--json` path. The human-readable error states that `skills-registry add <github-url>` still works without the index.
 
 Tests use `httptest` exclusively; no test contacts the live index.
+
+## Discover picker
+
+`tui.NewDiscoverFlow(ctx, tui.DiscoverFlowDeps{…})` is the interactive picker, and it is the entry point the hub's Discover card embeds. It is a flow rather than logic inside the cobra command for exactly that reason: the command hosts it in its own `tea.NewProgram`, and the hub will host the same model.
+
+- `tui.DiscoverRow` is the picker's row type: name, description, author, category, `skill_url`, and the three grades. It deliberately carries **no star count**, so no surface can rank or headline on repository popularity, and the picker never re-sorts — the index's own ranking order stands.
+- Rendering reuses the registry list's delegate and `styles.go` tokens through `DiscoverRow.listRow()` (name → title, category → the right-hand column, description → the same two-line budget). There is one row renderer, not two. The preview pane adds author, the three grades, and the `skill_url`.
+- Grades render through `importgate.Scores.Lines()`, so an absent grade reads `unscored` here for the same reason it does everywhere else.
+- **Ending:** with `WithOnExit` unset the flow returns `tea.Quit` and the caller reads `Toast()`, `Imported()`, and `Err()` off the final model; with it set the flow yields the host's message instead, which is how `HubProgram` will consume it (`flowExitMsg`). `Err()` is non-nil only for a search failure, so a cancelled pick exits 0 while an unreachable index exits 1.
+- **Import:** Enter opens a pre-fetch confirmation naming the URL and the grades, then hands the row to `AddFlowModel` via `NewAddFlowFromSource`, which skips the source-input step. The picker therefore adds no trust, grade, or install logic of its own — the row travels the existing gate, registry-only by default. A row the index graded `Poor` for safety gets the cancelling answer as the confirm's default; the gate's own consent step still follows. The embedded add flow reports back through `addFlowExit` (`published` is authoritative, not the toast wording) and control returns to the list, so a user can import several rows in one session.
+- The cmd side wires `deps.Add.Gate = importGateHook(cfg, true)`, i.e. the `--from-discover` gate: a picked row is untrusted whatever shape its URL has.
+- **States:** a spinner while the HTTP call is in flight, then either the list or `discoverStateError`. A failed search renders the error box and no list at all — "the index is unreachable" and "the index has no match" must never look alike. Esc, `q`, an empty selection, and a declined confirmation all exit having written nothing.
+
+Tests drive the flow with fixture rows and injected fakes (`failIfAddRuns` asserts zero calls on every cancelling path). No test contacts the index or writes to a registry.
 
 ## Add sources
 
@@ -125,7 +141,7 @@ Trusted sources are unchanged. A local path and a repository under the user's ow
 
 Nothing fetched is ever executed. `add` and `discover` copy `scripts/`, `references/`, and `assets/` as bytes; the only processes either spawns are `git` (clone-path sources) and `gh` (API calls). A test asserts that an executable `scripts/run.sh` in a fetched folder never runs.
 
-The hub's Add flow shares the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. Rendering decisions are made once on the cmd side so the two surfaces cannot disagree about whether a grade is missing. The hook also receives the resolved directory, because the same call that reviews the fetched files is what then stamps them. The macOS Discover pane is a separate ticket; `trust` and `importgate` are the surfaces it should call.
+The hub's Add flow and the Discover picker share the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. `importGateHook(cfg, fromDiscover)` builds the hook: the hub passes `false`, the Discover picker passes `true`. Rendering decisions are made once on the cmd side so the surfaces cannot disagree about whether a grade is missing. The hook also receives the resolved directory, because the same call that reviews the fetched files is what then stamps them. The macOS Discover pane is a separate ticket; `trust` and `importgate` are the surfaces it should call.
 
 ## Import provenance
 

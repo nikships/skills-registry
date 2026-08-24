@@ -102,7 +102,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Open the dashboard | `skills-registry` |
 | Browse + durably install skills into selected agent dot-folders | `skills-registry list [--query QUERY] [--plain]` |
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
-| Search the public skill index for third-party skills to import | `skills-registry discover <QUERY> [--mode keyword\|vector] [--category CAT] [--limit N]` |
+| Search the public skill index and import a skill from it | `skills-registry discover <QUERY> [--mode keyword\|vector] [--category CAT] [--limit N] [--plain]` |
 | Pull one skill into the global cache (`~/.cache/skills-registry/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync [--all]` |
 | Pull a skill from someone else's repo (or one folder of it) into yours | `skills-registry add <source> [--all] [--install] [--allow-unsafe]` |
@@ -117,14 +117,19 @@ Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable;
 
 ### `discover`: find third-party skills to import
 
-`search` fuzzy-ranks the skills already in your own registry. `discover` is the outward-facing counterpart: it queries the public [SkillNet](http://api-skillnet.openkg.cn) index of published skills (tens of thousands of them) and prints importable GitHub URLs.
+`search` fuzzy-ranks the skills already in your own registry. `discover` is the outward-facing counterpart: it queries the public [SkillNet](http://api-skillnet.openkg.cn) index of published skills (tens of thousands of them) and lets you import one straight into your registry.
 
 ```bash
 skills-registry discover pdf
 skills-registry discover "summarize a youtube video" --mode vector
 skills-registry discover pdf --category Productivity --limit 25
+skills-registry discover pdf --plain    # the table instead of the picker
 skills-registry discover pdf --json
 ```
+
+On a terminal this opens an interactive picker: browse the ranked hits with a preview pane showing each skill's author, the index's three grades, and the exact GitHub folder it would fetch. Press Enter to import the selected row — it goes through the same gate as `add <url>`, so it publishes to your registry only, writes nothing into an agent folder unless you opt in, and needs an extra confirmation if the index graded it `Poor` for safety. Esc or `q` exits having written nothing.
+
+Pipe the output, or pass `--plain` or `--json`, and you get the fixed-width table instead, which downloads nothing:
 
 ```
 Skill index (skillnet): 2 results for "pdf" (keyword mode)
@@ -139,15 +144,15 @@ Skill index (skillnet): 2 results for "pdf" (keyword mode)
 
 `--mode keyword` (the default) matches literal terms; `--mode vector` ranks by embedding similarity, which is better when you can describe what you want but not name it. `--limit` is capped at 50.
 
-`discover` downloads nothing. The `skill_url` column is exactly the `/blob/<sha>/<dir>` shape `add` accepts, so importing a result is a copy-paste:
+The `skill_url` column is exactly the `/blob/<sha>/<dir>` shape `add` accepts, so importing a result from the table is a copy-paste:
 
 ```bash
 skills-registry add https://github.com/openclaw/openclaw/blob/1300b22/skills/summarize
 ```
 
-The safety, completeness, and executability columns are the index's own grades (`Good` / `Average` / `Poor`). A skill the index has not graded shows as `unscored`, which means unvetted, not safe — read any third-party skill's source before importing it. GitHub star counts are deliberately not shown: they belong to the host repository (the OpenClaw monorepo alone has 372k), so they say nothing about an individual skill.
+The safety, completeness, and executability columns are the index's own grades (`Good` / `Average` / `Poor`). A skill the index has not graded shows as `unscored`, which means unvetted, not safe — read any third-party skill's source before importing it. GitHub star counts are deliberately not shown or sorted on: they belong to the host repository (the OpenClaw monorepo alone has 372k), so they say nothing about an individual skill.
 
-**Transport, plainly:** the index endpoint is plain HTTP, because the host serves a TLS certificate that does not match it, so HTTPS cannot be verified. Your search terms therefore travel in plaintext. In exchange, the request carries no credentials whatsoever — no GitHub token, no `gh` auth header, no cookie, no registry contents — so a plaintext hop leaks nothing but the query itself. This is enforced by tests. Set `SKILLS_DISCOVER_URL` to point at a mirror or a local endpoint instead. If the index is unreachable, `discover` exits 1 and reminds you that `add <github-url>` still works without it.
+**Transport, plainly:** the index endpoint is plain HTTP, because the host serves a TLS certificate that does not match it, so HTTPS cannot be verified. Your search terms therefore travel in plaintext. In exchange, the request carries no credentials whatsoever — no GitHub token, no `gh` auth header, no cookie, no registry contents — so a plaintext hop leaks nothing but the query itself. This is enforced by tests. Set `SKILLS_DISCOVER_URL` to point at a mirror or a local endpoint instead. If the index is unreachable, `discover` exits 1 and reminds you that `add <github-url>` still works without it — the picker says the same thing rather than showing you an empty list.
 
 ### Public skills are untrusted: the import gate
 
@@ -355,7 +360,7 @@ The first-time bulk push uses a single `git push` to dodge GitHub's secondary ra
 
 ## Project status
 
-`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill and CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. `discover` is new; its `--json` payload is a published contract, but the human table's layout may still change. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
+`skills-registry` is at **v0.7** — usable day-to-day but pre-1.0. The gateway skill and CLI commands (`list` / `get` / `sync` / `add` / `publish` / `remove` / `search`) are stable. `discover` is new; its `--json` payload is a published contract, but the table's layout and the picker's chrome may still change. Internals may shift between minor versions; pin a CLI release with `SKILLS_REGISTRY_VERSION` if needed.
 
 Found a bug? Have an idea? [Open an issue](https://github.com/nikships/skills-registry/issues). PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
