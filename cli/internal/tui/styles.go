@@ -48,6 +48,11 @@ var (
 	ErrorStyle = lipgloss.NewStyle().
 			Foreground(Danger).
 			Bold(true)
+	// WarnStyle marks a risk the user is being asked to weigh, as opposed to
+	// ErrorStyle's "this failed". Used by the untrusted-import gate.
+	WarnStyle = lipgloss.NewStyle().
+			Foreground(ColDanger).
+			Bold(true)
 	OkStyle = lipgloss.NewStyle().
 		Foreground(Accent).
 		Bold(true)

@@ -345,8 +345,9 @@ func TestResolveSourceRepoAndBranchURLsClone(t *testing.T) {
 }
 
 // TestRunAddJSONFolderURL proves the --json code path works for a folder URL:
-// the folder is fetched over the Contents API, published, and installed, with
-// no clone of the parent repository.
+// the folder is fetched over the Contents API, published, and — because
+// --install was passed for this third-party source — installed, with no clone
+// of the parent repository.
 func TestRunAddJSONFolderURL(t *testing.T) {
 	prev := jsonout.Enabled()
 	t.Cleanup(func() { jsonout.SetEnabled(prev) })
@@ -356,6 +357,7 @@ func TestRunAddJSONFolderURL(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	writeRegistryConfig(t, "x/y")
+	stubIndexLookup(t, nil, false)
 
 	entries := []map[string]any{
 		{"key": "GET repos/x/y/contents/", "body": []map[string]any{}},
@@ -389,7 +391,8 @@ func TestRunAddJSONFolderURL(t *testing.T) {
 	buf := captureJSONOut(t)
 	t.Chdir(t.TempDir())
 	err := runAddJSON(context.Background(),
-		"https://github.com/openclaw/openclaw/blob/"+sha+"/skills/summarize")
+		"https://github.com/openclaw/openclaw/blob/"+sha+"/skills/summarize",
+		addOptions{install: true})
 	if err != nil {
 		t.Fatalf("runAddJSON: %v (output %s)", err, buf.String())
 	}

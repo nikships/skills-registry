@@ -20,7 +20,44 @@ type AddFlowDeps struct {
 	Publish        func(context.Context, string, map[string][]byte, string) (sha string, err error)
 	InstallTargets InstallTargetLoader
 	Install        func(ctx context.Context, slug string, targets []any) ([]string, error)
+	// Gate classifies the typed source and reviews what was found inside it.
+	// The hub shares the CLI's gate through this hook rather than reasoning
+	// about URLs itself, so a public folder URL pasted into the hub is held to
+	// the same rules as `skills-registry add <url>`. When nil, the flow treats
+	// every source as trusted, which is the behavior unit tests that omit the
+	// hook expect.
+	Gate func(ctx context.Context, source string, skills []scan.Skill) (ImportGate, error)
 }
+
+// ImportGate is the hub's view of the import gate for one source: whether the
+// origin is untrusted, the public index's grades, and what a local scan of the
+// fetched SKILL.md files matched.
+//
+// It is a plain data struct so the presentation layer never re-derives a
+// verdict. In particular ScoreLines is pre-rendered by the gate, which is what
+// guarantees an absent grade reads as "unscored" here too.
+type ImportGate struct {
+	// Untrusted reports whether the gate applies. False leaves the flow's
+	// original behavior untouched.
+	Untrusted bool
+	// Reason is a short justification, e.g. "a public GitHub repository owned
+	// by openclaw".
+	Reason string
+	// ScoreLines are the index's grades, one per line, already labelled.
+	ScoreLines []string
+	// Indexed reports whether the index had a row at all.
+	Indexed bool
+	// Findings are the local scan's hits, pre-rendered one per line.
+	Findings []string
+	// BlockSummary is non-empty when something needs explicit consent (a Poor
+	// safety grade, or a scan hit).
+	BlockSummary string
+	// Disclaimer states what the local scan is and is not worth.
+	Disclaimer string
+}
+
+// Blocked reports whether this gate needs the extra consent step.
+func (g ImportGate) Blocked() bool { return g.BlockSummary != "" }
 
 type addFlowState int
 
@@ -28,6 +65,8 @@ const (
 	addStateSource addFlowState = iota
 	addStateLoading
 	addStateSelect
+	addStateGate
+	addStateInstallOptIn
 	addStateInstall
 	addStateConfirm
 	addStatePublishing
@@ -43,6 +82,8 @@ type AddFlowModel struct {
 	selectModel  MultiSelectModel
 	installModel InstallPickerModel
 	confirmModel ChoiceModel
+	gateModel    ChoiceModel
+	optInModel   ChoiceModel
 	spinner      spinner.Model
 
 	width, height int
@@ -52,12 +93,14 @@ type AddFlowModel struct {
 	picked        []scan.Skill
 	targets       []any
 	skipped       []string
+	gate          ImportGate
 	cleanupFn     func()
 }
 
 type addLoadedMsg struct {
 	skills  []scan.Skill
 	skipped []string
+	gate    ImportGate
 	cleanup func()
 	err     error
 }
@@ -123,6 +166,10 @@ func (m AddFlowModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSourceKey(msg)
 	case addStateSelect:
 		return m.handleSelectKey(msg)
+	case addStateGate:
+		return m.handleGateKey(msg)
+	case addStateInstallOptIn:
+		return m.handleOptInKey(msg)
 	case addStateInstall:
 		return m.handleInstallKey(msg)
 	case addStateConfirm:
@@ -164,11 +211,81 @@ func (m AddFlowModel) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.exit("add · nothing selected", true)
 		}
 		m.picked = valuesToSkills(values)
-		return m.openInstallStep()
+		return m.afterSelect()
 	}
 	next, cmd := m.selectModel.Update(msg)
 	m.selectModel = next.(MultiSelectModel)
 	return m, cmd
+}
+
+// afterSelect routes past the multi-select. An untrusted source gets the
+// warning step first (when something is blocked) and then the install opt-in;
+// a trusted one goes straight to the agent picker, as before.
+func (m AddFlowModel) afterSelect() (tea.Model, tea.Cmd) {
+	if !m.gate.Untrusted {
+		return m.openInstallStep()
+	}
+	if m.gate.Blocked() {
+		m.gateModel = NewChoice(
+			"Import despite the warning?",
+			m.gate.BlockSummary,
+			[]Choice{
+				{Value: "no", Label: "No, cancel the import", Hint: "Make no changes"},
+				{Value: "yes", Label: "Yes, import anyway", Hint: "Publish to your registry"},
+			})
+		m.state = addStateGate
+		return m, nil
+	}
+	return m.openInstallOptIn()
+}
+
+func (m AddFlowModel) handleGateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" || msg.String() == "esc" {
+		return m.exit("add · cancelled", true)
+	}
+	next, cmd := m.gateModel.Update(msg)
+	m.gateModel = next.(ChoiceModel)
+	if msg.String() != "enter" {
+		return m, cmd
+	}
+	if m.gateModel.Value() != "yes" {
+		return m.exit("add · cancelled", true)
+	}
+	return m.openInstallOptIn()
+}
+
+// openInstallOptIn asks whether an untrusted import should also be installed
+// into agent folders. The default answer is no: publishing is recoverable,
+// while an install makes every agent load the file each session.
+func (m AddFlowModel) openInstallOptIn() (tea.Model, tea.Cmd) {
+	if m.deps.InstallTargets == nil || m.deps.Install == nil {
+		return m.openConfirm()
+	}
+	m.optInModel = NewChoice(
+		fmt.Sprintf("Also install %d untrusted skill(s) into agent folders?", len(m.picked)),
+		"Every agent then loads this SKILL.md each session. The registry write happens either way.",
+		[]Choice{
+			{Value: "no", Label: "No, registry only (recommended)", Hint: "Nothing is written to disk"},
+			{Value: "yes", Label: "Yes, choose agent folders", Hint: "Opens the agent picker"},
+		})
+	m.state = addStateInstallOptIn
+	return m, nil
+}
+
+func (m AddFlowModel) handleOptInKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" || msg.String() == "esc" {
+		return m.exit("add · cancelled", true)
+	}
+	next, cmd := m.optInModel.Update(msg)
+	m.optInModel = next.(ChoiceModel)
+	if msg.String() != "enter" {
+		return m, cmd
+	}
+	if m.optInModel.Value() != "yes" {
+		m.targets = nil
+		return m.openConfirm()
+	}
+	return m.openInstallStep()
 }
 
 // openInstallStep advances the wizard into the agent picker. The
@@ -206,6 +323,9 @@ func (m AddFlowModel) openConfirm() (tea.Model, tea.Cmd) {
 	subtitle := "Only the registry repo is updated; selected agents get a local install."
 	if len(m.targets) == 0 {
 		subtitle = "Only the registry repo is updated. No local install (no agents selected)."
+	}
+	if m.gate.Untrusted {
+		subtitle += " Nothing under scripts/ is ever run."
 	}
 	m.confirmModel = newFlowConfirm(
 		fmt.Sprintf("Publish %d skill(s) from %s to %s?", len(m.picked), m.sourceText, m.repo),
@@ -275,7 +395,16 @@ func runAddLoad(ctx context.Context, deps AddFlowDeps, source string) addLoadedM
 		return addLoadedMsg{err: err}
 	}
 	publishable, skipped := filterExisting(skills, existing)
-	return addLoadedMsg{skills: publishable, skipped: skipped, cleanup: cleanup}
+	out := addLoadedMsg{skills: publishable, skipped: skipped, cleanup: cleanup}
+	if deps.Gate != nil {
+		gate, gerr := deps.Gate(ctx, source, publishable)
+		if gerr != nil {
+			cleanup()
+			return addLoadedMsg{err: gerr}
+		}
+		out.gate = gate
+	}
+	return out
 }
 
 func (m AddFlowModel) handleLoaded(msg addLoadedMsg) (tea.Model, tea.Cmd) {
@@ -285,10 +414,15 @@ func (m AddFlowModel) handleLoaded(msg addLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.skills = msg.skills
 	m.skipped = msg.skipped
+	m.gate = msg.gate
 	if len(msg.skills) == 0 {
 		return m.exit("add · nothing new to publish", true)
 	}
-	m.selectModel = NewMultiSelect("Select skills to publish", skillsToItems(msg.skills), nil, true)
+	title := "Select skills to publish"
+	if m.gate.Untrusted {
+		title = "Untrusted source — select skills to publish to your registry"
+	}
+	m.selectModel = NewMultiSelect(title, skillsToItems(msg.skills), nil, true)
 	m.state = addStateSelect
 	return m, nil
 }
@@ -359,7 +493,11 @@ func (m AddFlowModel) renderBody() string {
 		return m.spinner.View() + " " + lipgloss.NewStyle().Foreground(ColInk).
 			Render("Resolving and scanning "+m.sourceText+" …")
 	case addStateSelect:
-		return m.selectModel.View()
+		return m.renderGate() + m.selectModel.View()
+	case addStateGate:
+		return m.renderGate() + m.gateModel.View()
+	case addStateInstallOptIn:
+		return m.optInModel.View()
 	case addStateInstall:
 		return m.installModel.View()
 	case addStateConfirm:
@@ -371,13 +509,43 @@ func (m AddFlowModel) renderBody() string {
 	return ""
 }
 
+// renderGate renders the untrusted-source banner shown above the select and
+// warning steps: the origin, the index's grades (an absent one already
+// labelled), the scan's findings, and what the scan is worth. Empty for a
+// trusted source.
+func (m AddFlowModel) renderGate() string {
+	if !m.gate.Untrusted {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(WarnStyle.Render("!  Untrusted source"))
+	if m.gate.Reason != "" {
+		b.WriteString(HintStyle.Render(" — " + m.gate.Reason))
+	}
+	b.WriteString("\n")
+	for _, line := range m.gate.ScoreLines {
+		b.WriteString("   " + line + "\n")
+	}
+	if !m.gate.Indexed {
+		b.WriteString(HintStyle.Render("   (not in the public index; unscored means unvetted, not safe)") + "\n")
+	}
+	for _, f := range m.gate.Findings {
+		b.WriteString(WarnStyle.Render("   · "+f) + "\n")
+	}
+	if m.gate.Disclaimer != "" {
+		b.WriteString(HintStyle.Render("   "+m.gate.Disclaimer) + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 func (m AddFlowModel) renderFooter() string {
 	switch m.state {
 	case addStateSource:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"type", "source"}, {"enter", "scan"}, {"esc", "cancel"}})
 	case addStateSelect, addStateInstall:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"space", "toggle"}, {"tab", "select all"}, {"enter", "continue"}, {"esc", "cancel"}})
-	case addStateConfirm:
+	case addStateConfirm, addStateGate, addStateInstallOptIn:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"↑/↓", "choose"}, {"enter", "confirm"}, {"esc", "cancel"}})
 	default:
 		return flowFooter(m.width, m.sparkleIdx, []flowKey{{"wait", "working"}})

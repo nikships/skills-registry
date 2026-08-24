@@ -62,7 +62,7 @@ The client lives in `cli/internal/discover/`, deliberately separate from the cob
 
 Contract rules:
 
-- `skill_url` is exactly the `/blob/<sha>/<dir>` shape `registry.ParseGitHubURL` accepts, so a result feeds straight into `add` with no rewriting.
+- `skill_url` is exactly the `/blob/<sha>/<dir>` shape `registry.ParseGitHubURL` accepts, so a result feeds straight into `add` with no rewriting. Such an import is untrusted; see [Import gate](#import-gate).
 - The three score fields carry SkillNet's `evaluation.<score>.level` (`Good`, `Average`, or `Poor`) and are **empty when the index has no score**. An absent score means unscored and must render as such (the CLI prints `unscored`); it must never be presented as a pass.
 - The index's other fields are dropped, not passed through. Repository star counts in particular are never surfaced or ranked on: they belong to the host repository, not the individual skill.
 - Rows are deduplicated on `(name, skill_url)`, first occurrence winning, so the index's own ranking order survives.
@@ -95,6 +95,37 @@ Tests use `httptest` exclusively; no test contacts the live index.
 For a folder URL, `<ref>` may be a branch (including one containing slashes), a tag, or a full commit SHA; every Contents request is pinned to it so a moving branch cannot mix revisions. A branch name with slashes is disambiguated by probing successive `<ref>/<path>` splits, most-likely first, and treating a 404 as the wrong split. A `/blob/` link naming a file resolves to that file's directory, because the public skill index links `SKILL.md` itself. Paths from the API response are rejected unless every component is a safe single segment and the joined path stays inside the fetch directory, so a hostile response cannot write outside it. A folder with no `SKILL.md`, an empty folder, and a missing ref or path each fail with a message naming the resolved URL.
 
 The parser and fetch live in `cli/internal/registry/subtree.go` (`registry.ParseGitHubURL`, `registry.Fetcher`), next to the other GitHub helpers. The macOS app mirrors both in `mac-app/Sources/SkillsRegistryCore/GitHubTarget.swift` and `GitHubSubtree.swift`; the two implementations must accept exactly the same URL shapes, and their table tests are kept in lockstep.
+
+## Import gate
+
+Publishing a skill into the user's own registry is one revertible commit. Durably installing it into agent dot-folders is categorically different: from then on every agent loads that `SKILL.md` each session with no further prompt. `add` therefore separates the two and decides based on the source's origin.
+
+`cli/internal/trust/` owns the classification. `trust.Assess(source, trust.Options{Owners, FromDiscover})` returns an `Assessment` whose `Origin` is one of `local_path`, `own_repo`, `public_repo`, `remote_git`, or `discover`; `Origin.Untrusted()` is false only for the first two. The package is offline and parses the source string, so a caller can classify before fetching anything. `Owners` is the logins the user controls (`add` passes the configured registry repo's owner) and is compared case-insensitively; an empty list makes every GitHub source third-party, which fails safe. A `discover` pick is untrusted whatever its URL shape, because the user did not choose the URL.
+
+`cli/internal/importgate/` owns the review rules, apart from the cobra command so the CLI, the hub TUI, and the macOS app reach the same verdict:
+
+- `importgate.Label` renders one grade, mapping an absent grade to `unscored`. **This is a correctness requirement.** The public index leaves a grade empty when it never evaluated the skill; an empty cell reads as "fine". `Scores.Lines()` always renders all three grades so a confirmation screen cannot silently omit one.
+- `Scores.SafetyIsPoor()` is the blocker predicate. An unscored safety grade is not `Poor`, and is not a pass either: the import is still confirmed by the user.
+- `importgate.Evaluate(slug, scores, findings)` returns a `Review` carrying `Blocks` for a `Poor` safety grade (`poor_safety`) and for any local scan hit (`injection_scan`). `Review.Blocked()` means the import needs explicit consent, not that it is forbidden.
+
+`cli/internal/skillscan/` is the local scan: an offline regex pass over `SKILL.md` (frontmatter included, because a `description` is loaded as instructions too) in three categories — `prompt_injection`, `credential_exfiltration`, and `remote_execution`. There is no model, no network call, and no sandbox. Rules requiring a sink (a shell pipe, an HTTP POST) only fire when the sink is on the same line as the secret, which is what keeps documentation-shaped lines such as `curl -H "Authorization: Bearer $API_KEY" …` from warning. Output is bounded (three findings per rule, 24 overall) and input is capped at `MaxScanBytes`, so a hostile file cannot flood the terminal or stall an import. A clean result means "none of these patterns matched", never "safe"; `importgate.ScanDisclaimer` is the one-line statement of that, shown wherever findings are reported.
+
+Behavior for an untrusted source:
+
+| Path | Publish | Durable install | Blocker (`Poor` safety, or a scan hit) |
+|---|---|---|---|
+| Interactive | after the ordinary confirmation | only after an explicit yes, then the agent picker | extra confirmation whose default answer cancels |
+| `--json` / `--yes` | yes | only with `--install` | refused; needs `--allow-unsafe` |
+
+`--yes` deliberately does not clear a blocker: skipping prompts is not consent to import a skill graded unsafe. `--allow-unsafe` clears a blocker and nothing else — it never implies an install. On the `--json` path a refusal is both a `{"error": …}` payload naming `--allow-unsafe` and a non-zero exit, and nothing is published in that run. The payload also carries `source` (`origin`, `untrusted`, `reason`) and `install_skipped` / `install_skipped_reason` so a consumer never has to infer a skipped install from a short `installed` map.
+
+The index lookup (`discover.Client.Lookup`, keyed by `discover.SkillKey` so a revision difference between the pasted URL and the index's row does not matter) is a convenience: a failure or a miss degrades to unscored rather than blocking the import.
+
+Trusted sources are unchanged. A local path and a repository under the user's own owner publish and install as before, `publish` and `sync` are untouched (`publish` has never durable-installed and still does not), and a trusted `add` does not consult the public index at all.
+
+Nothing fetched is ever executed. `add` and `discover` copy `scripts/`, `references/`, and `assets/` as bytes; the only processes either spawns are `git` (clone-path sources) and `gh` (API calls). A test asserts that an executable `scripts/run.sh` in a fetched folder never runs.
+
+The hub's Add flow shares the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. Rendering decisions are made once on the cmd side so the two surfaces cannot disagree about whether a grade is missing. The macOS Discover pane is a separate ticket; `trust` and `importgate` are the surfaces it should call.
 
 ## Configuration and cache
 

@@ -28,9 +28,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nikships/skills-registry/cli/internal/registry"
 )
 
 const (
@@ -301,6 +304,47 @@ func mapResults(data []apiSkill) []Result {
 		out = append(out, r)
 	}
 	return out
+}
+
+// SkillKey reduces a skill URL to an identity that survives a revision
+// change: "owner/repo/path", lowercased. The index links a skill at whatever
+// commit it last indexed, so the SHA in a URL the user pasted and the SHA in
+// the index's own row routinely differ while naming the same folder. The bool
+// is false for anything that is not a github.com folder URL.
+func SkillKey(rawURL string) (string, bool) {
+	target, ok := registry.ParseGitHubURL(rawURL)
+	if !ok || !target.IsFolder() {
+		return "", false
+	}
+	return strings.ToLower(target.FullName() + "/" + strings.Trim(target.Path, "/")), true
+}
+
+// Lookup finds the index's row for one skill folder URL, so a caller that
+// already has a URL can read the grades the index assigned to it.
+//
+// The index has no lookup-by-URL endpoint, so this searches for the folder's
+// own name and keeps the row whose SkillKey matches. A miss is not an error:
+// the index simply has no row, which means unscored. The caller must treat
+// unscored as unvetted rather than as a pass.
+func (c *Client) Lookup(ctx context.Context, skillURL string) (Result, bool, error) {
+	key, ok := SkillKey(skillURL)
+	if !ok {
+		return Result{}, false, nil
+	}
+	name := path.Base(key)
+	if name == "." || name == "/" || name == "" {
+		return Result{}, false, nil
+	}
+	resp, err := c.Search(ctx, Query{Text: name, Limit: MaxLimit})
+	if err != nil {
+		return Result{}, false, err
+	}
+	for _, r := range resp.Results {
+		if got, ok := SkillKey(r.SkillURL); ok && got == key {
+			return r, true, nil
+		}
+	}
+	return Result{}, false, nil
 }
 
 // apiResponse is the subset of SkillNet's payload this package reads.

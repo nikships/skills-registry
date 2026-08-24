@@ -9,6 +9,7 @@ import (
 
 	"github.com/nikships/skills-registry/cli/internal/cache"
 	"github.com/nikships/skills-registry/cli/internal/config"
+	"github.com/nikships/skills-registry/cli/internal/importgate"
 	"github.com/nikships/skills-registry/cli/internal/registry"
 	"github.com/nikships/skills-registry/cli/internal/scan"
 	"github.com/nikships/skills-registry/cli/internal/tui"
@@ -109,7 +110,49 @@ func buildAddFlowDeps(cfg config.Config) tui.AddFlowDeps {
 		Publish:        registryPublishFn(cfg),
 		InstallTargets: installPickerTargets,
 		Install:        manageInstaller(cfg),
+		Gate:           hubImportGate(cfg),
 	}
+}
+
+// hubImportGate hands the hub's Add flow the same import gate the `add`
+// subcommand uses, so a public folder URL pasted into the hub is held to the
+// same rules as one passed on the command line.
+func hubImportGate(cfg config.Config) func(context.Context, string, []scan.Skill) (tui.ImportGate, error) {
+	return func(ctx context.Context, source string, skills []scan.Skill) (tui.ImportGate, error) {
+		g, err := buildGate(ctx, source, cfg, skills, false)
+		if err != nil {
+			return tui.ImportGate{}, err
+		}
+		return hubGateView(g), nil
+	}
+}
+
+// hubGateView projects the gate onto the TUI's data-only view. Rendering
+// decisions (which grade is missing, what a block says) are made here rather
+// than in the view, so the CLI and the hub cannot disagree about them.
+func hubGateView(g gate) tui.ImportGate {
+	out := tui.ImportGate{
+		Untrusted:  g.untrusted(),
+		Reason:     g.assessment.Reason,
+		ScoreLines: g.scores.Lines(),
+		Indexed:    g.indexed,
+		Disclaimer: importgate.ScanDisclaimer,
+	}
+	for _, r := range g.reviews {
+		for _, f := range r.Findings {
+			out.Findings = append(out.Findings, r.Slug+": "+f.String())
+		}
+	}
+	blocked := g.blocked()
+	if len(blocked) == 0 {
+		return out
+	}
+	reasons := make([]string, 0, len(blocked))
+	for _, r := range blocked {
+		reasons = append(reasons, r.Slug+": "+r.Summary())
+	}
+	out.BlockSummary = strings.Join(reasons, " | ")
+	return out
 }
 
 func buildPublishFlowDeps() tui.PublishFlowDeps {
