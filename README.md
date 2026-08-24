@@ -104,7 +104,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Fuzzy-search your registry returning top 10 matches | `skills-registry search [QUERY]` |
 | Pull one skill into the global cache (`~/.cache/skills-registry/skills/<slug>/`; override with `--dest`) | `skills-registry get <slug> [--dest PATH]` |
 | Push skills sitting in `.claude/skills` etc. into the registry | `skills-registry sync [--all]` |
-| Pull a skill from someone else's repo into yours + install locally | `skills-registry add <source> [--all]` |
+| Pull a skill from someone else's repo (or one folder of it) into yours + install locally | `skills-registry add <source> [--all]` |
 | Publish a new skill from a local folder | `skills-registry publish <path>` |
 | Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
 | Update the installed binary to the latest release | `skills-registry update` |
@@ -124,6 +124,29 @@ skills-registry get tweetclaw
 ```
 
 That keeps the public source repo as the import target while the user's registry owns the stored copy, version history, and local agent install. TweetClaw covers X/Twitter jobs such as tweet scraping, tweet and reply search, follower export, user lookup, media workflows, tweet monitoring, webhooks, giveaway draws, and approval-gated posting.
+
+### Import one skill folder out of a monorepo
+
+`add` also takes a GitHub folder URL — the `/tree/` link you get from the address bar, or the `/blob/` link the public skill index hands out:
+
+```bash
+skills-registry add https://github.com/owner/repo/tree/main/skills/pdf
+skills-registry add https://github.com/owner/repo/blob/<commit-sha>/skills/pdf
+```
+
+For those, only that folder is downloaded, through the GitHub Contents API with your existing `gh` credentials — `SKILL.md` plus `scripts/`, `references/`, `assets/`, and anything else nested inside it. The parent repository is never cloned, so pulling one skill out of a 100k-star monorepo costs a handful of API calls instead of a full clone. `<ref>` may be a branch (including one containing slashes), a tag, or a full commit SHA. Point the URL at a `SKILL.md` and its folder is imported; point it at a folder of skill folders and every skill inside is offered.
+
+Everything else keeps the previous behavior: `owner/repo` shorthand, a bare `github.com/owner/repo` link, a `/tree/<branch>` link with no folder, and any non-GitHub git URL are shallow-cloned (`--depth=1 --single-branch`) and walked for every nested `SKILL.md`.
+
+| Source | Behavior |
+|---|---|
+| `./local/path` | Used in place, no copy. |
+| `owner/repo` | Shallow clone, every nested `SKILL.md`. |
+| `https://github.com/owner/repo` | Shallow clone. |
+| `https://github.com/owner/repo/tree/<branch>` | Shallow clone, branch pinned. |
+| `https://github.com/owner/repo/tree/<ref>/<dir>` | Contents-API fetch of `<dir>` only. |
+| `https://github.com/owner/repo/blob/<sha>/<dir>` | Contents-API fetch of `<dir>` only. |
+| `https://gitlab.com/owner/repo.git`, `git@…` | Shallow clone, as-is. |
 
 ### `remove`: delete a skill end-to-end
 

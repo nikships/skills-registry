@@ -34,6 +34,23 @@ The bulk initial import uses `git push` over HTTPS with credentials configured b
 
 Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
 
+## Add sources
+
+`add` accepts a local directory, `owner/repo` shorthand, any git URL, and GitHub folder URLs in both the `/tree/` and `/blob/` forms:
+
+| Source | Resolution |
+|---|---|
+| `./path` | Used in place. |
+| `owner/repo` | `git clone --depth=1 --single-branch https://github.com/owner/repo.git` |
+| `https://github.com/owner/repo` | Shallow clone of the default branch. |
+| `https://github.com/owner/repo/tree/<branch>` | Shallow clone with `--branch <branch>`. |
+| `https://github.com/owner/repo/{tree,blob}/<ref>/<dir>` | Recursive GitHub Contents API fetch of `<dir>` only, no clone. |
+| Any other git URL | Cloned as-is. |
+
+For a folder URL, `<ref>` may be a branch (including one containing slashes), a tag, or a full commit SHA; every Contents request is pinned to it so a moving branch cannot mix revisions. A branch name with slashes is disambiguated by probing successive `<ref>/<path>` splits, most-likely first, and treating a 404 as the wrong split. A `/blob/` link naming a file resolves to that file's directory, because the public skill index links `SKILL.md` itself. Paths from the API response are rejected unless every component is a safe single segment and the joined path stays inside the fetch directory, so a hostile response cannot write outside it. A folder with no `SKILL.md`, an empty folder, and a missing ref or path each fail with a message naming the resolved URL.
+
+The parser and fetch live in `cli/internal/registry/subtree.go` (`registry.ParseGitHubURL`, `registry.Fetcher`), next to the other GitHub helpers. The macOS app mirrors both in `mac-app/Sources/SkillsRegistryCore/GitHubTarget.swift` and `GitHubSubtree.swift`; the two implementations must accept exactly the same URL shapes, and their table tests are kept in lockstep.
+
 ## Configuration and cache
 
 Configuration resolution is:
@@ -57,7 +74,7 @@ The agent catalogue remains centralized in `cli/internal/agents/agents.go`. `.mc
 
 ## macOS app
 
-The app manages the same registry and configuration as the CLI. It supports GitHub device-flow login, browsing and fuzzy search, publish/remove, bulk import, and CLI installation. Shared slug, frontmatter, fuzzy-scoring, GitHub-write, and gateway-template contracts must remain aligned between Go and Swift.
+The app manages the same registry and configuration as the CLI. It supports GitHub device-flow login, browsing and fuzzy search, publish/remove, bulk import, and CLI installation. Shared slug, frontmatter, fuzzy-scoring, GitHub-write, add-source URL parsing, and gateway-template contracts must remain aligned between Go and Swift. The app's Add field takes the same folder URLs as the CLI and likewise fetches only that folder.
 
 ## Verification
 

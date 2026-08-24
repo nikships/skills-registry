@@ -2,9 +2,11 @@ import SwiftUI
 import SkillsRegistryCore
 
 /// "Add" flow: pull skills from an external source (local path, `owner/repo`,
-/// a full GitHub/GitLab/git URL, or a GitHub `/tree/<ref>/<subpath>` deep
+/// a full GitHub/GitLab/git URL, or a GitHub `{tree|blob}/<ref>/<dir>` folder
 /// link), multi-select which to take, then publish them to the registry and
 /// durably install them into chosen agents. Mirrors `skills-registry add`.
+/// A folder link fetches only that folder over the Contents API, so importing
+/// one skill out of a monorepo never clones the repository.
 struct AddView: View {
     @EnvironmentObject var state: AppState
     @State private var source = ""
@@ -40,7 +42,7 @@ struct AddView: View {
         VStack(alignment: .leading, spacing: 10) {
             Eyebrow(text: "Add from source")
             Text("Add skills").font(.system(size: 22, weight: .semibold)).foregroundStyle(Brand.fg)
-            Text("Pull skills from a local folder, a GitHub `owner/repo`, a full git URL, or a GitHub `/tree/<branch>/<path>` link. Pick what to publish, then install them into your agents.")
+            Text("Pull skills from a local folder, a GitHub `owner/repo`, a full git URL, or a GitHub `/tree/` or `/blob/` folder link (fetched without cloning the repo). Pick what to publish, then install them into your agents.")
                 .font(.system(size: 13)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
 

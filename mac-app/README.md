@@ -66,7 +66,9 @@ Sources/SkillsRegistryCore/
   Keychain.swift        user-to-server token storage
   Agents.swift          56-entry dot-folder catalogue (port of cli/internal/agents)
   Scan.swift            local skill discovery + filesForUpload
-  SourceResolver.swift  resolve add source (local/owner-repo/git URL//tree link) → dir (+subpath)
+  SourceResolver.swift  resolve add source (local/owner-repo/git URL/folder link) → dir
+  GitHubTarget.swift    parse github.com repo/tree/blob URLs ── shared cross-language contract
+  GitHubSubtree.swift   fetch one folder via the Contents API (port of registry/subtree.go)
   LocalInstall.swift    write a skill's files into <agent>/skills/<slug>/ (port of install_local.go)
   LocalRemove.swift     clear CLI downloads + sweep agent dot-folders
   DeviceFlow.swift      GitHub App Device Flow (browser login, no client secret)
@@ -189,12 +191,15 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   CLI's install picker. Re-installing overwrites in place.
 - **Add from a source.** The **Add** sidebar section accepts a local path,
   `owner/repo`, a full GitHub/GitLab/`git@…` URL, or a GitHub
-  `/tree/<ref>/<subpath>` deep link. `SourceResolver` validates local paths
-  (relative-only, same rules as the CLI), shorthand-expands `owner/repo`,
-  and shallow-clones remote sources (narrowing to the subpath for `/tree/`
-  links). You multi-select discovered skills (dups already in the registry are
-  filtered out), then `publishAndInstall` publishes each and installs it into
-  the agents you pick.
+  `{tree|blob}/<ref>/<dir>` folder link. `SourceResolver` validates local paths
+  (relative-only, same rules as the CLI), shorthand-expands `owner/repo`, and
+  shallow-clones repo-level remote sources. A folder link is fetched through
+  the GitHub Contents API instead (`GitHubSubtree.swift`), so importing one
+  skill out of a monorepo never clones the repository. Accepted URL shapes are
+  parsed by `GitHubTarget`, kept in lockstep with the CLI's
+  `registry.ParseGitHubURL`. You multi-select discovered skills (dups already
+  in the registry are filtered out), then `publishAndInstall` publishes each
+  and installs it into the agents you pick.
 - **Remove end-to-end.** `remove(_:)` deletes the `<slug>/` subtree from the
   registry, then `LocalRemove` clears the CLI download (`<slug>/` +
   `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
