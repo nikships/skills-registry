@@ -55,11 +55,11 @@ pick (always at least .agents/skills).
 
 Accepted sources:
 
-  ./path/to/skills                              a local directory
-  owner/repo                                    shallow clone of the whole repo
+  ./path/to/skills                                a local directory
+  owner/repo                                      shallow clone of the whole repo
   https://github.com/owner/repo/tree/<ref>/<dir>  fetch only that folder
   https://github.com/owner/repo/blob/<sha>/<dir>  same, SHA-pinned
-  https://gitlab.com/owner/repo.git             any other git URL, cloned
+  https://gitlab.com/owner/repo.git               any other git URL, cloned
 
 A GitHub folder URL is fetched through the GitHub Contents API with your
 existing gh credentials, so importing one skill out of a large monorepo
