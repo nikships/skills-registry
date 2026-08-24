@@ -37,6 +37,45 @@ extension AppState {
                    folder: "~/.cursor/skills/changelog-writer", source: "~/.cursor/skills"),
     ]
 
+    /// Fixture rows for the Discover pane. They carry the same grade shapes the
+    /// real index returns, including a `Poor` row and one the index never
+    /// graded, so both consent paths are reachable offline.
+    static let demoDiscoverResults: [DiscoverResult] = [
+        DiscoverResult(name: "pdf-form-filler", description: "Fill and flatten PDF AcroForms from a JSON payload, then verify every field landed.",
+                       author: "openclaw", category: "Productivity",
+                       skillURL: "https://github.com/openclaw/openclaw/blob/1300b22/skills/pdf-form-filler",
+                       safety: "Good", completeness: "Good", executability: "Average"),
+        DiscoverResult(name: "pdf-extract", description: "Pull text, tables, and embedded images out of scanned or digital PDFs with layout preserved.",
+                       author: "docwrangler", category: "AIGC",
+                       skillURL: "https://github.com/docwrangler/skills/blob/main/pdf-extract",
+                       safety: "Average", completeness: "Good", executability: "Good"),
+        DiscoverResult(name: "pdf-redact", description: "Redact names, addresses, and account numbers from a PDF before sharing it.",
+                       author: "privacy-tools", category: "Security",
+                       skillURL: "https://github.com/privacy-tools/agent-skills/blob/v2/skills/pdf-redact",
+                       safety: "Good", completeness: "Average", executability: "Average"),
+        DiscoverResult(name: "pdf-scraper", description: "Bulk-download PDFs from a site and pipe each one through a summarizer.",
+                       author: "anon", category: "Data",
+                       skillURL: "https://github.com/anon/pdf-scraper/blob/main/skills/pdf-scraper",
+                       safety: "Poor", completeness: "Average", executability: "Poor"),
+        DiscoverResult(name: "pdf-to-slides", description: "Turn a long PDF report into a deck outline with one slide per section.",
+                       author: "deckbot", category: "Productivity",
+                       skillURL: "https://github.com/deckbot/skills/blob/main/pdf-to-slides"),
+    ]
+
+    /// Demo-mode search: filters the fixtures on the query so the pane behaves
+    /// like the real one, and reports a miss as an empty result set rather than
+    /// an error.
+    static func demoDiscoverResponse(_ query: DiscoverQuery) throws -> DiscoverResponse {
+        let q = try query.normalized()
+        let needle = q.text.lowercased()
+        let hits = demoDiscoverResults.filter {
+            $0.name.lowercased().contains(needle) || $0.description.lowercased().contains(needle)
+                || $0.category.lowercased().contains(needle)
+        }
+        return DiscoverResponse(source: DiscoverClient.source, query: q.text,
+                                mode: q.mode.rawValue, results: Array(hits.prefix(q.limit)))
+    }
+
     static func demoDetail(_ slug: String) -> SkillDetail {
         let match = demoSkills.first { $0.slug == slug }
         let name = match?.name ?? slug

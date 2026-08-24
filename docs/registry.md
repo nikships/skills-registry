@@ -145,7 +145,9 @@ Trusted sources are unchanged. A local path and a repository under the user's ow
 
 Nothing fetched is ever executed. `add` and `discover` copy `scripts/`, `references/`, and `assets/` as bytes; the only processes either spawns are `git` (clone-path sources) and `gh` (API calls). A test asserts that an executable `scripts/run.sh` in a fetched folder never runs.
 
-The hub's Add flow and the Discover picker share the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. `importGateHook(cfg, fromDiscover)` builds the hook: the hub passes `false`, the Discover picker passes `true`. Rendering decisions are made once on the cmd side so the surfaces cannot disagree about whether a grade is missing. The hook also receives the resolved directory, because the same call that reviews the fetched files is what then stamps them. The macOS Discover pane is a separate ticket; `trust` and `importgate` are the surfaces it should call.
+The hub's Add flow and the Discover picker share the gate through `tui.AddFlowDeps.Gate`, which returns the data-only `tui.ImportGate` (pre-rendered score lines, findings, and block summary) built by `hubGateView`. `importGateHook(cfg, fromDiscover)` builds the hook: the hub passes `false`, the Discover picker passes `true`. Rendering decisions are made once on the cmd side so the surfaces cannot disagree about whether a grade is missing. The hook also receives the resolved directory, because the same call that reviews the fetched files is what then stamps them.
+
+`mac-app/Sources/SkillsRegistryCore/ImportGate.swift` is the Swift mirror of `importgate` plus the parts of `trust` and `provenance.go` the app needs: `ImportGate.label` maps an absent grade to `unscored`, `ImportScores.safetyIsPoor` is the same blocker predicate, `ImportTrust.assess` returns the same five origins with the same `untrusted` rule, and `ImportProvenance` derives and stamps the two frontmatter keys. `ImportDecision` states the write policy as data the UI cannot route around: `permitted` is false for a blocker until the user acknowledges it, `installPermitted` requires an explicit opt-in, and neither consent implies the other (the same reason `--allow-unsafe` never implies `--install`). The macOS pane computes no local scan, because it fetches nothing before the user confirms; `ImportBlockKind` keeps the `injection_scan` case so a later scanning surface slots in unchanged.
 
 ## Import provenance
 
@@ -200,7 +202,16 @@ The agent catalogue remains centralized in `cli/internal/agents/agents.go`. `.mc
 
 ## macOS app
 
-The app manages the same registry and configuration as the CLI. It supports GitHub device-flow login, browsing and fuzzy search, publish/remove, bulk import, and CLI installation. Shared slug, frontmatter, fuzzy-scoring, GitHub-write, add-source URL parsing, and gateway-template contracts must remain aligned between Go and Swift. The app's Add field takes the same folder URLs as the CLI and likewise fetches only that folder.
+The app manages the same registry and configuration as the CLI. It supports GitHub device-flow login, browsing and fuzzy search, publish/remove, bulk import, public-index discovery, and CLI installation. Shared slug, frontmatter, fuzzy-scoring, GitHub-write, add-source URL parsing, discover-contract, import-gate, and gateway-template contracts must remain aligned between Go and Swift. The app's Add field takes the same folder URLs as the CLI and likewise fetches only that folder.
+
+### Discover pane
+
+`Discover` is the fourth sidebar section, kept distinct from Browse (the user's own registry) and Add (a URL the user already has). It reads the index through `DiscoverClient` in `mac-app/Sources/SkillsRegistryCore/Discover.swift`, the Swift mirror of `cli/internal/discover`, so the pane needs neither the CLI binary nor a credential:
+
+- `DiscoverResult` encodes to exactly the published keys (`name`, `description`, `author`, `category`, `skill_url`, `safety`, `completeness`, `executability`), and a test pins that set. Rows are deduplicated on (name, `skill_url`) with the first occurrence winning, so the index's own ranking order survives and the pane never re-sorts on popularity.
+- The endpoint is `DiscoverClient.defaultBaseURL`, overridable through the same `SKILLS_DISCOVER_URL` variable; tests inject a `DiscoverTransporting` fake instead of reaching the network. The request is built in the client rather than through `GitHubAPI`, its only headers are `Accept` and `User-Agent`, cookies are off, and the shipped `URLSession` is ephemeral with cookie and credential storage nil. A test asserts the exact header set and that no credential-shaped parameter reaches the URL.
+- One 10-second timeout covers the request, the body is size-capped, and every failure (unreachable, timeout, non-2xx, non-JSON, wrong-shaped JSON) throws with no partial response. The pane then renders an inline error and no list at all, so "the index is unreachable" and "the index has no match" never look alike, and the rest of the app stays usable.
+- Import resolves the row's `skill_url` through the existing `SourceResolver`, so only that folder is fetched over the Contents API and importing one skill out of a monorepo never clones it. The copy is stamped with `category` + `source_url` before publishing, and the confirmation sheet keeps "also install into agents" off by default; a `Poor` safety grade needs a second acknowledgement whose absence disables the confirm button. Grades render through `ImportScores.lines`, always all three, with an absent grade shown as `unscored`.
 
 ## Verification
 
