@@ -307,10 +307,12 @@ final class AppState: ObservableObject {
     // MARK: - add (resolve external source → publish + install)
 
     /// Resolve an `add` source (local path / owner-repo / git URL / GitHub
-    /// `/tree/` URL), discover its skills, and filter out slugs already in the
-    /// registry (dup-safe like `importSkills`). The resolved temp clone is kept
-    /// alive until the next `resolveAndScan` or a `publishAndInstall` call so
-    /// the discovered `folder` paths stay readable for upload.
+    /// `{tree|blob}` folder URL), discover its skills, and filter out slugs
+    /// already in the registry (dup-safe like `importSkills`). A folder URL is
+    /// fetched through the Contents API, so a monorepo link never clones the
+    /// repository. The resolved temp dir is kept alive until the next
+    /// `resolveAndScan` or a `publishAndInstall` call so the discovered
+    /// `folder` paths stay readable for upload.
     /// Returns the discovered (dup-filtered) skills, or `nil` if the source
     /// couldn't be resolved/scanned — letting the caller distinguish a fetch
     /// failure from a genuinely empty result. `trustedLocalDir` relaxes the
@@ -323,9 +325,10 @@ final class AppState: ObservableObject {
         let cwd = FileManager.default.currentDirectoryPath
         do {
             let resolved = try await SourceResolver.resolve(
-                source, home: home, cwd: cwd, allowAbsoluteLocal: trustedLocalDir)
+                source, home: home, cwd: cwd, folderFetcher: api,
+                allowAbsoluteLocal: trustedLocalDir)
             addCleanup = resolved.cleanup
-            let discovered = Scan.discover([Scan.Source(path: resolved.scanRoot, label: source)])
+            let discovered = Scan.discover([Scan.Source(path: resolved.dir, label: source)])
             // Normalize both sides so a local "simplify_swarm" dedupes against a
             // registry "simplify-swarm" (mirrors Go scan.DedupeAgainst).
             let existing = Set(skills.map { normalizeForMatch($0.slug) })

@@ -47,11 +47,23 @@ func newAddCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "add <source>",
-		Short: "Add skills from an external source (path, owner/repo, or git URL) to the registry + install locally",
-		Long: `Clones (or uses) the source, discovers every SKILL.md inside it, lets
-you multi-select what to publish, pushes the selected skills to your
-GitHub registry repo, and durably installs them into the agent
-dot-folders you pick (always at least .agents/skills).`,
+		Short: "Add skills from an external source (path, owner/repo, git URL, or GitHub folder URL) to the registry + install locally",
+		Long: `Resolves the source, discovers every SKILL.md inside it, lets you
+multi-select what to publish, pushes the selected skills to your GitHub
+registry repo, and durably installs them into the agent dot-folders you
+pick (always at least .agents/skills).
+
+Accepted sources:
+
+  ./path/to/skills                              a local directory
+  owner/repo                                    shallow clone of the whole repo
+  https://github.com/owner/repo/tree/<ref>/<dir>  fetch only that folder
+  https://github.com/owner/repo/blob/<sha>/<dir>  same, SHA-pinned
+  https://gitlab.com/owner/repo.git             any other git URL, cloned
+
+A GitHub folder URL is fetched through the GitHub Contents API with your
+existing gh credentials, so importing one skill out of a large monorepo
+never clones the repository.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
@@ -323,26 +335,58 @@ func resolveSourceQuiet(ctx context.Context, source string) (string, func(), err
 }
 
 func resolveSourceWithNotice(ctx context.Context, source string, announce bool) (string, func(), error) {
-	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "/") || strings.HasPrefix(source, "../") || strings.HasPrefix(source, "~") {
-		path, err := validateLocalSourcePath(source)
-		if err != nil {
-			return "", noopCleanup, err
-		}
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return "", noopCleanup, err
-		}
-		info, err := os.Stat(abs)
-		if err != nil || !info.IsDir() {
-			return "", noopCleanup, fmt.Errorf("not a directory: %s", source)
-		}
-		return abs, noopCleanup, nil
+	if isLocalSourcePath(source) {
+		return resolveLocalSource(source)
 	}
+	target, isGitHub := registry.ParseGitHubURL(source)
+	if isGitHub && target.IsFolder() {
+		return fetchGitHubFolder(ctx, target, announce)
+	}
+	url, ref := cloneURLAndRef(source, target, isGitHub)
+	return cloneSource(ctx, url, ref, announce)
+}
 
-	url := source
-	if ghShorthandRe.MatchString(source) {
-		url = "https://github.com/" + source + ".git"
+func isLocalSourcePath(source string) bool {
+	return strings.HasPrefix(source, "./") || strings.HasPrefix(source, "/") ||
+		strings.HasPrefix(source, "../") || strings.HasPrefix(source, "~")
+}
+
+func resolveLocalSource(source string) (string, func(), error) {
+	path, err := validateLocalSourcePath(source)
+	if err != nil {
+		return "", noopCleanup, err
 	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", noopCleanup, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil || !info.IsDir() {
+		return "", noopCleanup, fmt.Errorf("not a directory: %s", source)
+	}
+	return abs, noopCleanup, nil
+}
+
+// cloneURLAndRef maps a non-folder source to the URL git should clone and the
+// branch to pin, if any. `owner/repo` shorthand expands to a GitHub HTTPS
+// remote; a github.com repo or `/tree/<branch>` link cannot be handed to git
+// verbatim, so it becomes the clone URL plus its branch; anything else (GitLab,
+// `git@…`) is cloned as-is. A full commit SHA is dropped because
+// `git clone --branch <sha>` fails.
+func cloneURLAndRef(source string, target registry.GitHubTarget, isGitHub bool) (string, string) {
+	switch {
+	case ghShorthandRe.MatchString(source):
+		return "https://github.com/" + source + ".git", ""
+	case isGitHub && target.RefIsSHA():
+		return target.CloneURL(), ""
+	case isGitHub:
+		return target.CloneURL(), target.Ref
+	default:
+		return source, ""
+	}
+}
+
+func cloneSource(ctx context.Context, url, ref string, announce bool) (string, func(), error) {
 	tmp, err := os.MkdirTemp("", "skills-registry-add-")
 	if err != nil {
 		return "", noopCleanup, err
@@ -351,12 +395,63 @@ func resolveSourceWithNotice(ctx context.Context, source string, announce bool) 
 	if announce {
 		fmt.Println(tui.HintStyle.Render("cloning " + url + " …"))
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--single-branch", url, tmp)
+	args := []string{"clone", "--depth", "1", "--single-branch"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, url, tmp)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
 		return "", noopCleanup, fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(out)))
 	}
 	return tmp, cleanup, nil
+}
+
+// newFolderFetcher builds the GitHub Contents-API fetcher used for folder
+// URLs. Tests swap it for one backed by a fake `gh` runner.
+var newFolderFetcher = func() (*registry.Fetcher, error) { return registry.NewFetcher() }
+
+// fetchGitHubFolder downloads only `target`'s folder into a temp dir and
+// returns that dir as the source root, so the caller's existing discover →
+// select → publish pipeline runs unchanged. The parent repository is never
+// cloned, which is what makes importing one skill out of a monorepo viable.
+func fetchGitHubFolder(ctx context.Context, target registry.GitHubTarget, announce bool) (string, func(), error) {
+	fetcher, err := newFolderFetcher()
+	if err != nil {
+		return "", noopCleanup, err
+	}
+	tmp, err := os.MkdirTemp("", "skills-registry-add-")
+	if err != nil {
+		return "", noopCleanup, err
+	}
+	cleanup := func() { _ = os.RemoveAll(tmp) }
+	if announce {
+		fmt.Println(tui.HintStyle.Render("fetching " + target.Path + " from " + target.FullName() + " …"))
+	}
+	folder, err := fetcher.FetchFolder(ctx, target, tmp)
+	if err != nil {
+		cleanup()
+		return "", noopCleanup, err
+	}
+	if !containsSkillFile(folder.Paths) {
+		cleanup()
+		return "", noopCleanup, fmt.Errorf(
+			"%s has no %s (found %d file(s)); point the URL at a skill folder or its parent",
+			folder.Target.WebURL(), scan.MainFileName, len(folder.Paths))
+	}
+	return tmp, cleanup, nil
+}
+
+// containsSkillFile reports whether any fetched path is a SKILL.md, at the
+// folder root or nested one level down (a folder of skills).
+func containsSkillFile(paths []string) bool {
+	for _, p := range paths {
+		if filepath.Base(p) == scan.MainFileName {
+			return true
+		}
+	}
+	return false
 }
 
 func validateLocalSourcePath(source string) (string, error) {

@@ -66,30 +66,34 @@ final class SourceResolverTests: XCTestCase {
         XCTAssertThrowsError(try SourceResolver.validateTrustedLocalPath("a%2fb", cwd: "/tmp"))
     }
 
-    // MARK: GitHub /tree/ URL parsing
+    // MARK: clone URL / ref mapping (mirror of Go cloneURLAndRef)
 
-    func testParsesTreeURLWithSubpath() {
-        let parsed = SourceResolver.parseGitHubTreeURL("https://github.com/owner/repo/tree/main/skills/pdf")
-        XCTAssertEqual(parsed, SourceResolver.TreeURL(
-            cloneURL: "https://github.com/owner/repo.git", ref: "main", subpath: "skills/pdf"))
+    func testCloneURLAndRefForShorthand() {
+        let (url, ref) = SourceResolver.cloneURLAndRef("owner/repo", target: nil)
+        XCTAssertEqual(url, "https://github.com/owner/repo.git")
+        XCTAssertEqual(ref, "")
     }
 
-    func testParsesTreeURLWithoutSubpath() {
-        let parsed = SourceResolver.parseGitHubTreeURL("https://github.com/owner/repo/tree/dev")
-        XCTAssertEqual(parsed, SourceResolver.TreeURL(
-            cloneURL: "https://github.com/owner/repo.git", ref: "dev", subpath: nil))
+    func testCloneURLAndRefPinsBranchForTreeURL() {
+        let target = GitHubTarget.parse("https://github.com/owner/repo/tree/dev")
+        let (url, ref) = SourceResolver.cloneURLAndRef("https://github.com/owner/repo/tree/dev", target: target)
+        XCTAssertEqual(url, "https://github.com/owner/repo.git")
+        XCTAssertEqual(ref, "dev")
     }
 
-    func testStripsDotGitFromTreeRepo() {
-        let parsed = SourceResolver.parseGitHubTreeURL("https://github.com/owner/repo.git/tree/main/x")
-        XCTAssertEqual(parsed?.cloneURL, "https://github.com/owner/repo.git")
-        XCTAssertEqual(parsed?.subpath, "x")
+    func testCloneURLAndRefDropsCommitSHA() {
+        // `git clone --branch <sha>` fails, so a SHA ref must not be pinned.
+        let sha = String(repeating: "a", count: 40)
+        let raw = "https://github.com/owner/repo/tree/\(sha)"
+        let (url, ref) = SourceResolver.cloneURLAndRef(raw, target: GitHubTarget.parse(raw))
+        XCTAssertEqual(url, "https://github.com/owner/repo.git")
+        XCTAssertEqual(ref, "")
     }
 
-    func testNonTreeURLReturnsNil() {
-        XCTAssertNil(SourceResolver.parseGitHubTreeURL("https://github.com/owner/repo"))
-        XCTAssertNil(SourceResolver.parseGitHubTreeURL("https://gitlab.com/owner/repo/tree/main"))
-        XCTAssertNil(SourceResolver.parseGitHubTreeURL("owner/repo"))
+    func testCloneURLAndRefPassesForeignURLThrough() {
+        let (url, ref) = SourceResolver.cloneURLAndRef("https://gitlab.com/owner/repo.git", target: nil)
+        XCTAssertEqual(url, "https://gitlab.com/owner/repo.git")
+        XCTAssertEqual(ref, "")
     }
 
     // MARK: end-to-end resolve (local + shorthand-without-clone)
@@ -100,10 +104,8 @@ final class SourceResolverTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: cwd) }
 
         let resolved = try await SourceResolver.resolve("./sub", home: cwd, cwd: cwd)
-        XCTAssertNil(resolved.subpath)
         XCTAssertEqual((resolved.dir as NSString).standardizingPath,
                        ((cwd + "/sub") as NSString).standardizingPath)
-        XCTAssertEqual(resolved.scanRoot, resolved.dir)
     }
 
     func testResolveLocalNotADirectoryThrows() async {
@@ -134,9 +136,210 @@ final class SourceResolverTests: XCTestCase {
         }
     }
 
-    // scanRoot composition with a subpath.
-    func testScanRootJoinsSubpath() {
-        let r = SourceResolver.Resolved(dir: "/tmp/clone", subpath: "skills/pdf", cleanup: {})
-        XCTAssertEqual(r.scanRoot, "/tmp/clone/skills/pdf")
+    // MARK: folder URLs resolve through the fetcher, never through git
+
+    /// A folder fetcher that materializes scripted files and records the target
+    /// it was handed. `gitPath` is pointed at a bogus binary in these tests, so
+    /// any fall-through to the clone path fails loudly.
+    private final class FakeFetcher: GitHubFolderFetching, @unchecked Sendable {
+        let files: [String: String]
+        private(set) var received: GitHubTarget?
+        var failure: Error?
+
+        init(files: [String: String]) { self.files = files }
+
+        func fetchFolder(_ target: GitHubTarget, into destRoot: String) async throws -> FetchedFolder {
+            received = target
+            if let failure { throw failure }
+            let dir = (destRoot as NSString)
+                .appendingPathComponent((target.path as NSString).lastPathComponent)
+            let fm = FileManager.default
+            for (rel, body) in files {
+                let full = (dir as NSString).appendingPathComponent(rel)
+                try fm.createDirectory(atPath: (full as NSString).deletingLastPathComponent,
+                                       withIntermediateDirectories: true)
+                try Data(body.utf8).write(to: URL(fileURLWithPath: full))
+            }
+            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            return FetchedFolder(dir: dir, target: target, paths: files.keys.sorted())
+        }
+    }
+
+    func testResolveFetchesTreeFolderURLWithoutCloning() async throws {
+        let fetcher = FakeFetcher(files: [
+            "SKILL.md": "---\nname: pdf\n---\nBody.",
+            "scripts/run.sh": "#!/bin/sh\n",
+        ])
+        let resolved = try await SourceResolver.resolve(
+            "https://github.com/owner/repo/tree/main/skills/pdf",
+            home: "/tmp", cwd: "/tmp",
+            gitPath: "/nonexistent/git-binary", folderFetcher: fetcher)
+        defer { resolved.cleanup() }
+
+        XCTAssertEqual(fetcher.received,
+                       GitHubTarget(owner: "owner", repo: "repo", ref: "main", path: "skills/pdf"))
+        let discovered = Scan.discover([Scan.Source(path: resolved.dir, label: "test")])
+        XCTAssertEqual(discovered.map(\.slug), ["pdf"])
+        // Only the requested folder lands in the temp dir.
+        let top = try FileManager.default.contentsOfDirectory(atPath: resolved.dir)
+        XCTAssertEqual(top, ["pdf"])
+    }
+
+    func testResolveFetchesBlobFolderURLWithCommitSHA() async throws {
+        let sha = "0123456789abcdef0123456789abcdef01234567"
+        let fetcher = FakeFetcher(files: ["SKILL.md": "---\nname: summarize\n---\nBody."])
+        let resolved = try await SourceResolver.resolve(
+            "https://github.com/openclaw/openclaw/blob/\(sha)/skills/summarize",
+            home: "/tmp", cwd: "/tmp",
+            gitPath: "/nonexistent/git-binary", folderFetcher: fetcher)
+        defer { resolved.cleanup() }
+
+        XCTAssertEqual(fetcher.received, GitHubTarget(owner: "openclaw", repo: "openclaw",
+                                                      ref: sha, path: "skills/summarize"))
+        XCTAssertEqual(Scan.discover([Scan.Source(path: resolved.dir, label: "t")]).map(\.slug),
+                       ["summarize"])
+    }
+
+    func testResolveFolderWithoutSkillFileErrors() async {
+        let fetcher = FakeFetcher(files: ["helper.go": "package utils"])
+        do {
+            _ = try await SourceResolver.resolve(
+                "https://github.com/owner/repo/tree/main/src/utils",
+                home: "/tmp", cwd: "/tmp",
+                gitPath: "/nonexistent/git-binary", folderFetcher: fetcher)
+            XCTFail("expected noSkillFile")
+        } catch let e as SourceResolver.ResolveError {
+            guard case .noSkillFile(let url, let count) = e else { return XCTFail("got \(e)") }
+            XCTAssertTrue(url.contains("src/utils"), "message should name the folder: \(url)")
+            XCTAssertEqual(count, 1)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
+    func testResolveFolderURLWithoutFetcherReportsUnavailable() async {
+        do {
+            _ = try await SourceResolver.resolve(
+                "https://github.com/owner/repo/tree/main/skills/pdf",
+                home: "/tmp", cwd: "/tmp", gitPath: "/nonexistent/git-binary")
+            XCTFail("expected folderFetchUnavailable")
+        } catch let e as SourceResolver.ResolveError {
+            XCTAssertEqual(e, .folderFetchUnavailable)
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
+    func testResolvePropagatesFetchFailure() async {
+        let fetcher = FakeFetcher(files: [:])
+        fetcher.failure = SubtreeError.empty("https://github.com/owner/repo/tree/main/skills/pdf")
+        do {
+            _ = try await SourceResolver.resolve(
+                "https://github.com/owner/repo/tree/main/skills/pdf",
+                home: "/tmp", cwd: "/tmp",
+                gitPath: "/nonexistent/git-binary", folderFetcher: fetcher)
+            XCTFail("expected the fetch error to surface")
+        } catch let e as SubtreeError {
+            XCTAssertEqual(e, .empty("https://github.com/owner/repo/tree/main/skills/pdf"))
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
+    func testRepoLevelURLDoesNotUseTheFetcher() async {
+        let fetcher = FakeFetcher(files: ["SKILL.md": "x"])
+        for source in ["owner/repo", "https://github.com/owner/repo",
+                       "https://github.com/owner/repo/tree/dev",
+                       "https://gitlab.com/owner/repo.git"] {
+            do {
+                _ = try await SourceResolver.resolve(source, home: "/tmp", cwd: "/tmp",
+                                                     gitPath: "/nonexistent/git-binary",
+                                                     folderFetcher: fetcher)
+                XCTFail("expected the clone path to fail for \(source)")
+            } catch is SourceResolver.ResolveError {
+                XCTAssertNil(fetcher.received, "\(source) must not use the folder fetcher")
+            } catch {
+                XCTFail("unexpected error \(error)")
+            }
+        }
+    }
+}
+
+/// Swift mirror of Go `TestParseGitHubURL`. Go and Swift must accept exactly
+/// the same URL shapes, so this table is kept in lockstep with
+/// `cli/internal/registry/subtree_test.go`.
+final class GitHubTargetTests: XCTestCase {
+    func testParseTable() {
+        let accepted: [(String, GitHubTarget)] = [
+            ("https://github.com/owner/repo/tree/main/skills/pdf",
+             GitHubTarget(owner: "owner", repo: "repo", ref: "main", path: "skills/pdf")),
+            ("https://github.com/openclaw/openclaw/blob/0123456789abcdef0123456789abcdef01234567/skills/summarize",
+             GitHubTarget(owner: "openclaw", repo: "openclaw",
+                          ref: "0123456789abcdef0123456789abcdef01234567", path: "skills/summarize")),
+            ("https://github.com/o/r/blob/main/skills/foo/SKILL.md",
+             GitHubTarget(owner: "o", repo: "r", ref: "main", path: "skills/foo/SKILL.md")),
+            ("https://github.com/owner/repo/tree/dev",
+             GitHubTarget(owner: "owner", repo: "repo", ref: "dev")),
+            ("https://github.com/owner/repo", GitHubTarget(owner: "owner", repo: "repo")),
+            ("https://github.com/owner/repo.git/tree/main/x",
+             GitHubTarget(owner: "owner", repo: "repo", ref: "main", path: "x")),
+            ("https://www.github.com/owner/repo/tree/main/skills/pdf/",
+             GitHubTarget(owner: "owner", repo: "repo", ref: "main", path: "skills/pdf")),
+            ("https://github.com/owner/repo/tree/main/skills/my%20skill",
+             GitHubTarget(owner: "owner", repo: "repo", ref: "main", path: "skills/my skill")),
+        ]
+        for (raw, want) in accepted {
+            XCTAssertEqual(GitHubTarget.parse(raw), want, "parse(\(raw))")
+        }
+
+        let rejected = [
+            "owner/repo",
+            "https://gitlab.com/owner/repo/tree/main/x",
+            "git@github.com:owner/repo.git",
+            "https://github.com/owner",
+            "https://github.com/owner/repo/pull/12",
+            "https://github.com/owner/repo/tree",
+            "https://github.com/owner/repo/tree/main/..%2f..%2fetc",
+            "https://github.com/owner/repo/tree/main/a%2Fb",
+        ]
+        for raw in rejected {
+            XCTAssertNil(GitHubTarget.parse(raw), "parse(\(raw)) should be nil")
+        }
+    }
+
+    func testAccessors() {
+        let folder = GitHubTarget(owner: "o", repo: "r", ref: "main", path: "skills/pdf")
+        XCTAssertTrue(folder.isFolder)
+        XCTAssertFalse(folder.refIsSHA)
+        XCTAssertEqual(folder.cloneURL, "https://github.com/o/r.git")
+        XCTAssertEqual(folder.webURL, "https://github.com/o/r/tree/main/skills/pdf")
+
+        XCTAssertTrue(GitHubTarget(owner: "o", repo: "r",
+                                  ref: String(repeating: "a", count: 40), path: "x").refIsSHA)
+
+        let repo = GitHubTarget(owner: "o", repo: "r")
+        XCTAssertFalse(repo.isFolder)
+        XCTAssertEqual(repo.webURL, "https://github.com/o/r")
+        XCTAssertEqual(GitHubTarget(owner: "o", repo: "r", ref: "dev").webURL,
+                       "https://github.com/o/r/tree/dev")
+    }
+
+    func testSplits() {
+        let got = GitHubTarget(owner: "o", repo: "r", ref: "release", path: "2026-01/skills/pdf").splits
+        XCTAssertEqual(got, [
+            GitHubTarget(owner: "o", repo: "r", ref: "release", path: "2026-01/skills/pdf"),
+            GitHubTarget(owner: "o", repo: "r", ref: "release/2026-01", path: "skills/pdf"),
+            GitHubTarget(owner: "o", repo: "r", ref: "release/2026-01/skills", path: "pdf"),
+        ])
+
+        let sha = GitHubTarget(owner: "o", repo: "r", ref: String(repeating: "b", count: 40), path: "a/b/c")
+        XCTAssertEqual(sha.splits, [sha], "a full SHA ref is unambiguous")
+    }
+
+    func testIsSafeSegment() {
+        XCTAssertTrue(GitHubTarget.isSafeSegment("SKILL.md"))
+        for bad in ["", ".", "..", "a/b", #"a\b"#] {
+            XCTAssertFalse(GitHubTarget.isSafeSegment(bad), "\(bad) should be unsafe")
+        }
     }
 }

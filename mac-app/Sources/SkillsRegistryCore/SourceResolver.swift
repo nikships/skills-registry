@@ -7,23 +7,25 @@ import Foundation
 /// - local relative path (`./`, `../`, `~`, or absolute `/…`) → validate
 ///   (relative-only, same rules as the Go CLI) and use in place.
 /// - `owner/repo` → `https://github.com/owner/repo.git`, shallow clone.
-/// - GitHub `/tree/<ref>/<subpath>` → clone the repo at `<ref>`, narrow
-///   discovery to `<subpath>`.
+/// - GitHub `{tree|blob}/<ref>/<dir>` → fetch only that folder through the
+///   GitHub Contents API. The parent repository is never cloned, so importing
+///   one skill out of a monorepo costs a handful of API calls.
+/// - GitHub repo or `/tree/<branch>` link → shallow clone, branch pinned.
 /// - GitLab / `git@…` / any other git URL → clone as-is.
+///
+/// Accepted URL shapes are kept identical to the Go CLI's
+/// `registry.ParseGitHubURL`.
 public enum SourceResolver {
     public struct Resolved: Sendable {
-        /// Absolute directory the clone / local path resolved to.
+        /// Absolute directory `Scan.discover` should walk: the local path, the
+        /// clone root, or the temp dir holding a fetched folder.
         public var dir: String
-        /// Optional subpath within `dir` to narrow discovery to (set for
-        /// GitHub `/tree/<ref>/<subpath>` URLs).
-        public var subpath: String?
         /// Best-effort temp-dir cleanup; no-op for local sources.
         public var cleanup: @Sendable () -> Void
 
-        /// The directory `Scan.discover` should actually walk.
-        public var scanRoot: String {
-            guard let sub = subpath, !sub.isEmpty else { return dir }
-            return (dir as NSString).appendingPathComponent(sub)
+        public init(dir: String, cleanup: @escaping @Sendable () -> Void) {
+            self.dir = dir
+            self.cleanup = cleanup
         }
     }
 
@@ -32,6 +34,8 @@ public enum SourceResolver {
         case notADirectory(String)
         case gitNotFound
         case cloneFailed(String)
+        case noSkillFile(String, Int)
+        case folderFetchUnavailable
 
         public var errorDescription: String? {
             switch self {
@@ -40,6 +44,11 @@ public enum SourceResolver {
             case .gitNotFound:
                 return "git was not found. Install the Xcode Command Line Tools (xcode-select --install) or Homebrew git."
             case .cloneFailed(let out): return "git clone failed: \(out)"
+            case .noSkillFile(let url, let count):
+                return "\(url) has no \(Scan.mainFileName) (found \(count) file(s)); "
+                    + "point the URL at a skill folder or its parent."
+            case .folderFetchUnavailable:
+                return "Sign in to GitHub to import a folder URL."
             }
         }
     }
@@ -47,48 +56,82 @@ public enum SourceResolver {
     private static let ghShorthand = try! NSRegularExpression(pattern: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#)
     private static let windowsDrive = try! NSRegularExpression(pattern: #"^[A-Za-z]:"#)
 
-    /// Resolve `source`. Clones remote sources into a temp dir (caller must
-    /// invoke `cleanup` when done). `gitPath` overrides git discovery (tests).
-    /// `allowAbsoluteLocal` relaxes the relative-only local-path guard for
-    /// directories the user explicitly chose via the native file picker
-    /// (`NSOpenPanel` always returns an absolute path); typed input keeps the
-    /// strict, Go-parity `validateLocalSourcePath` rules.
+    /// Resolve `source`. Fetches or clones remote sources into a temp dir
+    /// (caller must invoke `cleanup` when done). `gitPath` overrides git
+    /// discovery (tests). `folderFetcher` supplies the GitHub Contents-API
+    /// client used for folder URLs; without one, a folder URL cannot be
+    /// imported. `allowAbsoluteLocal` relaxes the relative-only local-path
+    /// guard for directories the user explicitly chose via the native file
+    /// picker (`NSOpenPanel` always returns an absolute path); typed input
+    /// keeps the strict, Go-parity `validateLocalSourcePath` rules.
     public static func resolve(_ source: String, home: String, cwd: String,
                                gitPath: String? = nil,
+                               folderFetcher: GitHubFolderFetching? = nil,
                                allowAbsoluteLocal: Bool = false) async throws -> Resolved {
         if isLocalPath(source) {
-            let abs: String
-            if allowAbsoluteLocal {
-                abs = try validateTrustedLocalPath(source, cwd: cwd)
-            } else {
-                abs = absolutePath(try validateLocalSourcePath(source), cwd: cwd)
-            }
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: abs, isDirectory: &isDir), isDir.boolValue else {
-                throw ResolveError.notADirectory(source)
-            }
-            return Resolved(dir: abs, subpath: nil, cleanup: {})
+            return try resolveLocal(source, cwd: cwd, allowAbsoluteLocal: allowAbsoluteLocal)
         }
-
-        var url = source
-        var ref: String?
-        var subpath: String?
-        if let tree = parseGitHubTreeURL(source) {
-            url = tree.cloneURL
-            ref = tree.ref
-            subpath = tree.subpath
-        } else if matches(ghShorthand, source) {
-            url = "https://github.com/\(source).git"
+        let target = GitHubTarget.parse(source)
+        if let target, target.isFolder {
+            guard let folderFetcher else { throw ResolveError.folderFetchUnavailable }
+            return try await fetchFolder(target, using: folderFetcher)
         }
+        let (url, ref) = cloneURLAndRef(source, target: target)
+        return try await clone(url: url, ref: ref, gitPath: gitPath)
+    }
 
+    private static func resolveLocal(_ source: String, cwd: String,
+                                     allowAbsoluteLocal: Bool) throws -> Resolved {
+        let abs = allowAbsoluteLocal
+            ? try validateTrustedLocalPath(source, cwd: cwd)
+            : absolutePath(try validateLocalSourcePath(source), cwd: cwd)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: abs, isDirectory: &isDir), isDir.boolValue else {
+            throw ResolveError.notADirectory(source)
+        }
+        return Resolved(dir: abs, cleanup: {})
+    }
+
+    /// Fetch only the target folder through the Contents API and return the
+    /// temp dir holding it, so the caller's discover → select → publish
+    /// pipeline runs unchanged against a folder that was never cloned.
+    private static func fetchFolder(_ target: GitHubTarget,
+                                    using fetcher: GitHubFolderFetching) async throws -> Resolved {
+        let tmp = try makeTempDir()
+        let cleanup: @Sendable () -> Void = { try? FileManager.default.removeItem(atPath: tmp) }
+        let folder: FetchedFolder
+        do {
+            folder = try await fetcher.fetchFolder(target, into: tmp)
+        } catch {
+            cleanup()
+            throw error
+        }
+        guard folder.paths.contains(where: { ($0 as NSString).lastPathComponent == Scan.mainFileName }) else {
+            cleanup()
+            throw ResolveError.noSkillFile(folder.target.webURL, folder.paths.count)
+        }
+        return Resolved(dir: tmp, cleanup: cleanup)
+    }
+
+    /// Map a non-folder source to the URL git should clone and the branch to
+    /// pin, if any. Mirrors Go `cloneURLAndRef`: `owner/repo` shorthand expands
+    /// to a GitHub HTTPS remote; a github.com repo or `/tree/<branch>` link
+    /// cannot be handed to git verbatim, so it becomes the clone URL plus its
+    /// branch; anything else (GitLab, `git@…`) is cloned as-is. A full commit
+    /// SHA is dropped because `git clone --branch <sha>` fails.
+    static func cloneURLAndRef(_ source: String, target: GitHubTarget?) -> (url: String, ref: String) {
+        if matches(ghShorthand, source) { return ("https://github.com/\(source).git", "") }
+        guard let target else { return (source, "") }
+        return (target.cloneURL, target.refIsSHA ? "" : target.ref)
+    }
+
+    private static func clone(url: String, ref: String, gitPath: String?) async throws -> Resolved {
         let git = try gitPath ?? resolveGitPath()
-        let tmp = (NSTemporaryDirectory() as NSString)
-            .appendingPathComponent("skills-registry-add-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+        let tmp = try makeTempDir()
         let cleanup: @Sendable () -> Void = { try? FileManager.default.removeItem(atPath: tmp) }
 
         var args = ["clone", "--depth", "1", "--single-branch"]
-        if let ref, !ref.isEmpty { args += ["--branch", ref] }
+        if !ref.isEmpty { args += ["--branch", ref] }
         args += [url, tmp]
 
         let result: Subprocess.Result
@@ -104,7 +147,14 @@ public enum SourceResolver {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             throw ResolveError.cloneFailed(msg)
         }
-        return Resolved(dir: tmp, subpath: subpath, cleanup: cleanup)
+        return Resolved(dir: tmp, cleanup: cleanup)
+    }
+
+    private static func makeTempDir() throws -> String {
+        let tmp = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("skills-registry-add-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+        return tmp
     }
 
     // MARK: - source classification
@@ -164,32 +214,6 @@ public enum SourceResolver {
         for segment in path.split(separator: "/", omittingEmptySubsequences: false) where segment == ".." {
             throw ResolveError.invalidLocalPath("traversal is not allowed")
         }
-    }
-
-    struct TreeURL: Equatable {
-        var cloneURL: String
-        var ref: String
-        var subpath: String?
-    }
-
-    /// Parse a GitHub `/tree/<ref>/<subpath>` URL into a clone URL + ref +
-    /// subpath. Returns nil for any URL that isn't a github.com tree link.
-    /// `<ref>` is taken as the first path segment after `/tree/`; the rest is
-    /// the subpath (may be empty → whole repo).
-    static func parseGitHubTreeURL(_ source: String) -> TreeURL? {
-        guard let comps = URLComponents(string: source),
-              let host = comps.host, host == "github.com" || host == "www.github.com"
-        else { return nil }
-        let parts = comps.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        // owner / repo / "tree" / ref / subpath...
-        guard parts.count >= 4, parts[2] == "tree" else { return nil }
-        let owner = parts[0]
-        var repo = parts[1]
-        if repo.hasSuffix(".git") { repo = String(repo.dropLast(4)) }
-        let ref = parts[3]
-        let subParts = parts.dropFirst(4)
-        let subpath = subParts.isEmpty ? nil : subParts.joined(separator: "/")
-        return TreeURL(cloneURL: "https://github.com/\(owner)/\(repo).git", ref: ref, subpath: subpath)
     }
 
     // MARK: - git discovery
