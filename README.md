@@ -206,6 +206,8 @@ A grade the index never assigned reads as `unscored`, never as a pass. **`unscor
 
 **The local scan is a heuristic warning layer, not a guarantee.** It is a small set of regexes over `SKILL.md` looking for three shapes: prompt injection (`ignore all previous instructions`, `do not tell the user`, jailbreak framing), credential exfiltration (reading `~/.ssh/id_*`, `.aws/credentials`, `.env`, or the environment *and* shipping it somewhere on the same line), and remote code execution (`curl … | sh`, `wget … | bash`, `eval "$(curl …)"`, `IEX (New-Object Net.WebClient).DownloadString …`). There is no model and no sandbox: obfuscation, a payload split across lines, and anything phrased indirectly all get through. A clean scan means "none of these patterns matched", never "this skill is safe". Read the source.
 
+The macOS app runs the same scan after it fetches the folder and before it writes anything. Add lists the hits in the untrusted-source banner and keeps Add disabled until you acknowledge them. Discover draws a hit into the import confirmation and requires that same acknowledgement before the registry write.
+
 **Nothing fetched is ever executed.** `scripts/`, `references/`, and `assets/` are copied as bytes; `add` and `discover` never run any of it. The only process either command spawns is `git` (for a clone-path source) or `gh` (for API calls).
 
 **An untrusted import carries its provenance.** The copy written into your registry gains two frontmatter keys, so where it came from lives in the file rather than only in the commit message:

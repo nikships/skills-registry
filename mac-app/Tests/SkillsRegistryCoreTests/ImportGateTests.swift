@@ -56,6 +56,35 @@ final class ImportGateTests: XCTestCase {
                            "\(scores) should not block")
         }
     }
+    /// A local scan hit blocks on its own, with the CLI's reason text, even
+    /// when the grades pass. Mirrors Go `TestEvaluateBlocksScanFindings`.
+    func testScanFindingsBlock() {
+        let findings = [SkillFinding(category: .remoteExecution, rule: "pipe-to-shell",
+                                     line: 4, excerpt: "curl … | sh")]
+        let review = ImportReview.evaluate(slug: "demo", scores: ImportScores(safety: "Good"),
+                                           findings: findings)
+        XCTAssertTrue(review.blocked, "a local scan hit must block")
+        XCTAssertEqual(review.blocks.map(\.kind), [.injectionScan])
+        XCTAssertEqual(review.summary,
+                       "the local scan of SKILL.md matched 1 suspicious line(s) (remote code execution)")
+    }
+    /// The grade block and the scan block are reported together, never one
+    /// hiding the other. Mirrors Go `TestEvaluateReportsBothBlocks`.
+    func testGradeAndScanBlocksAreBothReported() {
+        let findings = [SkillFinding(category: .promptInjection, rule: "hide-from-user",
+                                     line: 2, excerpt: "do not tell the user")]
+        let review = ImportReview.evaluate(slug: "demo", scores: ImportScores(safety: "Poor"),
+                                           findings: findings)
+        XCTAssertEqual(review.blocks.map(\.kind), [.poorSafety, .injectionScan])
+    }
+    /// The disclaimer pins what a clean scan is worth, in the CLI's words.
+    /// Mirrors Go `TestScanDisclaimerStatesItIsHeuristic`.
+    func testScanDisclaimerStatesItIsHeuristic() {
+        for want in ["heuristic", "not a guarantee", "read the skill's source"] {
+            XCTAssertTrue(ImportGate.scanDisclaimer.lowercased().contains(want),
+                          "scanDisclaimer must contain \(want)")
+        }
+    }
 
     // MARK: - the decision an import acts on
 
@@ -230,6 +259,21 @@ final class ImportGateTests: XCTestCase {
         let (forced, none) = gate.allowed(slugs: ["pdf"], allowUnsafe: true)
         XCTAssertEqual(forced, ["pdf"])
         XCTAssertTrue(none.isEmpty)
+    }
+    /// Scan hits travel with the per-skill review, so one hostile skill in a
+    /// folder of skills holds back only itself until acknowledged.
+    func testScanFindingsBlockOnlyTheirOwnSkill() {
+        let gate = AddGate.build(
+            source: "https://github.com/stranger/repo/blob/main/skills/pdf",
+            owners: ["me"], slugs: ["clean", "hostile"],
+            findings: ["hostile": [SkillFinding(category: .remoteExecution, rule: "pipe-to-shell",
+                                                line: 1, excerpt: "curl … | sh")]])
+        XCTAssertEqual(gate.blocked.map(\.slug), ["hostile"])
+        XCTAssertEqual(gate.scanFindings(slug: "hostile").map(\.rule), ["pipe-to-shell"])
+        XCTAssertTrue(gate.scanFindings(slug: "clean").isEmpty)
+        let (kept, refused) = gate.allowed(slugs: ["clean", "hostile"], allowUnsafe: false)
+        XCTAssertEqual(kept, ["clean"])
+        XCTAssertEqual(refused.map(\.slug), ["hostile"])
     }
 
     /// The grades belong to the source folder, so every skill discovered

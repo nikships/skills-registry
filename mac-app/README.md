@@ -47,8 +47,13 @@ call is short-circuited, so you can drive the whole app offline. The Discover
 pane arrives with a query already run, and the Add pane arrives with an
 untrusted fixture source (`AppState.demoAddSource`, resolving to the
 Poor-safety fixture row) already fetched, so the gated states are reachable
-without typing. Any other source typed into Add classifies through the real
-`AddGate.build`, degrading to unscored when no fixture row matches.
+without typing. That same fixture's `SKILL.md` (`AppState.demoScanHitMarkdown`)
+is run through `SkillScan`, so the Add banner lists the hits and Discover's
+pdf-scraper import holds on the same acknowledgement after you confirm.
+`--demo-scan-sheet` opens that held confirmation immediately (still demo-only;
+the findings are the scanner's). Any other source typed into Add classifies
+through the real `AddGate.build`, degrading to unscored when no fixture row
+matches, and scans clean.
 
 ---
 
@@ -75,6 +80,7 @@ Sources/SkillsRegistryCore/
   SourceResolver.swift  resolve add source (local/owner-repo/git URL/folder link) → dir
   Discover.swift        public skill-index client ── mirrors cli/internal/discover
   ImportGate.swift      grades, trust origins, write policy, provenance stamp ── mirrors importgate/trust
+  SkillScan.swift       heuristic injection scan ── mirrors cli/internal/skillscan
   GitHubTarget.swift    parse github.com repo/tree/blob URLs ── shared cross-language contract
   GitHubSubtree.swift   fetch one folder via the Contents API (port of registry/subtree.go)
   LocalInstall.swift    write a skill's files into <agent>/skills/<slug>/ (port of install_local.go)

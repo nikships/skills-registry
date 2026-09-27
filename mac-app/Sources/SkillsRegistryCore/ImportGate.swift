@@ -42,6 +42,14 @@ public enum ImportGate {
     public static let registryOnlyExplanation =
         "Publishes to your registry only. No agent folder is written unless you opt in, "
         + "and nothing under scripts/ is ever run."
+
+    /// The one-line statement of what the local scan is worth. Shown wherever
+    /// findings are reported so nobody reads a clean scan as a clean bill of
+    /// health. Mirrors Go `importgate.ScanDisclaimer` verbatim.
+    public static let scanDisclaimer =
+        "The local scan is a regex heuristic, not a guarantee: "
+        + "it catches obvious prompt injection, credential exfiltration, and pipe-to-shell lines, "
+        + "and nothing subtler. Read the skill's source."
 }
 
 /// The public index's grades for one skill. Each is `Good`, `Average`, `Poor`,
@@ -80,9 +88,9 @@ public struct ImportScores: Sendable, Hashable, Codable {
     }
 }
 
-/// Why an import needs explicit consent. The macOS pane fetches nothing before
-/// the user confirms, so only the grade-based block can arise before a fetch;
-/// the case list mirrors Go so a later local-scan surface slots in unchanged.
+/// Why an import needs explicit consent. The verdict's grade block can arise
+/// before a fetch; the scan block only after one, once the caller has the
+/// SKILL.md bytes to run `SkillScan` over.
 public enum ImportBlockKind: String, Sendable, Codable {
     case poorSafety = "poor_safety"
     case injectionScan = "injection_scan"
@@ -104,12 +112,24 @@ public struct ImportBlock: Sendable, Hashable, Codable {
 public struct ImportReview: Sendable, Hashable, Codable {
     public var slug: String
     public var scores: ImportScores
+    /// The local scan's hits for this skill, empty when the caller scanned
+    /// nothing (or matched nothing). The UI lists these next to the block.
+    public var findings: [SkillFinding]
     public var blocks: [ImportBlock]
 
-    public init(slug: String, scores: ImportScores, blocks: [ImportBlock] = []) {
+    public init(slug: String, scores: ImportScores,
+                findings: [SkillFinding] = [], blocks: [ImportBlock] = []) {
         self.slug = slug
         self.scores = scores
+        self.findings = findings
         self.blocks = blocks
+    }
+
+    /// The wire shape matches Go `importgate.Review`, whose findings key is
+    /// `scan_findings`.
+    enum CodingKeys: String, CodingKey {
+        case slug, scores, blocks
+        case findings = "scan_findings"
     }
 
     /// Whether the import needs explicit consent, not that it is forbidden.
@@ -121,15 +141,25 @@ public struct ImportReview: Sendable, Hashable, Codable {
     /// The blocks rendered as one line.
     public var summary: String { reasons.joined(separator: "; ") }
 
-    /// Produce the verdict for one skill. Mirrors Go `importgate.Evaluate`
-    /// minus the local-scan findings, which the macOS pane does not compute
-    /// (it never fetches a file before the user confirms).
-    public static func evaluate(slug: String, scores: ImportScores) -> ImportReview {
-        var review = ImportReview(slug: slug, scores: scores)
+    /// Produce the verdict for one skill. Both inputs are optional: no grades
+    /// means the index never saw the skill, and no findings means the
+    /// heuristic scan matched nothing (which is not a guarantee of safety).
+    /// A caller that has not fetched the skill yet passes no findings, which
+    /// is exactly what the Discover confirmation does: it reviews the grades
+    /// it has, and the scan block can only join after the fetch.
+    public static func evaluate(slug: String, scores: ImportScores,
+                                findings: [SkillFinding] = []) -> ImportReview {
+        var review = ImportReview(slug: slug, scores: scores, findings: findings)
         if scores.safetyIsPoor {
             review.blocks.append(ImportBlock(
                 kind: .poorSafety,
                 reason: "the public skill index graded this skill's safety \(ImportGate.levelPoor)"))
+        }
+        if !findings.isEmpty {
+            review.blocks.append(ImportBlock(
+                kind: .injectionScan,
+                reason: "the local scan of \(Scan.mainFileName) matched "
+                    + "\(findings.count) suspicious line(s) (\(SkillScan.summary(of: findings)))"))
         }
         return review
     }
@@ -174,8 +204,8 @@ public struct ImportDecision: Sendable, Equatable {
 
 /// The verdict for one Add-from-source invocation: where the source came from
 /// and, for an untrusted source, the per-skill review. Swift mirror of Go's
-/// `add_gate.go` gate, minus the local injection scan (which no macOS surface
-/// runs yet): the reviews carry only the grade-based blocks.
+/// `add_gate.go` gate, including the local injection scan over each fetched
+/// SKILL.md.
 public struct AddGate: Sendable, Equatable {
     /// The source as classified.
     public var assessment: ImportAssessment
@@ -206,10 +236,12 @@ public struct AddGate: Sendable, Equatable {
 
     /// Classify one Add source and review every discovered skill slug against
     /// the index row (`nil` when the lookup missed or failed, which degrades
-    /// to unscored). A trusted source is returned unreviewed: it publishes
-    /// byte-for-byte and never consults the index.
+    /// to unscored) and the local scan's hits for that skill. A trusted
+    /// source is returned unreviewed: it publishes byte-for-byte and never
+    /// consults the index.
     public static func build(source: String, owners: [String],
-                             slugs: [String], indexed: DiscoverResult? = nil) -> AddGate {
+                             slugs: [String], indexed: DiscoverResult? = nil,
+                             findings: [String: [SkillFinding]] = [:]) -> AddGate {
         let assessment = ImportTrust.assess(source, owners: owners)
         guard assessment.untrusted else {
             return AddGate(assessment: assessment)
@@ -224,7 +256,9 @@ public struct AddGate: Sendable, Equatable {
         // every skill discovered inside it. For a folder URL that is one
         // skill; for a folder of skills, a Poor grade on the parent holding
         // them back is the safe direction.
-        gate.reviews = slugs.map { ImportReview.evaluate(slug: $0, scores: gate.scores) }
+        gate.reviews = slugs.map {
+            ImportReview.evaluate(slug: $0, scores: gate.scores, findings: findings[$0] ?? [])
+        }
         return gate
     }
 
@@ -237,6 +271,12 @@ public struct AddGate: Sendable, Equatable {
     /// The review for one slug.
     public func review(slug: String) -> ImportReview? {
         reviews.first { $0.slug == slug }
+    }
+
+    /// The scan's hits for one slug, so a caller that only wants the findings
+    /// does not have to reach into the review. Mirrors Go `scanFindingsFor`.
+    public func scanFindings(slug: String) -> [SkillFinding] {
+        review(slug: slug)?.findings ?? []
     }
 
     /// Whether the selected skills may be published. A blocker needs

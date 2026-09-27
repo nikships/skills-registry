@@ -28,11 +28,14 @@ struct DiscoverView: View {
 
     /// A row the user asked to import, held while the confirmation sheet is up.
     /// `installIntoAgents` starts false, which is what makes registry-only the
-    /// default rather than a setting the user has to find.
-    private struct PendingImport: Identifiable {
+    /// default rather than a setting the user has to find. `scanned` is nil
+    /// until the post-fetch scan has run; a non-nil value, including empty,
+    /// means that consent was given with the findings in front of the user.
+    private struct PendingImport: Identifiable, Equatable {
         let result: DiscoverResult
         var installIntoAgents = false
         var acknowledgedBlock = false
+        var scanned: [SkillFinding]?
         var id: String { result.id }
     }
 
@@ -48,8 +51,10 @@ struct DiscoverView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Brand.bg)
-        .sheet(item: $pending) { item in
-            confirmSheet(item)
+        .sheet(item: $pending) { _ in
+            if let item = pending {
+                confirmSheet(item).id(item.scanned?.count ?? -1)
+            }
         }
         // Demo mode drives the whole app offline, so the pane arrives with a
         // query already run rather than requiring synthetic keystrokes.
@@ -57,6 +62,13 @@ struct DiscoverView: View {
             guard state.isDemo, !didSearch, query.isEmpty else { return }
             query = Self.demoQuery
             search()
+            // `--demo-scan-sheet` opens the post-fetch hold directly, so the
+            // scan-hit confirmation can be shown without a second click. The
+            // findings still come from `SkillScan`, not a hand-written list.
+            if ProcessInfo.processInfo.arguments.contains("--demo-scan-sheet"),
+               let row = AppState.demoDiscoverResults.first(where: { $0.name == "pdf-scraper" }) {
+                pending = PendingImport(result: row, scanned: AppState.demoScanFindings(for: row.skillURL))
+            }
         }
         .onDisappear { searchTask?.cancel() }
     }
@@ -174,6 +186,13 @@ struct DiscoverView: View {
                         // pane read.
                         DiscoverRow(result: row, selected: selected?.id == row.id)
                             .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.2)) { selected = row }
+                            }
+                            // The row is a tap target rather than a Button so its
+                            // name and grade stay in the accessibility tree. The
+                            // default action is that same tap, so VoiceOver and
+                            // the UI driver can select it.
+                            .accessibilityAction(.default) {
                                 withAnimation(.easeInOut(duration: 0.2)) { selected = row }
                             }
                             .accessibilityIdentifier("discoverRow-\(row.name)")
@@ -319,9 +338,9 @@ struct DiscoverView: View {
     /// its URL shape, so this states what will be written, keeps the durable
     /// install opt-in, and requires a second acknowledgement for a blocker.
     private func confirmSheet(_ item: PendingImport) -> some View {
-        let review = item.result.scores.any
-            ? ImportReview.evaluate(slug: item.result.name, scores: item.result.scores)
-            : ImportReview(slug: item.result.name, scores: item.result.scores)
+        let findings = item.scanned ?? []
+        let review = ImportReview.evaluate(slug: item.result.name, scores: item.result.scores,
+                                           findings: findings)
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 Eyebrow(text: "Untrusted import")
@@ -359,6 +378,11 @@ struct DiscoverView: View {
                 .toggleStyle(.checkbox)
                 .accessibilityIdentifier("discoverInstallToggle")
 
+                if !findings.isEmpty {
+                    ScanFindingsList(rows: findings.map { (item.result.name, $0) })
+                        .accessibilityIdentifier("discoverScanFindings")
+                }
+
                 if review.blocked {
                     blockWarning(review)
                 }
@@ -369,19 +393,25 @@ struct DiscoverView: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button("Cancel") { pending = nil }.buttonStyle(GhostButtonStyle())
-                Button {
-                    let confirmed = item
+                Button("Cancel") {
+                    state.scanBlockedImport = nil
                     pending = nil
-                    runImport(confirmed)
-                } label: { Text("Import") }
+                }.buttonStyle(GhostButtonStyle())
+                Button {
+                    Task { await advanceImport() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if importing { ProgressView().controlSize(.small) }
+                        Text(importing ? (item.scanned == nil ? "Scanning…" : "Importing…") : "Import")
+                    }
+                }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(review.blocked && !(pending?.acknowledgedBlock ?? false))
+                .disabled(importing || (review.blocked && !(pending?.acknowledgedBlock ?? false)))
                 .accessibilityIdentifier("discoverConfirmImport")
             }
             .padding(16)
         }
-        .frame(width: 480)
+        .frame(width: findings.isEmpty ? 480 : 540)
         .background(Brand.bg)
     }
 
@@ -422,20 +452,42 @@ struct DiscoverView: View {
         }
     }
 
-    private func runImport(_ item: PendingImport) {
+    /// Confirm, then fetch and scan, then write. The sheet stays up across the
+    /// scan: a hit is drawn into this same confirmation and the acknowledgement
+    /// is cleared, so the second click is the consent that was given with the
+    /// findings visible. A clean scan publishes on the first click.
+    private func advanceImport() async {
+        guard let item = pending else { return }
+        let seenFindings = item.scanned != nil
         let decision = ImportDecision(
             url: item.result.skillURL,
             scores: item.result.scores,
             installIntoAgents: item.installIntoAgents,
             allowUnsafe: item.acknowledgedBlock)
-        guard decision.permitted else { return }
+        // A grade block still has to be acknowledged before we fetch. A scan
+        // hit cannot be known yet, so it is not part of this check.
+        if !seenFindings && !decision.permitted { return }
         importing = true
-        Task {
-            let targets = decision.installPermitted
-                ? Agents.all().filter { $0.underHome || $0.universal }.filter(installTargetExists)
-                : []
-            await state.importDiscovered(item.result, targets: targets)
-            importing = false
+        let targets = decision.installPermitted
+            ? Agents.all().filter { $0.underHome || $0.universal }.filter(installTargetExists)
+            : []
+        let published = await state.importDiscovered(
+            item.result, targets: targets,
+            allowUnsafe: item.acknowledgedBlock,
+            scanAcknowledged: seenFindings && item.acknowledgedBlock)
+        importing = false
+        guard pending?.id == item.id else { return }
+        if published {
+            state.scanBlockedImport = nil
+            pending = nil
+            return
+        }
+        if let held = state.scanBlockedImport, held.result.id == item.result.id {
+            var updated = item
+            updated.scanned = held.refusal.findings
+            updated.acknowledgedBlock = false
+            pending = updated
+            state.scanBlockedImport = nil
         }
     }
 
