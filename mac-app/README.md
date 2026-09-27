@@ -43,7 +43,12 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline.
+call is short-circuited, so you can drive the whole app offline. Actions that
+would write to GitHub, including Publish, show an info toast (`Demo mode:
+would publish <slug>`) instead of failing silently. The detail GitHub button
+is disabled and its tooltip says why, so a demo session cannot open the
+fixture repository. Copy in the detail pane copies the file on screen and
+names that file in the toast.
 
 ---
 
@@ -277,8 +282,13 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
 `agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
+`copySkillFile`, `openOnGitHub`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
-so an automated driver can find them deterministically.
+so an automated driver can find them deterministically. Two demo-only launch
+arguments reach states the driver cannot: `--demo-select <slug>` opens that
+skill (rows are not AX-pressable), and `--demo-publish <path>` runs the
+publish flow for one folder shortly after launch, so the demo publish toast
+is reachable without driving the folder picker, which isn't scriptable.
 
 ---
 

@@ -495,7 +495,6 @@ final class AppState: ObservableObject {
 
     /// Publish a skill from a local folder containing SKILL.md.
     func publishFolder(_ url: URL) async {
-        guard let api, let repo else { return }
         let folder = url.path
         let main = (folder as NSString).appendingPathComponent("SKILL.md")
         guard FileManager.default.fileExists(atPath: main) else {
@@ -506,6 +505,8 @@ final class AppState: ObservableObject {
         let folderName = (folder as NSString).lastPathComponent
         let (name, desc) = Frontmatter.parseSummary(text, slug: folderName)
         let slug = slugify(name.isEmpty ? folderName : name)
+        if isDemo { demoToast("would publish \(slug)"); return }
+        guard let api, let repo else { return }
         // Normalize both sides so a separator/case-only variant already in the
         // registry is detected (mirrors Go scan.DedupeAgainst).
         let want = normalizeForMatch(slug)
@@ -683,6 +684,12 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - toast
+
+    /// Honest feedback for a demo-mode write: names what the action would
+    /// have done instead of silently doing nothing.
+    private func demoToast(_ what: String) {
+        showToast("Demo mode: \(what)", .info)
+    }
 
     func showToast(_ message: String, _ kind: ToastItem.Kind) {
         let item = ToastItem(message: message, kind: kind)

@@ -14,6 +14,8 @@ Skills Registry has four user-facing surfaces: release installers and the npm la
 
 Native macOS CI and Darwin CLI releases use the dedicated Aqua-session self-hosted runner labeled `mac-mini`. Linux, Windows, and untrusted fork jobs remain on GitHub-hosted runners. See [`.github/AGENTS.md`](../.github/AGENTS.md).
 
+In the macOS app, detail Copy copies the file on screen (a support file, not always `SKILL.md`) and names it in the confirmation. Demo mode does not perform GitHub writes: Publish reports what it would have done, and the GitHub button stays disabled.
+
 ## CLI flow
 
 Bare `skills-registry` opens the onboarding wizard when config is absent, the dashboard when config exists, and help for non-interactive or `--json` invocation.
