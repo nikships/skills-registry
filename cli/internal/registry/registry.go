@@ -410,9 +410,51 @@ func (c *Client) commitEntries(ctx context.Context, baseTreeSHA string, entries 
 	return newCommit.SHA, nil
 }
 
+// commitInitialEntries creates the initial commit on a branch with no HEAD
+// (empty repo): tree with no base, commit with no parents, then creates the
+// ref under refs/heads/<DefaultBranch>. Shared tail for writers that must
+// succeed on freshly created registries. Mirrors the Swift
+// GitHubWrites.commitInitialTree path.
+func (c *Client) commitInitialEntries(ctx context.Context, entries []treeEntry, message string) (string, error) {
+	treePayload, _ := json.Marshal(map[string]any{
+		"tree": entries,
+	})
+	var newTree struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/trees", c.Repo), treePayload, &newTree); err != nil {
+		return "", err
+	}
+
+	commitPayload, _ := json.Marshal(map[string]any{
+		"message": message,
+		"tree":    newTree.SHA,
+		"parents": []string{},
+	})
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/commits", c.Repo), commitPayload, &newCommit); err != nil {
+		return "", err
+	}
+
+	refPayload, _ := json.Marshal(map[string]any{
+		"ref": "refs/heads/" + c.DefaultBranch,
+		"sha": newCommit.SHA,
+	})
+	if err := c.postJSON(ctx, fmt.Sprintf("repos/%s/git/refs", c.Repo), refPayload, nil); err != nil {
+		return "", err
+	}
+	return newCommit.SHA, nil
+}
+
 func (c *Client) deleteOnce(ctx context.Context, slug string) (string, error) {
 	parentSHA, baseTreeSHA, err := c.headRefAndBaseTree(ctx)
 	if err != nil {
+		if isStatus(err, 404) || isStatus(err, 409) {
+			// Empty repo: nothing exists, so the slug can't either.
+			return "", ErrSlugNotFound
+		}
 		return "", err
 	}
 
@@ -458,13 +500,23 @@ func (c *Client) Publish(ctx context.Context, slug string, files map[string][]by
 
 func (c *Client) publishOnce(ctx context.Context, slug string, files map[string][]byte, message string) (string, error) {
 	parentSHA, baseTreeSHA, err := c.headRefAndBaseTree(ctx)
+	empty := false
 	if err != nil {
-		return "", err
+		if !isStatus(err, 404) && !isStatus(err, 409) {
+			return "", err
+		}
+		// Empty repo (no HEAD yet): no parent, no base tree, and no
+		// stale files to delete — the publish becomes the initial
+		// commit instead of surfacing the raw ref-read failure.
+		empty = true
 	}
 
-	previous, err := c.listTreePaths(ctx, baseTreeSHA, slug)
-	if err != nil {
-		return "", err
+	previous := map[string]struct{}{}
+	if !empty {
+		previous, err = c.listTreePaths(ctx, baseTreeSHA, slug)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	normalized := make(map[string][]byte, len(files))
@@ -504,6 +556,9 @@ func (c *Client) publishOnce(ctx context.Context, slug string, files map[string]
 		})
 	}
 
+	if empty {
+		return c.commitInitialEntries(ctx, entries, message)
+	}
 	return c.commitEntries(ctx, baseTreeSHA, entries, message, parentSHA)
 }
 
