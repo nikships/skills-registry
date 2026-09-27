@@ -9,15 +9,17 @@ import SkillsRegistryCore
 /// one skill out of a monorepo never clones the repository.
 struct AddView: View {
     @EnvironmentObject var state: AppState
-    @State private var source = ""
     @State private var fetching = false
-    @State private var discovered: [LocalSkill] = []
-    @State private var selected: Set<String> = []
-    @State private var didFetch = false
-    @State private var fetchFailed = false
     @State private var showPicker = false
     @State private var publishing = false
     @State private var progress: (Int, Int) = (0, 0)
+
+    /// Source, discovery, and selection live in `AppState` so switching
+    /// sections or re-theming the accent keeps the fetch and its picks.
+    /// Only transient UI (spinners, sheet, progress) stays local.
+    private var source: Binding<String> {
+        Binding(get: { state.addPane.source }, set: { state.addPane.source = $0 })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -30,7 +32,7 @@ struct AddView: View {
         .sheet(isPresented: $showPicker) {
             AgentPickerSheet(
                 title: "Install into which agents?",
-                subtitle: "\(selected.count) skill\(selected.count == 1 ? "" : "s") will be published to your registry, then installed into the agents you pick.",
+                subtitle: "\(state.addPane.selected.count) skill\(state.addPane.selected.count == 1 ? "" : "s") will be published to your registry, then installed into the agents you pick.",
                 confirmLabel: "Publish + install"
             ) { targets in
                 runAdd(targets: targets)
@@ -48,12 +50,12 @@ struct AddView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "link").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                TextField("owner/repo · https://github.com/… · ./local/path", text: $source)
+                TextField("owner/repo · https://github.com/… · ./local/path", text: source)
                     .textFieldStyle(.plain).font(.system(size: 13))
                     .onSubmit { fetch() }
                     .accessibilityIdentifier("addSourceField")
-                if !source.isEmpty {
-                    Button { source = "" } label: { Image(systemName: "xmark.circle.fill") }
+                if !state.addPane.source.isEmpty {
+                    Button { state.addPane.source = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(Brand.meta)
                 }
             }
@@ -70,7 +72,7 @@ struct AddView: View {
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(source.trimmingCharacters(in: .whitespaces).isEmpty || fetching || publishing)
+                .disabled(state.addPane.source.trimmingCharacters(in: .whitespaces).isEmpty || fetching || publishing)
                 .accessibilityIdentifier("addFetch")
 
                 Button { chooseLocalFolder() } label: {
@@ -79,22 +81,22 @@ struct AddView: View {
                 .buttonStyle(GhostButtonStyle())
                 .disabled(fetching || publishing)
 
-                if !discovered.isEmpty {
+                if !state.addPane.discovered.isEmpty {
                     Button {
-                        selected = selected.count == discovered.count ? [] : Set(discovered.map(\.slug))
+                        state.addPane.selected = state.addPane.selected.count == state.addPane.discovered.count ? [] : Set(state.addPane.discovered.map(\.slug))
                     } label: {
-                        Text(selected.count == discovered.count ? "Deselect all" : "Select all")
+                        Text(state.addPane.selected.count == state.addPane.discovered.count ? "Deselect all" : "Select all")
                     }.buttonStyle(.plain).foregroundStyle(Brand.accent).font(.system(size: 13))
                 }
                 Spacer()
                 Button { showPicker = true } label: {
                     HStack(spacing: 8) {
                         if publishing { ProgressView().controlSize(.small) }
-                        Text(publishing ? "Adding \(progress.0)/\(progress.1)…" : "Add \(selected.count) selected")
+                        Text(publishing ? "Adding \(progress.0)/\(progress.1)…" : "Add \(state.addPane.selected.count) selected")
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(selected.isEmpty || publishing || fetching)
+                .disabled(state.addPane.selected.isEmpty || publishing || fetching)
                 .accessibilityIdentifier("addSelected")
             }
         }
@@ -102,24 +104,24 @@ struct AddView: View {
     }
 
     @ViewBuilder private var results: some View {
-        if fetching && discovered.isEmpty {
+        if fetching && state.addPane.discovered.isEmpty {
             EmptyState(icon: "square.and.arrow.down",
                        title: "Fetching…",
                        subtitle: "Resolving the source and scanning it for skills.")
-        } else if fetchFailed {
+        } else if state.addPane.fetchFailed {
             EmptyState(icon: "exclamationmark.triangle",
                        title: "Fetch failed",
                        subtitle: "Couldn't resolve or scan that source — check the path or URL and try again.")
-        } else if discovered.isEmpty {
-            EmptyState(icon: didFetch ? "tray" : "square.and.arrow.down",
-                       title: didFetch ? "Nothing new to add" : "Fetch a source to begin",
-                       subtitle: didFetch
+        } else if state.addPane.discovered.isEmpty {
+            EmptyState(icon: state.addPane.didFetch ? "tray" : "square.and.arrow.down",
+                       title: state.addPane.didFetch ? "Nothing new to add" : "Fetch a source to begin",
+                       subtitle: state.addPane.didFetch
                         ? "No SKILL.md files found, or every discovered skill is already in your registry."
                         : "Enter a source above and press Fetch — we'll list the skills it contains.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(discovered) { sk in
+                    ForEach(state.addPane.discovered) { sk in
                         row(sk)
                         Divider().overlay(Brand.border).padding(.leading, 48)
                     }
@@ -131,12 +133,12 @@ struct AddView: View {
 
     private func row(_ sk: LocalSkill) -> some View {
         Button {
-            if selected.contains(sk.slug) { selected.remove(sk.slug) } else { selected.insert(sk.slug) }
+            if state.addPane.selected.contains(sk.slug) { state.addPane.selected.remove(sk.slug) } else { state.addPane.selected.insert(sk.slug) }
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: selected.contains(sk.slug) ? "checkmark.square.fill" : "square")
+                Image(systemName: state.addPane.selected.contains(sk.slug) ? "checkmark.square.fill" : "square")
                     .font(.system(size: 16))
-                    .foregroundStyle(selected.contains(sk.slug) ? Brand.accent : Brand.muted)
+                    .foregroundStyle(state.addPane.selected.contains(sk.slug) ? Brand.accent : Brand.muted)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
@@ -160,20 +162,13 @@ struct AddView: View {
         // onSubmit bypasses the disabled buttons, so guard here too: re-running
         // mid-publish would tear down the temp clone the publish is reading.
         guard !fetching && !publishing else { return }
-        let src = source.trimmingCharacters(in: .whitespaces)
+        let src = state.addPane.source.trimmingCharacters(in: .whitespaces)
         guard !src.isEmpty else { return }
         fetching = true
-        fetchFailed = false
+        state.addPane.fetchFailed = false
         Task {
-            if let found = await state.resolveAndScan(src, trustedLocalDir: trusted) {
-                discovered = found
-                selected = Set(found.map(\.slug))
-            } else {
-                discovered = []
-                selected = []
-                fetchFailed = true
-            }
-            didFetch = true
+            let found = await state.resolveAndScan(src, trustedLocalDir: trusted)
+            state.addPane = state.addPane.fetched(found)
             fetching = false
         }
     }
@@ -186,13 +181,13 @@ struct AddView: View {
         panel.prompt = "Use folder"
         panel.message = "Choose a folder containing skills"
         if panel.runModal() == .OK, let url = panel.url {
-            source = url.path
+            state.addPane.source = url.path
             fetch(trusted: true)
         }
     }
 
     private func runAdd(targets: [AgentTarget]) {
-        let chosen = discovered.filter { selected.contains($0.slug) }
+        let chosen = state.addPane.discovered.filter { state.addPane.selected.contains($0.slug) }
         guard !chosen.isEmpty else { return }
         publishing = true
         progress = (0, chosen.count)
@@ -203,9 +198,7 @@ struct AddView: View {
             publishing = false
             // The temp clone is gone now; clear discovery so stale folder paths
             // aren't reused.
-            discovered = []
-            selected = []
-            didFetch = true
+            state.addPane = state.addPane.published()
         }
     }
 }

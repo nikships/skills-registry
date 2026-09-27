@@ -3,11 +3,12 @@ import SkillsRegistryCore
 
 struct ImportView: View {
     @EnvironmentObject var state: AppState
-    @State private var locals: [LocalSkill] = []
-    @State private var selected: Set<String> = []
-    @State private var scanned = false
     @State private var importing = false
     @State private var progress: (Int, Int) = (0, 0)
+
+    /// The scan and its selection live in `AppState` so switching sections or
+    /// re-theming the accent neither re-runs the scan nor drops the picks.
+    /// Only transient UI (spinner, progress) stays local.
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -17,7 +18,7 @@ struct ImportView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Brand.bg)
-        .task { if !scanned { rescan() } }
+        .task { if !state.importPane.scanned { rescan() } }
     }
 
     private var head: some View {
@@ -30,11 +31,11 @@ struct ImportView: View {
             HStack(spacing: 10) {
                 Button { rescan() } label: { Label("Rescan", systemImage: "arrow.clockwise") }
                     .buttonStyle(GhostButtonStyle())
-                if !locals.isEmpty {
+                if !state.importPane.locals.isEmpty {
                     Button {
-                        selected = selected.count == locals.count ? [] : Set(locals.map(\.slug))
+                        state.importPane.selected = state.importPane.selected.count == state.importPane.locals.count ? [] : Set(state.importPane.locals.map(\.slug))
                     } label: {
-                        Text(selected.count == locals.count ? "Deselect all" : "Select all")
+                        Text(state.importPane.selected.count == state.importPane.locals.count ? "Deselect all" : "Select all")
                     }.buttonStyle(.plain).foregroundStyle(Brand.accent).font(.system(size: 13))
                 }
                 Spacer()
@@ -43,11 +44,11 @@ struct ImportView: View {
                 } label: {
                     HStack(spacing: 8) {
                         if importing { ProgressView().controlSize(.small) }
-                        Text(importing ? "Importing \(progress.0)/\(progress.1)…" : "Import \(selected.count) selected")
+                        Text(importing ? "Importing \(progress.0)/\(progress.1)…" : "Import \(state.importPane.selected.count) selected")
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(selected.isEmpty || importing)
+                .disabled(state.importPane.selected.isEmpty || importing)
                 .accessibilityIdentifier("importSelected")
             }
         }
@@ -55,14 +56,14 @@ struct ImportView: View {
     }
 
     @ViewBuilder private var body0: some View {
-        if locals.isEmpty {
+        if state.importPane.locals.isEmpty {
             EmptyState(icon: "checkmark.seal",
-                       title: scanned ? "Nothing to import" : "Scanning…",
-                       subtitle: scanned ? "Every local skill is already in your registry." : "Looking through your AI tool folders.")
+                       title: state.importPane.scanned ? "Nothing to import" : "Scanning…",
+                       subtitle: state.importPane.scanned ? "Every local skill is already in your registry." : "Looking through your AI tool folders.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(locals) { sk in
+                    ForEach(state.importPane.locals) { sk in
                         row(sk)
                         Divider().overlay(Brand.border).padding(.leading, 48)
                     }
@@ -74,12 +75,12 @@ struct ImportView: View {
 
     private func row(_ sk: LocalSkill) -> some View {
         Button {
-            if selected.contains(sk.slug) { selected.remove(sk.slug) } else { selected.insert(sk.slug) }
+            if state.importPane.selected.contains(sk.slug) { state.importPane.selected.remove(sk.slug) } else { state.importPane.selected.insert(sk.slug) }
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: selected.contains(sk.slug) ? "checkmark.square.fill" : "square")
+                Image(systemName: state.importPane.selected.contains(sk.slug) ? "checkmark.square.fill" : "square")
                     .font(.system(size: 16))
-                    .foregroundStyle(selected.contains(sk.slug) ? Brand.accent : Brand.muted)
+                    .foregroundStyle(state.importPane.selected.contains(sk.slug) ? Brand.accent : Brand.muted)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
@@ -100,13 +101,11 @@ struct ImportView: View {
     }
 
     private func rescan() {
-        locals = state.scanLocal()
-        selected = Set(locals.map(\.slug))
-        scanned = true
+        state.importPane = state.importPane.rescanned(state.scanLocal())
     }
 
     private func runImport() {
-        let chosen = locals.filter { selected.contains($0.slug) }
+        let chosen = state.importPane.locals.filter { state.importPane.selected.contains($0.slug) }
         guard !chosen.isEmpty else { return }
         importing = true
         progress = (0, chosen.count)

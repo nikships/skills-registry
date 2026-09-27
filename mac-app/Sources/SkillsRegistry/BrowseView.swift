@@ -4,11 +4,18 @@ import SkillsRegistryCore
 
 struct BrowseView: View {
     @EnvironmentObject var state: AppState
-    @State private var query = ""
-    @State private var selected: String?
+
+    /// Search text + selection live in `AppState` so switching sections or
+    /// re-theming the accent keeps the list filtered and the detail open.
+    private var query: Binding<String> {
+        Binding(get: { state.browsePane.query }, set: { state.browsePane.query = $0 })
+    }
+    private var selected: Binding<String?> {
+        Binding(get: { state.browsePane.selectedSlug }, set: { state.browsePane.selectedSlug = $0 })
+    }
 
     private var filtered: [SkillSummary] {
-        let q = query.trimmingCharacters(in: .whitespaces)
+        let q = state.browsePane.query.trimmingCharacters(in: .whitespaces)
         if q.isEmpty { return state.skills.sorted { $0.slug < $1.slug } }
         return scoreAndSort(state.skills, query: q)
     }
@@ -21,8 +28,8 @@ struct BrowseView: View {
         }
         .onChange(of: state.skills) { _, skills in
             // Reset the detail pane if the selected skill is gone (e.g. removed).
-            if let s = selected, !skills.contains(where: { $0.slug == s }) {
-                selected = nil
+            if let s = state.browsePane.selectedSlug, !skills.contains(where: { $0.slug == s }) {
+                state.browsePane.selectedSlug = nil
             }
         }
     }
@@ -33,11 +40,11 @@ struct BrowseView: View {
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                    TextField("Search skills…", text: $query)
+                    TextField("Search skills…", text: query)
                         .textFieldStyle(.plain).font(.system(size: 13))
                         .accessibilityIdentifier("searchField")
-                    if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    if !state.browsePane.query.isEmpty {
+                        Button { state.browsePane.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundStyle(Brand.meta)
                     }
                 }
@@ -69,21 +76,21 @@ struct BrowseView: View {
             } else if let err = state.skillsError {
                 EmptyState(icon: "exclamationmark.triangle", title: "Couldn't load skills", subtitle: err)
             } else if filtered.isEmpty {
-                EmptyState(icon: "tray", title: query.isEmpty ? "No skills yet" : "No matches",
-                           subtitle: query.isEmpty ? "Publish one, or import your local skills." : "Try a different search term.")
+                EmptyState(icon: "tray", title: state.browsePane.query.isEmpty ? "No skills yet" : "No matches",
+                           subtitle: state.browsePane.query.isEmpty ? "Publish one, or import your local skills." : "Try a different search term.")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(filtered) { skill in
-                            SkillRow(skill: skill, selected: selected == skill.slug)
+                            SkillRow(skill: skill, selected: state.browsePane.selectedSlug == skill.slug)
                                 .onTapGesture {
-                                    withAnimation(.easeInOut(duration: 0.2)) { selected = skill.slug }
+                                    withAnimation(.easeInOut(duration: 0.2)) { state.browsePane.selectedSlug = skill.slug }
                                 }
                             Divider().overlay(Brand.border).padding(.leading, 14)
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: query)
+                .animation(.easeInOut(duration: 0.2), value: state.browsePane.query)
             }
         }
         .frame(width: 340)
@@ -92,7 +99,7 @@ struct BrowseView: View {
 
     @ViewBuilder private var detailColumn: some View {
         ZStack {
-            if let slug = selected {
+            if let slug = state.browsePane.selectedSlug {
                 SkillDetailView(slug: slug).id(slug)
                     .transition(.opacity)
             } else {

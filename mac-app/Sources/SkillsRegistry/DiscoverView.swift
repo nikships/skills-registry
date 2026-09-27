@@ -12,16 +12,20 @@ import SkillsRegistryCore
 /// import: searching, selecting, and previewing a row are all read-only.
 struct DiscoverView: View {
     @EnvironmentObject var state: AppState
-    @State private var query = ""
-    @State private var mode: DiscoverMode = .keyword
-    @State private var results: [DiscoverResult] = []
-    @State private var selected: DiscoverResult?
     @State private var searching = false
-    @State private var didSearch = false
-    @State private var searchError: String?
     @State private var importing = false
     @State private var pending: PendingImport?
     @State private var searchTask: Task<Void, Never>?
+
+    /// Query, mode, results, selection, and search history live in `AppState`
+    /// so switching sections or re-theming the accent keeps the search intact.
+    /// Only transient UI (spinners, the sheet, the in-flight task) stays local.
+    private var query: Binding<String> {
+        Binding(get: { state.discoverPane.query }, set: { state.discoverPane.query = $0 })
+    }
+    private var mode: Binding<DiscoverMode> {
+        Binding(get: { state.discoverPane.mode }, set: { state.discoverPane.mode = $0 })
+    }
 
     /// The query demo mode arrives with.
     private static let demoQuery = "pdf"
@@ -52,10 +56,12 @@ struct DiscoverView: View {
             confirmSheet(item)
         }
         // Demo mode drives the whole app offline, so the pane arrives with a
-        // query already run rather than requiring synthetic keystrokes.
+        // query already run rather than requiring synthetic keystrokes. Only
+        // for the very first appearance: once a search has run — by demo or by
+        // the user — the hoisted results survive navigation untouched.
         .onAppear {
-            guard state.isDemo, !didSearch, query.isEmpty else { return }
-            query = Self.demoQuery
+            guard state.isDemo, !state.discoverPane.didSearch, state.discoverPane.query.isEmpty else { return }
+            state.discoverPane.query = Self.demoQuery
             search()
         }
         .onDisappear { searchTask?.cancel() }
@@ -73,12 +79,12 @@ struct DiscoverView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "sparkle.magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                TextField("pdf · summarize a youtube video · kubernetes", text: $query)
+                TextField("pdf · summarize a youtube video · kubernetes", text: query)
                     .textFieldStyle(.plain).font(.system(size: 13))
                     .onSubmit { search() }
                     .accessibilityIdentifier("discoverQueryField")
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                if !state.discoverPane.query.isEmpty {
+                    Button { state.discoverPane.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(Brand.meta)
                 }
             }
@@ -95,13 +101,13 @@ struct DiscoverView: View {
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || searching || importing)
+                .disabled(state.discoverPane.query.trimmingCharacters(in: .whitespaces).isEmpty || searching || importing)
                 .accessibilityIdentifier("discoverSearch")
 
                 modeToggle
                 Spacer()
-                if !results.isEmpty {
-                    Text("\(results.count) result\(results.count == 1 ? "" : "s")")
+                if !state.discoverPane.results.isEmpty {
+                    Text("\(state.discoverPane.results.count) result\(state.discoverPane.results.count == 1 ? "" : "s")")
                         .font(Brand.monoSized(11)).foregroundStyle(Brand.muted)
                 }
             }
@@ -116,15 +122,15 @@ struct DiscoverView: View {
         HStack(spacing: 2) {
             ForEach(DiscoverMode.allCases) { m in
                 Button {
-                    guard mode != m else { return }
-                    mode = m
-                    if didSearch { search() }
+                    guard state.discoverPane.mode != m else { return }
+                    state.discoverPane.mode = m
+                    if state.discoverPane.didSearch { search() }
                 } label: {
                     Text(m.label)
                         .font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 10).padding(.vertical, 5)
-                        .foregroundStyle(mode == m ? Brand.fg : Brand.muted)
-                        .background(mode == m ? Brand.surfaceRaised : Color.clear)
+                        .foregroundStyle(state.discoverPane.mode == m ? Brand.fg : Brand.muted)
+                        .background(state.discoverPane.mode == m ? Brand.surfaceRaised : Color.clear)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .contentShape(Rectangle())
                 }
@@ -152,29 +158,29 @@ struct DiscoverView: View {
     /// An unreachable index and an index with no match must never look alike,
     /// so a failed search renders the error and no list at all.
     @ViewBuilder private var resultsBody: some View {
-        if searching && results.isEmpty {
+        if searching && state.discoverPane.results.isEmpty {
             VStack { Spacer(); ProgressView().tint(Brand.accent); Spacer() }
-        } else if let searchError {
+        } else if let searchError = state.discoverPane.searchError {
             errorState(searchError)
-        } else if results.isEmpty {
-            EmptyState(icon: didSearch ? "magnifyingglass" : "sparkle.magnifyingglass",
-                       title: didSearch ? "Nothing matched" : "Search the index",
-                       subtitle: didSearch
+        } else if state.discoverPane.results.isEmpty {
+            EmptyState(icon: state.discoverPane.didSearch ? "magnifyingglass" : "sparkle.magnifyingglass",
+                       title: state.discoverPane.didSearch ? "Nothing matched" : "Search the index",
+                       subtitle: state.discoverPane.didSearch
                         ? "The index had no hit for that. Try \(DiscoverMode.vector.label) mode to search by meaning instead of literal terms."
                         : "Type what you need above. Results carry the index's own grades and an importable GitHub URL.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(results) { row in
+                    ForEach(state.discoverPane.results) { row in
                         // A tap gesture rather than a Button, matching how
                         // BrowseView selects a row: a plain Button publishes
                         // one opaque element and drops the row's name, grade,
                         // and description out of the accessibility tree, which
                         // both VoiceOver and the UI driver that verifies this
                         // pane read.
-                        DiscoverRow(result: row, selected: selected?.id == row.id)
+                        DiscoverRow(result: row, selected: state.discoverPane.selectedName == row.name)
                             .onTapGesture {
-                                withAnimation(.easeInOut(duration: 0.2)) { selected = row }
+                                withAnimation(.easeInOut(duration: 0.2)) { state.discoverPane.selectedName = row.name }
                             }
                             .accessibilityIdentifier("discoverRow-\(row.name)")
                         Divider().overlay(Brand.border).padding(.leading, 14)
@@ -212,7 +218,7 @@ struct DiscoverView: View {
 
     @ViewBuilder private var detailColumn: some View {
         ZStack {
-            if let row = selected {
+            if let row = state.discoverPane.selected {
                 detail(row).id(row.id).transition(.opacity)
             } else {
                 EmptyState(icon: "square.stack.3d.up",
@@ -411,27 +417,22 @@ struct DiscoverView: View {
     // MARK: - actions
 
     private func search() {
-        let text = query.trimmingCharacters(in: .whitespaces)
+        let text = state.discoverPane.query.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
         searchTask?.cancel()
         searching = true
-        searchError = nil
-        let q = DiscoverQuery(text: text, mode: mode)
+        state.discoverPane.searchError = nil
+        let q = DiscoverQuery(text: text, mode: state.discoverPane.mode)
         searchTask = Task {
             do {
                 let resp = try await state.discoverSearch(q)
                 guard !Task.isCancelled else { return }
-                results = resp.results
-                selected = resp.results.first
-                searchError = nil
+                state.discoverPane = state.discoverPane.searched(resp.results)
             } catch {
                 guard !Task.isCancelled else { return }
                 // Fail closed: no partial list survives a failed search.
-                results = []
-                selected = nil
-                searchError = error.localizedDescription
+                state.discoverPane = state.discoverPane.failed(error.localizedDescription)
             }
-            didSearch = true
             searching = false
         }
     }

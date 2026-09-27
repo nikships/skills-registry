@@ -60,6 +60,7 @@ Two SwiftPM targets:
 Sources/SkillsRegistryCore/
   AppConfig.swift       GitHub App client_id and slug, project repo, CLI install path
   Models.swift          SkillSummary, SkillDetail, RepoRef, Identity, InstallationRepo, LocalSkill
+  PaneState.swift       per-pane navigation snapshots hoisted into AppState (Browse/Discover/Add/Import)
   Slug.swift            slugify  ── shared cross-language contract
   FuzzyScore.swift      fzf-V1 scorer ── shared cross-language contract
   Frontmatter.swift     parseSummary/body/flat-YAML ── shared cross-language contract
