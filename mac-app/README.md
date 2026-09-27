@@ -251,14 +251,22 @@ product-owned paths, and repository interpolation.
 
 The scorer constants (base 16, boundary 8, camel 7, consecutive 5, case 1, gap
 2, field weights name 2 / slug 1 / desc 1, top-N 10) are **duplicated by
-design**. A cross-language corpus test pins the contract:
+design**. Both scorers normalize the query and the text to Unicode NFC before
+matching, so a precomposed accent and the same accent written with a combining
+mark score the same. Indexing is still Unicode scalars in Go and extended
+grapheme clusters in Swift, so a sequence NFC cannot compose can still differ.
+A cross-language corpus test pins the NFC behavior (é, U+00E9 vs U+0301) plus
+the word-boundary, camelCase, consecutive-run, and exact-case bonuses, the gap
+penalty (including the floor at 0), name-over-description weighting, slug
+tiebreak, the top-10 cutoff, and empty or whitespace queries:
 
 - Go: `TestScoreAndSortCrossLanguageCorpus`
 - Swift: `testCrossLanguageCorpus` in
   `Tests/SkillsRegistryCoreTests/CoreContractTests.swift`
 
 **If you change any of these, update the app and CLI implementations and their
-corpus tests together.**
+corpus tests together.** The two tests run the same cases (same inputs and
+expected scores); keep them verbatim.
 
 ---
 

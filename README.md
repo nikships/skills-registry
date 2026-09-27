@@ -119,7 +119,7 @@ Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable;
 
 ### `discover`: find third-party skills to import
 
-`search` fuzzy-ranks the skills already in your own registry. `discover` is the outward-facing counterpart: it queries the public [SkillNet](http://api-skillnet.openkg.cn) index of published skills (tens of thousands of them) and lets you import one straight into your registry.
+`search` fuzzy-ranks the skills already in your own registry. Matching is Unicode NFC, so a precomposed accent and the same accent written as a combining mark rank the same. `discover` is the outward-facing counterpart: it queries the public [SkillNet](http://api-skillnet.openkg.cn) index of published skills (tens of thousands of them) and lets you import one straight into your registry.
 
 ```bash
 skills-registry discover pdf
