@@ -45,6 +45,12 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Demo-only failure drivers (for exercising error states without a network):
+
+- **Add:** a source starting with `!` fails the fetch with a canned
+  "repository not found" reason (e.g. `!owner/repo`), so the Fetch-failed
+  empty state renders its detail line.
+
 ---
 
 ## Architecture
