@@ -43,7 +43,19 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline.
+call is short-circuited, so you can drive the whole app offline. Demo is
+fully side-effect free by construction:
+
+- The Keychain is rerouted to a process-local in-memory dictionary, so Sign
+  out in demo can never delete your real saved token.
+- Demo uses its own `UserDefaults` suite (`dev.skills-registry.app.demo`), so
+  accent/theme, dismissal, and check-timestamp state never leaks between demo
+  and real instances.
+- CLI and agent-skill installs are simulated with fixture state — no network,
+  no `~/.local/bin` or dot-folder writes.
+- Every other write path (Import, Add publish, Discover import, publish,
+  install, remove) shows an honest `Demo mode: would …` info toast instead of
+  silently doing nothing.
 
 ---
 

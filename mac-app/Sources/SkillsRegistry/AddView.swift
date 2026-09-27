@@ -202,9 +202,12 @@ struct AddView: View {
             }
             publishing = false
             // The temp clone is gone now; clear discovery so stale folder paths
-            // aren't reused.
-            discovered = []
-            selected = []
+            // aren't reused. Demo has no clone and only simulated the publish,
+            // so keep the fixtures (clearing would look like data loss).
+            if !state.isDemo {
+                discovered = []
+                selected = []
+            }
             didFetch = true
         }
     }

@@ -3,11 +3,21 @@ import Security
 
 /// Minimal Keychain wrapper for the GitHub user-to-server token. Stores a
 /// single generic-password item keyed by service + account.
+///
+/// Demo mode sets `inMemoryOnly`, which reroutes every call to a
+/// process-local dictionary so no call site — present or future — can read or
+/// delete the user's real Keychain item from a `--demo` process.
 public enum Keychain {
     public static let service = "dev.skills-registry.app"
     public static let tokenAccount = "github-user-token"
 
+    /// When true, `get`/`set`/`delete` use `memory` instead of `SecItem*`.
+    /// Set once at launch by demo mode; never toggled back in-process.
+    public static var inMemoryOnly = false
+    private static var memory: [String: String] = [:]
+
     public static func set(_ value: String, account: String = tokenAccount) {
+        if inMemoryOnly { memory[account] = value; return }
         let data = Data(value.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -23,6 +33,7 @@ public enum Keychain {
     }
 
     public static func get(account: String = tokenAccount) -> String? {
+        if inMemoryOnly { return memory[account] }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -40,6 +51,7 @@ public enum Keychain {
     }
 
     public static func delete(account: String = tokenAccount) {
+        if inMemoryOnly { memory.removeValue(forKey: account); return }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

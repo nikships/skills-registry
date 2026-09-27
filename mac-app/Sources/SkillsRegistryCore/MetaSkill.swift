@@ -26,6 +26,12 @@ public enum MetaSkill {
         public var state: State
         public var path: String
         public var id: String { target.dotDir }
+
+        public init(target: AgentTarget, state: State, path: String) {
+            self.target = target
+            self.state = state
+            self.path = path
+        }
     }
 
     /// Aggregate status across every detected agent.
@@ -73,6 +79,20 @@ public enum MetaSkill {
             return TargetStatus(target: t, state: state, path: path)
         }
         return Status(targets: rows)
+    }
+
+    /// Fixture status for demo mode: two agents already current, so the
+    /// Settings card and Home banner can render their installed states
+    /// without touching the real home directory.
+    public static func demoStatus() -> Status {
+        Status(targets: [
+            TargetStatus(
+                target: AgentTarget(dotDir: ".claude", display: "Claude Code"),
+                state: .current, path: "~/.claude/skills/skills-registry/SKILL.md"),
+            TargetStatus(
+                target: AgentTarget(dotDir: ".cursor", display: "Cursor"),
+                state: .current, path: "~/.cursor/skills/skills-registry/SKILL.md"),
+        ])
     }
 
     /// Write the current template into every detected agent that is missing or

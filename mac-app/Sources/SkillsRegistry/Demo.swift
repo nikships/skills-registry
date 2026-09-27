@@ -1,6 +1,18 @@
 import Foundation
 import SkillsRegistryCore
 
+/// Demo-mode persistence: a dedicated UserDefaults suite so a `--demo`
+/// instance never shares accent/theme, dismissal, or check-timestamp state
+/// with the real app (or vice versa).
+enum DemoDefaults {
+    static let suiteName = "dev.skills-registry.app.demo"
+
+    static func store(isDemo: Bool) -> UserDefaults {
+        if isDemo, let suite = UserDefaults(suiteName: suiteName) { return suite }
+        return .standard
+    }
+}
+
 /// Fixture data + entry for demo mode (`--demo` / `SKILLS_APP_DEMO=1`). Lets
 /// the full authed UI be exercised by cua-driver without GitHub credentials.
 extension AppState {
@@ -10,6 +22,9 @@ extension AppState {
         branch = "main"
         skills = Self.demoSkills
         cliInstalled = false
+        // Fixture status so the Settings card renders its installed state
+        // (and its button stays enabled) without reading real dot-folders.
+        metaSkill = MetaSkill.demoStatus()
         phase = .ready
     }
 

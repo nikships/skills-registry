@@ -81,4 +81,12 @@ final class MetaSkillTests: XCTestCase {
         let written = try MetaSkill.install(home: home, registryRepo: repo)
         XCTAssertEqual(written, 0)
     }
+
+    func testDemoStatusIsInstalledFixture() {
+        let status = MetaSkill.demoStatus()
+        XCTAssertFalse(status.targets.isEmpty)
+        XCTAssertFalse(status.needsAction)
+        XCTAssertTrue(status.targets.allSatisfy { $0.state == .current })
+        XCTAssertEqual(status.installedCount, status.detectedCount)
+    }
 }

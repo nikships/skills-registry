@@ -81,16 +81,19 @@ enum AppTheme {
 @MainActor
 final class ThemeManager: ObservableObject {
     private static let key = "accentTheme"
+    private let defaults: UserDefaults
 
     @Published var accent: AccentTheme {
         didSet {
             AppTheme.current = accent
-            UserDefaults.standard.set(accent.rawValue, forKey: Self.key)
+            defaults.set(accent.rawValue, forKey: Self.key)
         }
     }
 
-    init() {
-        let raw = UserDefaults.standard.string(forKey: Self.key)
+    init(demo: Bool = false) {
+        let defaults = DemoDefaults.store(isDemo: demo)
+        self.defaults = defaults
+        let raw = defaults.string(forKey: Self.key)
         let theme = raw.flatMap(AccentTheme.init(rawValue:)) ?? .pink
         accent = theme
         AppTheme.current = theme
