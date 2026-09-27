@@ -45,6 +45,13 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Two more demo-only launch arguments render the login error states with no
+Keychain or network touch (for review screenshots): `--demo-auth-expired`
+shows the "session expired, sign in again" re-auth prompt, and
+`--demo-auth-offline` shows the retryable offline failure with its Retry
+button. An expired or revoked token anywhere else in the app routes back to
+that same login prompt automatically.
+
 ---
 
 ## Architecture

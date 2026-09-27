@@ -8,9 +8,18 @@ struct SkillsRegistryApp: App {
     @StateObject private var updater = UpdaterManager()
 
     init() {
-        let demo = ProcessInfo.processInfo.arguments.contains("--demo")
+        let args = ProcessInfo.processInfo.arguments
+        let demo = args.contains("--demo")
             || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
-        _state = StateObject(wrappedValue: AppState(demo: demo))
+        let preview: AuthPreview?
+        if args.contains("--demo-auth-expired") {
+            preview = .expired
+        } else if args.contains("--demo-auth-offline") {
+            preview = .offline
+        } else {
+            preview = nil
+        }
+        _state = StateObject(wrappedValue: AppState(demo: demo, authPreview: preview))
     }
 
     var body: some Scene {

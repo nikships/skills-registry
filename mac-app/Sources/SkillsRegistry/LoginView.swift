@@ -57,8 +57,27 @@ struct LoginView: View {
                         .accessibilityIdentifier("signInWithGitHub")
 
                         if let err = state.authError {
-                            Text(err).font(.system(size: 12)).foregroundStyle(Brand.danger)
-                                .fixedSize(horizontal: false, vertical: true)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(err).font(.system(size: 12)).foregroundStyle(Brand.danger)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("authErrorMessage")
+                                if let detail = state.authDetail {
+                                    Text(detail).font(Brand.monoSized(11)).foregroundStyle(Brand.meta)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .textSelection(.enabled)
+                                        .accessibilityIdentifier("authErrorDetail")
+                                }
+                                if state.authRetryable {
+                                    Button {
+                                        Task { await state.bootstrap() }
+                                    } label: {
+                                        Label("Retry", systemImage: "arrow.clockwise")
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(GhostButtonStyle())
+                                    .accessibilityIdentifier("retryAuth")
+                                }
+                            }
                         }
 
                         Divider().overlay(Brand.border)
