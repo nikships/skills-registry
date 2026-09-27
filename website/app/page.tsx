@@ -8,7 +8,7 @@ export default function Home() {
       <header className="topnav">
         <div className="container topnav-inner">
           <a href="#top" className="brand-mark" aria-label="Skills Registry home">
-            <img src="assets/logo.png" alt="Skills Registry" />
+            <img src="/assets/logo.png" alt="Skills Registry" width={862} height={120} decoding="async" />
           </a>
           <nav aria-label="Main navigation">
             <a href="#how-it-works">How it works</a>
@@ -157,7 +157,7 @@ skills-registry get code-review --json
         <section id="cli">
           <div className="container">
             <div className="section-head"><p className="eyebrow"><span className="dot" /> CLI + TUI</p><h2 className="h2">Interactive for people. Headless for scripts and agents.</h2><p className="lead">Run the binary without arguments for the wizard or dashboard. Every subcommand also supports structured output with <span className="inline-code">--json</span>.</p></div>
-            <figure className="media-frame"><img src="assets/hub.gif" alt="Skills Registry dashboard with Manage, Sync, Add, Publish, Purge, and Settings" /><figcaption className="meta-text">The dashboard hub opens every day-to-day workflow.</figcaption></figure>
+            <figure className="media-frame"><img src="/assets/hub.gif" alt="Skills Registry dashboard with Manage, Sync, Add, Publish, Purge, and Settings" width={1024} height={714} loading="lazy" decoding="async" /><figcaption className="meta-text">The dashboard hub opens every day-to-day workflow.</figcaption></figure>
             <table className="cli-table"><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
               <tr><td className="cmd">skills-registry</td><td className="desc">Launch onboarding on first run, then the dashboard.</td></tr>
               <tr><td className="cmd">skills-registry list / search</td><td className="desc">Browse all skills or fuzzy-rank a query.</td></tr>
@@ -173,7 +173,7 @@ skills-registry get code-review --json
         <section id="mac-app">
           <div className="container">
             <div className="section-head"><p className="eyebrow"><span className="dot" /> Native macOS app</p><h2 className="h2">The same registry, without the terminal.</h2><p className="lead">The Apple Silicon SwiftUI app supports GitHub login, rich Markdown browsing, fuzzy search, publishing, removal, bulk local import, and one-click CLI installation.</p></div>
-            <figure className="media-frame"><img src="assets/mac-app.png" alt="Skills Registry macOS app with skill list, rendered Markdown, and file browser" /></figure>
+            <figure className="media-frame"><img src="/assets/mac-app.png" alt="Skills Registry macOS app with skill list, rendered Markdown, and file browser" width={1600} height={998} loading="lazy" decoding="async" /></figure>
           </div>
         </section>
 
@@ -220,7 +220,7 @@ irm https://raw.githubusercontent.com/nikships/skills-registry/main/install.ps1 
       </main>
 
       <footer className="pagefoot"><div className="container"><div className="foot-grid">
-        <div className="foot-col"><a href="#top" className="brand-mark foot"><img src="assets/logo.png" alt="Skills Registry" /></a><p className="foot-tag">A GitHub-backed home for agent skills, with a Go CLI/TUI, gateway skill, and native macOS app.</p></div>
+        <div className="foot-col"><a href="#top" className="brand-mark foot"><img src="/assets/logo.png" alt="Skills Registry" width={862} height={120} loading="lazy" decoding="async" /></a><p className="foot-tag">A GitHub-backed home for agent skills, with a Go CLI/TUI, gateway skill, and native macOS app.</p></div>
         <div className="foot-col"><h5>Project</h5><ul><li><a href={repo}>GitHub</a></li><li><a href={`${repo}/releases`}>Releases</a></li><li><a href={`${repo}/issues`}>Issues</a></li></ul></div>
         <div className="foot-col"><h5>Documentation</h5><ul><li><a href={`${repo}#readme`}>Getting started</a></li><li><a href={`${repo}/blob/main/docs/registry.md`}>Architecture</a></li><li><a href={`${repo}/blob/main/CONTRIBUTING.md`}>Contributing</a></li><li><a href={`${repo}/blob/main/SECURITY.md`}>Security</a></li></ul></div>
         <div className="foot-col"><h5>Tools</h5><ul><li><a href="https://cli.github.com/">GitHub CLI</a></li><li><a href="https://git-scm.com/">Git</a></li><li><a href={`${repo}/tree/main/mac-app`}>macOS app</a></li><li><a href="https://www.npmjs.com/package/skills-registry">npm package</a></li></ul></div>
