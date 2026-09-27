@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // gridFixture returns a CardGrid with six cards that mirrors the
@@ -170,6 +172,52 @@ func TestCardGridRenderIncludesAllTitles(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("Render output missing %q card title:\n%s", want, out)
 		}
+	}
+}
+
+// TestCardGridUniformHeights pins the cli-tui-9 fix: every production hub
+// card must render the same height so no tile pokes below its row. The
+// Purge copy used to wrap to three lines at 3-column widths while its
+// siblings wrapped to two. Covers both focused and unfocused tiles at the
+// 3-column (120) and 4-column (160) breakpoints.
+func TestCardGridUniformHeights(t *testing.T) {
+	g := NewCardGrid(DefaultHubCards())
+	for _, width := range []int{120, 160} {
+		cols := g.Cols(width)
+		cardWidth := cardWidthFor(width, cols)
+		var want int
+		for i, c := range g.Cards {
+			for _, focused := range []bool{false, true} {
+				got := lipgloss.Height(g.renderCard(c, focused, cardWidth))
+				if i == 0 && !focused {
+					want = got
+					continue
+				}
+				if got != want {
+					t.Errorf("width %d: card %q (focused=%v) height = %d, want %d (uniform)",
+						width, c.Title, focused, got, want)
+				}
+			}
+		}
+	}
+}
+
+// TestClampDescTruncatesLongCopy verifies the fixed description budget:
+// copy overflowing the line budget is cut with an ellipsis, and short
+// copy passes through untouched.
+func TestClampDescTruncatesLongCopy(t *testing.T) {
+	long := "Delete every local skill folder under your known dot-folders — registry untouched."
+	got := clampDesc(long, 30, 2)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("clampDesc returned %d lines, want 2:\n%q", len(lines), got)
+	}
+	if !strings.HasSuffix(lines[1], "…") {
+		t.Errorf("truncated last line missing ellipsis: %q", lines[1])
+	}
+	short := "Upload a single local skill folder to the registry."
+	if got := clampDesc(short, 60, 2); got != short {
+		t.Errorf("short copy changed by clampDesc: %q, want unchanged", got)
 	}
 }
 

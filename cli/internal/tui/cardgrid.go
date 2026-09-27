@@ -4,6 +4,17 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
+)
+
+// Card description geometry. Every tile reserves exactly cardDescLines
+// lines for its description so all cards in a row share a baseline
+// regardless of copy length; overflow is truncated with an ellipsis.
+// cardContentHeight is the fixed body height: head + blank + desc +
+// blank + chip.
+const (
+	cardDescLines     = 2
+	cardContentHeight = 1 + 1 + cardDescLines + 1 + 1
 )
 
 // HubCard is one tile in the dashboard's card grid.
@@ -191,6 +202,10 @@ func joinWithGap(cards []string, gap string) string {
 // renderCard renders a single tile. Focused cards use PanelFocused for the
 // brighter ColBorderHi border and lift the description colour from
 // ColMuted to ColInk so the focused tile reads at a glance.
+//
+// Every tile renders the same height: the description is clamped to
+// cardDescLines (padded when short, ellipsized when long) and the panel
+// pins a fixed content height, so no card can poke below its row.
 func (g CardGrid) renderCard(c HubCard, focused bool, width int) string {
 	panel := PanelStyle
 	titleStyle := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true)
@@ -210,7 +225,11 @@ func (g CardGrid) renderCard(c HubCard, focused bool, width int) string {
 	if descWidth < 8 {
 		descWidth = 8
 	}
-	desc := descStyle.Width(descWidth).Render(c.Description)
+	// Height pads short descriptions so the chip below always lands on the
+	// same row; MaxHeight is a backstop in case lipgloss re-wraps a line
+	// our own wrapper measured as fitting.
+	desc := descStyle.Width(descWidth).Height(cardDescLines).MaxHeight(cardDescLines).
+		Render(clampDesc(c.Description, descWidth, cardDescLines))
 	chip := ""
 	if focused {
 		chip = ChipPrimary.Render("◆ focused")
@@ -218,5 +237,112 @@ func (g CardGrid) renderCard(c HubCard, focused bool, width int) string {
 		chip = lipgloss.NewStyle().Foreground(ColFaint).Render("◇")
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, head, "", desc, "", chip)
-	return panel.Width(width).Render(body)
+	return panel.Width(width).Height(cardContentHeight).Render(body)
+}
+
+// clampDesc wraps text to width columns and clamps it to at most maxLines
+// lines, appending an ellipsis when copy overflows the budget. Short copy
+// passes through unchanged — the description style's fixed height pads
+// the difference so every card renders the same height.
+func clampDesc(text string, width, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	if width < 2 {
+		width = 2
+	}
+	lines := wrapWords(strings.Fields(text), width)
+	if len(lines) <= maxLines {
+		return strings.Join(lines, "\n")
+	}
+	kept := lines[:maxLines]
+	last := kept[maxLines-1]
+	for runewidth.StringWidth(last+"…") > width {
+		i := strings.LastIndex(last, " ")
+		if i < 0 {
+			last = trimRunes(last, width-1)
+			break
+		}
+		last = last[:i]
+	}
+	kept[maxLines-1] = last + "…"
+	return strings.Join(kept, "\n")
+}
+
+// wrapWords greedily packs words into lines of at most width columns.
+// Words wider than a full line are hard-split so no line overflows.
+func wrapWords(words []string, width int) []string {
+	var lines []string
+	var cur strings.Builder
+	curWidth := 0
+	flush := func() {
+		if curWidth > 0 {
+			lines = append(lines, cur.String())
+			cur.Reset()
+			curWidth = 0
+		}
+	}
+	for _, word := range words {
+		for _, chunk := range splitWord(word, width) {
+			cw := runewidth.StringWidth(chunk)
+			sep := 0
+			if curWidth > 0 {
+				sep = 1
+			}
+			if curWidth+sep+cw > width {
+				flush()
+				sep = 0
+			}
+			if sep > 0 {
+				cur.WriteByte(' ')
+			}
+			cur.WriteString(chunk)
+			curWidth += sep + cw
+		}
+	}
+	flush()
+	return lines
+}
+
+// splitWord hard-splits a word wider than width into fitting chunks;
+// anything already fitting comes back unchanged.
+func splitWord(word string, width int) []string {
+	if runewidth.StringWidth(word) <= width {
+		return []string{word}
+	}
+	var chunks []string
+	var cur strings.Builder
+	curWidth := 0
+	for _, r := range word {
+		rw := runewidth.RuneWidth(r)
+		if curWidth+rw > width && curWidth > 0 {
+			chunks = append(chunks, cur.String())
+			cur.Reset()
+			curWidth = 0
+		}
+		cur.WriteRune(r)
+		curWidth += rw
+	}
+	if cur.Len() > 0 {
+		chunks = append(chunks, cur.String())
+	}
+	return chunks
+}
+
+// trimRunes hard-truncates s to at most width columns.
+func trimRunes(s string, width int) string {
+	if runewidth.StringWidth(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if w+rw > width {
+			break
+		}
+		b.WriteRune(r)
+		w += rw
+	}
+	return b.String()
 }
