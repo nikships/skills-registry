@@ -253,43 +253,49 @@ func decodeBlob(blob fileBlob) ([]byte, error) {
 // Get downloads the full <slug>/ folder into dest. Existing files are
 // overwritten. Reads from the local git mirror when available; falls
 // back to the recursive gh-api walk otherwise.
+//
+// A slug that exists in neither path yields ErrSlugNotFound (wrapped
+// with the slug) instead of succeeding with an empty dest, so callers
+// can't mistake "registry has no such skill" for "downloaded nothing".
+// Mirror errors other than a missing slug folder still fall through to
+// the gh-api path, which stays authoritative for connectivity failures.
 func (c *Client) Get(ctx context.Context, slug, dest string) error {
 	if c.mirrorEnabled() {
 		if err := c.getViaMirror(ctx, slug, dest); err == nil {
 			return nil
+		} else if errors.Is(err, ErrSlugNotFound) {
+			return err
 		}
 	}
-	return c.downloadRecursive(ctx, slug, dest)
-}
-
-func (c *Client) downloadRecursive(ctx context.Context, repoPath, destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := c.getViaAPI(ctx, slug, dest); err != nil {
 		return err
 	}
-	entries, err := c.contents(ctx, repoPath)
+	return nil
+}
+
+// getViaAPI downloads <slug>/ through the contents API. A 404 on the
+// top-level listing (or on a mid-walk path that vanished) surfaces as
+// ErrSlugNotFound naming the requested slug.
+func (c *Client) getViaAPI(ctx context.Context, slug, dest string) error {
+	entries, err := c.contents(ctx, slug)
 	if err != nil {
+		return err
+	}
+	if entries == nil {
+		return fmt.Errorf("%w: %q", ErrSlugNotFound, slug)
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
 	for _, e := range entries {
 		switch e.Type {
 		case "dir":
-			sub := filepath.Join(destDir, e.Name)
-			if err := c.downloadRecursive(ctx, repoPath+"/"+e.Name, sub); err != nil {
+			sub := filepath.Join(dest, e.Name)
+			if err := c.downloadRecursive(ctx, slug+"/"+e.Name, slug, sub); err != nil {
 				return err
 			}
 		case "file":
-			var blob fileBlob
-			if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/contents/%s/%s", c.Repo, repoPath, e.Name), &blob); err != nil {
-				return err
-			}
-			raw, err := decodeBlob(blob)
-			if err != nil {
-				return err
-			}
-			if raw == nil {
-				continue
-			}
-			if err := os.WriteFile(filepath.Join(destDir, e.Name), raw, 0o644); err != nil {
+			if err := c.downloadFile(ctx, slug, e.Name, dest); err != nil {
 				return err
 			}
 		}
@@ -297,9 +303,60 @@ func (c *Client) downloadRecursive(ctx context.Context, repoPath, destDir string
 	return nil
 }
 
-// ErrSlugNotFound is returned by Delete when the requested slug doesn't
-// exist in the registry. Callers (e.g. the `remove` subcommand) treat
-// this as a clean exit-1 condition rather than a generic API failure.
+// downloadRecursive downloads one directory level of an already-known
+// slug: repoPath is the registry-relative path, topSlug names the
+// requested skill for ErrSlugNotFound attribution, and destDir is the
+// local target. A 404 mid-walk (the folder was deleted between the
+// top-level check and this read) still maps to ErrSlugNotFound.
+func (c *Client) downloadRecursive(ctx context.Context, repoPath, topSlug, destDir string) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	entries, err := c.contents(ctx, repoPath)
+	if err != nil {
+		return err
+	}
+	if entries == nil {
+		return fmt.Errorf("%w: %q", ErrSlugNotFound, topSlug)
+	}
+	for _, e := range entries {
+		switch e.Type {
+		case "dir":
+			sub := filepath.Join(destDir, e.Name)
+			if err := c.downloadRecursive(ctx, repoPath+"/"+e.Name, topSlug, sub); err != nil {
+				return err
+			}
+		case "file":
+			if err := c.downloadFile(ctx, repoPath, e.Name, destDir); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// downloadFile fetches one registry file (repoPath/name) and writes it
+// into destDir. Blobs in any encoding other than base64 are skipped,
+// matching the legacy downloadRecursive behavior.
+func (c *Client) downloadFile(ctx context.Context, repoPath, name, destDir string) error {
+	var blob fileBlob
+	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/contents/%s/%s", c.Repo, repoPath, name), &blob); err != nil {
+		return err
+	}
+	raw, err := decodeBlob(blob)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(destDir, name), raw, 0o644)
+}
+
+// ErrSlugNotFound is returned by Delete and Get when the requested slug
+// doesn't exist in the registry. Callers (e.g. the `remove` and `get`
+// subcommands) treat this as a clean exit-1 condition rather than a
+// generic API failure.
 var ErrSlugNotFound = errors.New("slug not found in registry")
 
 // Delete atomically removes the entire <slug>/ subtree from the

@@ -221,6 +221,26 @@ func TestGetDownloadsRecursively(t *testing.T) {
 	}
 }
 
+// TestGetMissingSlugReturnsNotFound pins the gh-api half of the
+// unknown-slug contract: a 404 on the top-level contents listing must
+// surface as ErrSlugNotFound (not a vacuous success), and the dest dir
+// must not be created.
+func TestGetMissingSlugReturnsNotFound(t *testing.T) {
+	// Force the gh-api path; the mirror path is exercised by mirror_test.go.
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y/contents/nope", "body": "HTTP 404: Not Found (https://api.github.com/repos/x/y/contents/nope)", "exit": 1},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main"}
+	dest := filepath.Join(t.TempDir(), "nope")
+	if err := c.Get(context.Background(), "nope", dest); !errors.Is(err, ErrSlugNotFound) {
+		t.Fatalf("Get(nope) = %v, want ErrSlugNotFound", err)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("Get(nope) must not create dest, stat = %v", err)
+	}
+}
+
 // TestPushTreeReportsProgress verifies the OnProgress callback fires once per
 // uploaded file with monotonically increasing `done` counts, and that the
 // parallel blob path (Workers > 1) completes correctly.

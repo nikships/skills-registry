@@ -290,7 +290,7 @@ Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses
 | `skills-registry list --json` | `[{"slug", "name", "description"}, …]` |
 | `skills-registry search [QUERY] --json` | `[{"slug", "name", "description"}, …]` |
 | `skills-registry discover <QUERY> --json` | `{"source", "query", "mode", "results": [{"name", "description", "author", "category", "skill_url", "safety", "completeness", "executability"}, …]}` |
-| `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest) |
+| `skills-registry get <slug> --json` | `{"slug", "path"}` (on-disk dest; `{"error"}` + exit 1 when the slug isn't in the registry, with no directory created) |
 | `skills-registry publish <path> --json` | `{"slug", "sha", "url"}` |
 | `skills-registry sync --json` | `{"pushed": [...slugs], "skipped": [...slugs]}` |
 | `skills-registry add <source> --json` | `{"pushed": [...slugs], "skipped": [...slugs], "installed": {<slug>: [...paths]}, "source": {"origin", "untrusted", "reason"}, "install_skipped": bool, "install_skipped_reason": "…"}` |

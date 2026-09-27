@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -260,12 +261,11 @@ func TestMirrorDisableFallsBackToAPI(t *testing.T) {
 	}
 }
 
-// TestMirrorGetMissingSlugIsSilent matches the gh-api contract: when a
-// slug doesn't exist in the registry, Get returns nil and creates an
-// empty dest directory rather than surfacing an error. Callers (e.g.
-// the `list` TUI's downloader) treat a successful Get + empty dest as
-// "nothing to do" rather than a hard failure.
-func TestMirrorGetMissingSlugIsSilent(t *testing.T) {
+// TestMirrorGetMissingSlugReturnsNotFound verifies that a slug absent
+// from the (freshly fast-forwarded) mirror fails loudly with
+// ErrSlugNotFound instead of succeeding with an empty dest. The mirror
+// miss is authoritative — the gh stub fails any API fallback attempt.
+func TestMirrorGetMissingSlugReturnsNotFound(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -279,16 +279,12 @@ func TestMirrorGetMissingSlugIsSilent(t *testing.T) {
 		HTTPSURL:      remote,
 		MirrorRoot:    t.TempDir(),
 	}
-	dest := t.TempDir()
-	if err := c.Get(context.Background(), "absent", dest); err != nil {
-		t.Fatalf("Get(absent): %v", err)
+	dest := filepath.Join(t.TempDir(), "absent")
+	if err := c.Get(context.Background(), "absent", dest); !errors.Is(err, ErrSlugNotFound) {
+		t.Fatalf("Get(absent) = %v, want ErrSlugNotFound", err)
 	}
-	entries, err := os.ReadDir(dest)
-	if err != nil {
-		t.Fatalf("ReadDir(dest): %v", err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("expected empty dest after Get(absent), got %d entries", len(entries))
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("Get(absent) must not create dest, stat = %v", err)
 	}
 }
 

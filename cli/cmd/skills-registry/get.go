@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,6 +93,11 @@ func runGet(ctx context.Context, slug, dest string) error {
 // DownloadSkill resolves the destination, downloads the skill, and returns
 // the final on-disk path plus any sibling folder that was reused. Shared by
 // the `get` command and the inline-download path in the `list` TUI.
+//
+// An unknown slug fails with ErrSlugNotFound (naming the slug and pointing
+// at `search`/`list`) instead of printing a fake success: the error leaves
+// no directory behind, and Client.Get itself returns the same sentinel on
+// 404 / missing-mirror-dir so every Get caller benefits.
 func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag string) (finalDest, reused string, err error) {
 	defaultParent := cache.CacheRoot()
 	if defaultParent == "" || !filepath.IsAbs(defaultParent) {
@@ -99,19 +105,44 @@ func DownloadSkill(ctx context.Context, client *registry.Client, slug, destFlag 
 	}
 
 	// Resolve the actual slug from the registry (handles separator/case drift).
-	canonSlug, _, err := client.Resolve(ctx, scan.Slugify(slug))
+	// An unresolved slug is a hard failure: never fabricate a success line
+	// for a skill the registry doesn't have.
+	canonSlug, found, err := client.Resolve(ctx, scan.Slugify(slug))
 	if err != nil {
 		return "", "", err
 	}
+	if !found {
+		return "", "", slugNotFoundError(client.Repo, scan.Slugify(slug))
+	}
 
 	finalDest, reused = resolveDest(canonSlug, destFlag, defaultParent)
+	// Remember whether the folder pre-existed so the not-found path below
+	// only removes directories this call created — never a user's folder.
+	_, statErr := os.Stat(finalDest)
+	created := errors.Is(statErr, os.ErrNotExist)
 	if err := os.MkdirAll(finalDest, 0o755); err != nil {
 		return "", "", err
 	}
 	if err := client.Get(ctx, canonSlug, finalDest); err != nil {
-		return "", "", err
+		if !errors.Is(err, registry.ErrSlugNotFound) {
+			return "", "", err
+		}
+		// The slug vanished (or the mirror lagged) between Resolve and Get:
+		// remove the directory we just created so no empty folder lingers.
+		if created {
+			_ = os.Remove(finalDest)
+		}
+		return "", "", slugNotFoundError(client.Repo, canonSlug)
 	}
 	return finalDest, reused, nil
+}
+
+// slugNotFoundError reports an unknown slug with the repo it was looked up
+// in and the commands that show what's actually there. Wraps
+// registry.ErrSlugNotFound so errors.Is keeps working for callers that
+// branch on the sentinel.
+func slugNotFoundError(repo, slug string) error {
+	return fmt.Errorf("%w: %q in %s (run `skills-registry search` or `list` to see available skills)", registry.ErrSlugNotFound, slug, repo)
 }
 
 // resolveDest decides where to write a fetched skill so that the on-disk folder
