@@ -47,17 +47,52 @@ struct BrowseView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 HStack {
-                    Text("\(filtered.count) skill\(filtered.count == 1 ? "" : "s")")
+                    // While a non-empty list refreshes, the count doubles as
+                    // a loading status so the activity reads even in a still.
+                    Text(state.skillsLoading && !state.skills.isEmpty ? "Refreshing…" : "\(filtered.count) skill\(filtered.count == 1 ? "" : "s")")
                         .font(Brand.monoSized(11)).foregroundStyle(Brand.muted)
                     Spacer()
                     Button { Task { await state.refreshSkills() } } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 11))
-                    }.buttonStyle(.plain).foregroundStyle(Brand.muted)
+                            .rotationEffect(.degrees(state.skillsLoading ? 360 : 0))
+                            .animation(
+                                state.skillsLoading
+                                    ? .linear(duration: 0.8).repeatForever(autoreverses: false)
+                                    : .default,
+                                value: state.skillsLoading)
+                            // Static dim to go with the spin, so the loading
+                            // state reads even in a still frame.
+                            .opacity(state.skillsLoading ? 0.45 : 1)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(Brand.muted)
+                    .disabled(state.skillsLoading)
+                    .accessibilityIdentifier("refreshButton")
                     Button { publish() } label: {
                         Label("Publish", systemImage: "plus").font(.system(size: 11, weight: .medium))
                     }
                     .buttonStyle(.plain).foregroundStyle(Brand.accent)
                     .accessibilityIdentifier("publishButton")
+                }
+
+                // A failed refresh keeps the stale list on screen and surfaces
+                // the failure here, with the full error on hover.
+                if state.skillsError != nil, !state.skills.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11)).foregroundStyle(Brand.danger)
+                        Text("Refresh failed")
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg2)
+                        Spacer()
+                        Button("Retry") { Task { await state.refreshSkills() } }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .semibold)).foregroundStyle(Brand.accent)
+                            .accessibilityIdentifier("refreshRetryButton")
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(Brand.danger.opacity(0.12))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.danger.opacity(0.45), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .help(state.skillsError ?? "")
                 }
             }
             .padding(14)
@@ -66,8 +101,15 @@ struct BrowseView: View {
 
             if state.skillsLoading && state.skills.isEmpty {
                 VStack { Spacer(); ProgressView().tint(Brand.accent); Spacer() }
-            } else if let err = state.skillsError {
-                EmptyState(icon: "exclamationmark.triangle", title: "Couldn't load skills", subtitle: err)
+            } else if state.skills.isEmpty, let err = state.skillsError {
+                // No stale list to keep — error with a retry below it.
+                VStack(spacing: 0) {
+                    EmptyState(icon: "exclamationmark.triangle", title: "Couldn't load skills", subtitle: err)
+                    Button("Retry") { Task { await state.refreshSkills() } }
+                        .buttonStyle(GhostButtonStyle())
+                        .padding(.bottom, 24)
+                        .accessibilityIdentifier("refreshRetryButtonEmpty")
+                }
             } else if filtered.isEmpty {
                 EmptyState(icon: "tray", title: query.isEmpty ? "No skills yet" : "No matches",
                            subtitle: query.isEmpty ? "Publish one, or import your local skills." : "Try a different search term.")

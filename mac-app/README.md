@@ -45,6 +45,15 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Two extra demo-only launch arguments simulate Browse refresh states (no-ops
+outside demo mode), so the loading and failure feedback can be exercised and
+screenshotted without a network:
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-refresh-fail  # every refresh fails: stale list + retry banner + error toast
+open "build/Skills Registry.app" --args --demo --demo-refresh-slow  # every refresh takes ~3s: spinning refresh button
+```
+
 ---
 
 ## Architecture

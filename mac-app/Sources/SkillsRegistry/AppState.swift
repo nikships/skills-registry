@@ -219,6 +219,10 @@ final class AppState: ObservableObject {
     // MARK: - skills
 
     func refreshSkills() async {
+        // Demo-only failure/slow simulation so the refresh states can be
+        // screenshotted without a network (see Demo.swift). A no-op unless
+        // one of the --demo-refresh-* flags is present.
+        if isDemo, await demoRefresh() { return }
         guard let api, let repo else { return }
         skillsLoading = true
         skillsError = nil
@@ -226,7 +230,10 @@ final class AppState: ObservableObject {
         do {
             skills = try await api.listSkills(repo, branch: branch)
         } catch {
+            // Keep the stale list on screen; BrowseView surfaces the failure
+            // as an inline retry banner on top of it.
             skillsError = error.localizedDescription
+            showToast("Refresh failed: \(error.localizedDescription)", .error)
         }
     }
 
