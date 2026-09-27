@@ -34,7 +34,7 @@ The returning-user dashboard is a card grid of seven tiles: Manage skills, Sync,
 
 The bulk initial import uses `git push` over HTTPS with credentials configured by `gh auth setup-git`. Day-to-day `publish`, `add`, `sync`, and `remove` operations use the GitHub Git Data API through the authenticated `gh` CLI. Reads use a shallow local mirror when available and fall back to `gh api`.
 
-Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
+Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`. Shell completion comes from the generated `completion` subcommand (`skills-registry completion bash|zsh|fish|powershell`).
 
 ## Discover
 

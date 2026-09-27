@@ -32,6 +32,21 @@ func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List registry skills (interactive mode also supports durable installation)",
+		Long: `Browse every skill in your registry.
+
+On a terminal this opens an interactive list with a live SKILL.md
+preview: press "/" to filter as you type, enter on a row to durably
+install it into agent dot-folders, "d" to remove a skill, and "?" for
+the full key list.
+
+--plain prints a fixed-width table instead of opening the TUI, and
+--json emits the skill array for scripts. --query seeds the initial
+filter substring (matched case-insensitively against slug, name, and
+description).`,
+		Example: `  skills-registry list
+  skills-registry list --query pdf
+  skills-registry list --plain
+  skills-registry list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if jsonout.Enabled() {
 				return runListJSON(cmd.Context(), queryFlag)
@@ -172,7 +187,7 @@ func printPlainList(repo string, summaries []registry.Summary) {
 
 // printPlainSummaryTable is the shared fixed-width renderer used by
 // both `list --plain` and `search`. `label` is the headline prefix
-// (e.g. "Registry" or "Search Results") and the rest of the layout
+// (e.g. "Registry" or "Search Results (top 10)") and the rest of the layout
 // matches across both commands so a piped consumer sees identical
 // columns regardless of which command produced the output.
 func printPlainSummaryTable(label, repo string, summaries []registry.Summary) {

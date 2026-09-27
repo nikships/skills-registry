@@ -349,8 +349,8 @@ func (m HubModel) renderCount() string {
 // renderFooter renders the keybinding hints + animated dots.
 func (m HubModel) renderFooter() string {
 	return flowFooter(m.width, m.sparkleIdx, []flowKey{
-		{"←/→/↑/↓", "navigate"},
+		{"←/→/↑/↓ or h/j/k/l", "navigate"},
 		{"enter", "select"},
-		{"q", "quit"},
+		{"q / esc", "quit"},
 	})
 }

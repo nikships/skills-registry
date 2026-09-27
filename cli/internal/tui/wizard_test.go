@@ -551,6 +551,18 @@ func TestWizardVisibilityViewSurfacesCards(t *testing.T) {
 	}
 }
 
+// TestWizardVisibilityFooterAdvertisesVimKeys pins the cli-tui-14 fix:
+// the visibility footer (and its body CTA) name the h/l bindings the
+// step already handles.
+func TestWizardVisibilityFooterAdvertisesVimKeys(t *testing.T) {
+	m := atStep(WizardStepVisibility)
+	m.width, m.height = 120, 30
+	v := m.View()
+	if !strings.Contains(v, "h/l") {
+		t.Errorf("visibility view must advertise the h/l keys:\n%s", v)
+	}
+}
+
 // TestWizardPushOnEnterAutoStarts is the WIZARD-005 auto-start: landing
 // on the push step kicks off the push goroutine without a key press.
 func TestWizardPushOnEnterAutoStarts(t *testing.T) {
