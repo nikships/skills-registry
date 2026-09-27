@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/nikships/skills-registry/cli/internal/frontmatter"
 )
 
 // MainFileName is the marker that identifies a skill folder.
@@ -259,22 +259,13 @@ func parseFrontmatter(text string) (map[string]string, string) {
 	if end < 0 {
 		return map[string]string{}, text
 	}
-	block := strings.Join(lines[1:end], "\n")
-	out := map[string]string{}
-	parsed := map[string]any{}
-	if err := yaml.Unmarshal([]byte(block), &parsed); err == nil {
-		for k, v := range parsed {
-			switch s := v.(type) {
-			case string:
-				out[k] = strings.TrimSpace(s)
-			default:
-				out[k] = strings.TrimSpace(strings.ReplaceAll(toString(v), "\n", " "))
-			}
-		}
-	}
+	// Local scan reads the same flat frontmatter contract as registry
+	// listing (`frontmatter.Parse`), so a skill's name and description are
+	// identical in `sync`, `list`, `search`, and the app.
+	meta := frontmatter.Parse(lines[1:end])
 	body := strings.Join(lines[end+1:], "\n")
 	body = strings.TrimLeft(body, "\n")
-	return out, body
+	return meta, body
 }
 
 func firstParagraph(text string, limit int) string {
@@ -293,21 +284,6 @@ func firstParagraph(text string, limit int) string {
 		return trimmed[:limit]
 	}
 	return trimmed
-}
-
-func toString(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case []any:
-		parts := make([]string, 0, len(x))
-		for _, item := range x {
-			parts = append(parts, toString(item))
-		}
-		return strings.Join(parts, ", ")
-	default:
-		return ""
-	}
 }
 
 // CleanupEntry is a direct child of a `<dot>/skills/` directory that is a

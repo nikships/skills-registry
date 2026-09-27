@@ -83,6 +83,59 @@ final class FuzzyScoreTests: XCTestCase {
 }
 
 final class FrontmatterTests: XCTestCase {
+    /// Cross-language flat-parser corpus: the same inputs and expectations
+    /// the Go suite asserts verbatim in `corpus`
+    /// (`cli/internal/frontmatter/frontmatter_test.go`). Divergence here
+    /// means a skill lists differently in the app than in the CLI, so change
+    /// both tables together.
+    func testFlatParserCorpus() {
+        let cases: [(name: String, lines: [String], want: [String: String])] = [
+            ("double-quoted", ["name: \"Quoted Name\""], ["name": "Quoted Name"]),
+            ("single-quoted", ["description: 'single quoted'"], ["description": "single quoted"]),
+            ("nested-quotes-strip-fully", ["name: \"''deep''\""], ["name": "deep"]),
+            ("mismatched-quotes-strip-fully", ["name: \"'mixed'\""], ["name": "mixed"]),
+            ("unbalanced-quote-strips", ["name: \"abc"], ["name": "abc"]),
+            ("quote-escapes-not-interpreted", ["name: 'it''s'"], ["name": "it''s"]),
+            ("numeric-stays-verbatim", ["name: 123", "description: 4.5"], ["name": "123", "description": "4.5"]),
+            ("bool-stays-verbatim", ["description: true"], ["description": "true"]),
+            ("flow-list-stays-verbatim", ["description: [a, b]"], ["description": "[a, b]"]),
+            ("flow-map-stays-verbatim", ["description: {a: b}"], ["description": "{a: b}"]),
+            ("folded-block-scalar", ["description: >", "  line one", "  line two"],
+             ["description": "line one line two"]),
+            ("literal-block-scalar", ["description: |", "  line one", "  line two"],
+             ["description": "line one\nline two"]),
+            ("plain-multiline-continuation", ["description: line one", "  line two"],
+             ["description": "line one line two"]),
+            ("duplicate-keys-last-wins", ["name: first", "name: second"], ["name": "second"]),
+            ("comments-and-blanks-skipped",
+             ["# leading comment", "", "name: kept", "  # indented comment"], ["name": "kept"]),
+            ("nested-mapping-read-flat", ["metadata:", "  foo: bar"], ["metadata": "", "foo": "bar"]),
+            ("empty-value", ["name:"], ["name": ""]),
+            ("colon-in-value", ["description: a: b"], ["description": "a: b"]),
+            ("comment-after-block-marker", ["description: > # multi-line", "  folded here"],
+             ["description": "folded here"]),
+        ]
+        for c in cases {
+            XCTAssertEqual(Frontmatter.parseFlatYAML(c.lines), c.want, c.name)
+        }
+    }
+
+    /// The parse path strips every surrounding quote character (Go
+    /// `strings.Trim`), while the merge emptiness check strips one matched
+    /// pair (Go `frontmatterValue`): `category: '"'` is empty when read but
+    /// keeps its value when stamped over.
+    func testParseStripsAllQuotesWhileMergeStripsOnePair() {
+        let md = "---\nname: x\ncategory: '\"'\n---\nBody\n"
+        let lines = md.components(separatedBy: "\n")
+        let end = lines.dropFirst().firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "---"
+        })!
+        XCTAssertEqual(Frontmatter.parseFlatYAML(Array(lines[1..<end]))["category"], "")
+        XCTAssertNil(Frontmatter.merging(md, keys: [
+            Frontmatter.Key(name: Frontmatter.categoryKey, value: "AIGC"),
+        ]))
+    }
+
     func testFlatKeyValue() {
         let md = """
         ---
