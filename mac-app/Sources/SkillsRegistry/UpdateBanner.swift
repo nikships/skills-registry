@@ -10,8 +10,6 @@ import SkillsRegistryCore
 /// When nothing is actionable the banner renders nothing (no empty gap).
 struct UpdateBanner: View {
     @EnvironmentObject var state: AppState
-    @State private var workingCLI = false
-    @State private var workingSkill = false
 
     private var showCLI: Bool {
         guard let key = state.cliUpdateKey else { return false }
@@ -41,8 +39,8 @@ struct UpdateBanner: View {
                 title: "CLI update available",
                 detail: "skills-registry \(update.version.string) is out" + (have.map { " — you have \($0)" } ?? "") + ".",
                 actionTitle: "Update",
-                working: workingCLI,
-                action: { workingCLI = true; Task { await state.installCLI(); workingCLI = false } },
+                working: state.cliInstalling,
+                action: { Task { await state.installCLI() } },
                 dismiss: { state.dismiss(key) })
         }
     }
@@ -56,8 +54,8 @@ struct UpdateBanner: View {
             title: state.metaSkill.anyMissing ? "Install the skills-registry skill" : "Refresh the skills-registry skill",
             detail: skillDetail(missing: missing, outdated: outdated, detected: detected),
             actionTitle: state.metaSkill.anyMissing ? "Install in all" : "Refresh all",
-            working: workingSkill,
-            action: { workingSkill = true; Task { await state.installMetaSkill(); workingSkill = false } },
+            working: state.metaSkillInstalling,
+            action: { Task { await state.installMetaSkill() } },
             dismiss: { state.dismiss(state.metaSkillKey) })
     }
 
