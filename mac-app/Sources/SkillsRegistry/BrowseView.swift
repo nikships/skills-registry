@@ -25,6 +25,14 @@ struct BrowseView: View {
                 selected = nil
             }
         }
+        .task {
+            // Demo-only screenshot hook: preselect a skill so the detail pane
+            // (including its compact layout) can be captured without clicks.
+            if selected == nil, let slug = DemoHooks.preselectedSkill,
+               state.skills.contains(where: { $0.slug == slug }) {
+                selected = slug
+            }
+        }
     }
 
     private var listColumn: some View {
@@ -39,6 +47,7 @@ struct BrowseView: View {
                     if !query.isEmpty {
                         Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundStyle(Brand.meta)
+                            .help("Clear search")
                     }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 9)
@@ -53,6 +62,7 @@ struct BrowseView: View {
                     Button { Task { await state.refreshSkills() } } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 11))
                     }.buttonStyle(.plain).foregroundStyle(Brand.muted)
+                        .help("Refresh skill list")
                     Button { publish() } label: {
                         Label("Publish", systemImage: "plus").font(.system(size: 11, weight: .medium))
                     }

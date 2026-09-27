@@ -45,6 +45,11 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+```bash
+# Preselect a skill in Browse on launch (screenshot hook; ignored in real mode)
+open "build/Skills Registry.app" --args --demo --demo-select react_review
+```
+
 ---
 
 ## Architecture

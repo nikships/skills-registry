@@ -24,12 +24,15 @@ struct SkillDetailView: View {
     @State private var auxError: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(Brand.border)
-            content
+        GeometryReader { geo in
+            let compact = geo.size.width < DetailLayout.compactWidth
+            VStack(spacing: 0) {
+                header(compact: compact)
+                Divider().overlay(Brand.border)
+                content(compact: compact)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Brand.bg)
         .task(id: slug) { await load() }
         .confirmationDialog("Remove \(slug) from the registry?",
@@ -50,16 +53,16 @@ struct SkillDetailView: View {
         }
     }
 
-    private var header: some View {
+    private func header(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(detail?.name ?? slug)
-                        .font(.system(size: 22, weight: .semibold)).foregroundStyle(Brand.fg)
+                        .font(.system(size: compact ? 18 : 22, weight: .semibold)).foregroundStyle(Brand.fg)
                     Pill(text: slug, dot: Brand.accent)
                 }
                 Spacer()
-                actions
+                actions(compact: compact)
             }
             if let d = detail, !d.description.isEmpty {
                 Text(d.description).font(.system(size: 13)).foregroundStyle(Brand.muted)
@@ -69,7 +72,7 @@ struct SkillDetailView: View {
         .padding(20)
     }
 
-    private var actions: some View {
+    private func actions(compact: Bool) -> some View {
         HStack(spacing: 8) {
             if isEditing {
                 Button("Cancel") { cancelEditing() }
@@ -88,50 +91,78 @@ struct SkillDetailView: View {
                 .accessibilityIdentifier("saveSkillEdit")
             } else {
                 Button { beginEditing() } label: {
-                    Label("Edit", systemImage: "pencil").font(.system(size: 12))
+                    if compact {
+                        Image(systemName: "pencil").font(.system(size: 12))
+                    } else {
+                        Label("Edit", systemImage: "pencil").font(.system(size: 12))
+                    }
                 }
                 .buttonStyle(GhostButtonStyle())
                 .disabled(detail == nil)
+                .help("Edit SKILL.md")
                 .accessibilityIdentifier("editSkill")
             }
             if !isEditing && !state.isDemo {
                 Button { showInstall = true } label: {
-                    Label("Install", systemImage: "arrow.down.circle").font(.system(size: 12))
+                    if compact {
+                        Image(systemName: "arrow.down.circle").font(.system(size: 12))
+                    } else {
+                        Label("Install", systemImage: "arrow.down.circle").font(.system(size: 12))
+                    }
                 }
                 .buttonStyle(GhostButtonStyle())
                 .disabled(detail == nil)
+                .help("Install this skill into your agents")
                 .accessibilityIdentifier("installSkill")
             }
             if !isEditing {
                 Button { openOnGitHub() } label: {
-                    Label("GitHub", systemImage: "arrow.up.right.square").font(.system(size: 12))
-                }.buttonStyle(GhostButtonStyle())
+                    if compact {
+                        Image(systemName: "arrow.up.right.square").font(.system(size: 12))
+                    } else {
+                        Label("GitHub", systemImage: "arrow.up.right.square").font(.system(size: 12))
+                    }
+                }
+                .buttonStyle(GhostButtonStyle())
+                .help("Open \(slug) on GitHub")
                 Button { if let d = detail { Clipboard.copy(d.markdown) ; state.showToast("Copied SKILL.md", .ok) } } label: {
                     Image(systemName: "doc.on.doc").font(.system(size: 12))
-                }.buttonStyle(GhostButtonStyle())
+                }
+                .buttonStyle(GhostButtonStyle())
+                .help("Copy SKILL.md")
             }
             if !isEditing && !state.isDemo {
                 Button { confirmRemove = true } label: {
                     Image(systemName: "trash").font(.system(size: 12))
                 }
                 .buttonStyle(GhostButtonStyle())
+                .help("Remove this skill from the registry")
                 .accessibilityIdentifier("removeSkill")
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
-    @ViewBuilder private var content: some View {
+    @ViewBuilder private func content(compact: Bool) -> some View {
         if loading {
             VStack { Spacer(); ProgressView().tint(Brand.accent); Spacer() }
                 .frame(maxWidth: .infinity)
         } else if let error {
             EmptyState(icon: "exclamationmark.triangle", title: "Couldn't load", subtitle: error)
         } else if let d = detail {
-            HStack(spacing: 0) {
-                fileViewer(d)
-                if d.files.count > 1 {
+            if compact && d.files.count > 1 {
+                VStack(spacing: 0) {
+                    fileMenu(d.files)
                     Divider().overlay(Brand.border)
-                    fileRail(d.files)
+                    fileViewer(d)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    fileViewer(d)
+                    if d.files.count > 1 {
+                        Divider().overlay(Brand.border)
+                        fileRail(d.files)
+                    }
                 }
             }
         }
@@ -157,6 +188,7 @@ struct SkillDetailView: View {
                         .markdownTheme(.brand)
                         .textSelection(.enabled)
                         .padding(24)
+                        .frame(maxWidth: DetailLayout.readingWidth, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -172,12 +204,14 @@ struct SkillDetailView: View {
                         .markdownTheme(.brand)
                         .textSelection(.enabled)
                         .padding(24)
+                        .frame(maxWidth: DetailLayout.readingWidth, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(auxText)
                         .font(Brand.monoSized(12)).foregroundStyle(Brand.fg2)
                         .textSelection(.enabled)
                         .padding(24)
+                        .frame(maxWidth: DetailLayout.readingWidth, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -197,8 +231,49 @@ struct SkillDetailView: View {
                 .padding(.horizontal, 6)
             }
         }
-        .frame(width: 210)
+        .frame(width: DetailLayout.fileRailWidth)
         .background(Brand.surface)
+    }
+
+    /// Compact replacement for the file rail: a single menu row pinned under
+    /// the header. Used below ``DetailLayout/compactWidth`` where the fixed
+    /// rail would squeeze the reading column to ~140pt.
+    private func fileMenu(_ files: [String]) -> some View {
+        Menu {
+            ForEach(files, id: \.self) { f in
+                Button(f) { selectFile(f) }
+                    .disabled(isEditing && f != selectedFile)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon(for: selectedFile))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Brand.accent)
+                    .frame(width: 14)
+                Text(selectedFile)
+                    .font(Brand.monoSized(11))
+                    .foregroundStyle(Brand.fg)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Brand.muted)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Brand.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .disabled(isEditing)
+        .help("Choose a file in this skill")
+        .accessibilityIdentifier("fileMenu")
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
     }
 
     private func fileRow(_ f: String) -> some View {
@@ -289,4 +364,16 @@ struct SkillDetailView: View {
         }
         loading = false
     }
+}
+
+/// Width constants for the Browse detail pane.
+enum DetailLayout {
+    /// Below this detail-pane width the file rail collapses into a menu and
+    /// header actions go icon-only. The sidebar (248) + list (340) columns are
+    /// fixed, so this is ~1100pt of window width.
+    static let compactWidth: CGFloat = 510
+    /// Max line length for the markdown reading column (Settings uses 760).
+    static let readingWidth: CGFloat = 740
+    /// Fixed width of the file rail on wide layouts.
+    static let fileRailWidth: CGFloat = 210
 }
