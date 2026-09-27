@@ -113,7 +113,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Update the installed binary to the latest release | `skills-registry update` |
 | Re-run the wizard / bootstrap (idempotent) | `skills-registry bootstrap` |
 
-Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `get` stays the cache-only fetch for one-shot agent reads.
+Most users only touch `list`, `get`, and `publish`. The TUI is fuzzy-filterable; press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `list --query` opens with the filter pre-seeded (esc clears back to the full list), Enter while typing keeps the narrowed results, and a filter matching nothing says so instead of showing a blank pane. `get` stays the cache-only fetch for one-shot agent reads.
 
 <img src="docs/img/demo.gif" alt="skills-registry list TUI — fuzzy-filterable skill list on the left with a live SKILL.md preview pane on the right, filtering as you type." width="100%">
 

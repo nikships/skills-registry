@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -884,5 +885,327 @@ func TestClampPreviewDescPassthrough(t *testing.T) {
 	want := PreviewBody.Width(60).Render(in)
 	if got != want {
 		t.Errorf("clampPreviewDesc mutated an in-budget block:\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+// filterTestRows is the row set for the filter-UX tests. "foo" matches
+// both slugs fuzzily, "zzz" matches neither, and the empty registry
+// case is covered by passing nil rows.
+func filterTestRows() []SkillRow {
+	return []SkillRow{
+		{Slug: "foo_skill", Name: "Foo", Desc: "first"},
+		{Slug: "bar_skill", Name: "Bar", Desc: "second"},
+	}
+}
+
+// readyFilteredModel returns a stateReady ListModel with the initial
+// filter applied, driving the same path production uses: rowsLoadedMsg
+// followed by reveal ticks until the full row set is in the list.
+func readyFilteredModel(t *testing.T, seed string) ListModel {
+	t.Helper()
+	m := NewList(context.Background(), "owner/repo",
+		func() ([]SkillRow, error) { return filterTestRows(), nil }, nil).
+		WithInstallTargets(fixedTargetLoader("stub-target")).
+		WithInitialFilter(seed)
+	got, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 36})
+	m = got.(ListModel)
+	got, _ = m.Update(rowsLoadedMsg{rows: filterTestRows()})
+	m = got.(ListModel)
+	for range len(filterTestRows()) {
+		got, _ := m.Update(revealTickMsg{})
+		m = got.(ListModel)
+	}
+	return m
+}
+
+func escKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEsc} }
+
+// typeRunes feeds one rune key per character, mirroring how the
+// terminal delivers typed text to the filter input. Bubbles applies
+// filtering asynchronously (each keystroke returns a cmd that yields a
+// FilterMatchesMsg), so the helper drains those cmds back through the
+// model the way the bubbletea runtime would in production.
+func typeRunes(m ListModel, s string) ListModel {
+	for _, r := range s {
+		got, cmd := m.Update(runeKey(r))
+		m = got.(ListModel)
+		m = drainFilterCmds(m, cmd)
+	}
+	return m
+}
+
+// drainFilterCmds executes cmd (plus any nested batch) and feeds each
+// resulting FilterMatchesMsg back into the model. Non-filter messages
+// are dropped: cursor blinks and similar carry no state the filter-UX
+// assertions depend on.
+//
+// Each cmd runs with a short timeout because the batch also carries the
+// textinput cursor-blink tick, which blocks ~500ms per keystroke and
+// would otherwise make the suite take seconds per typed query.
+func drainFilterCmds(m ListModel, cmd tea.Cmd) ListModel {
+	if cmd == nil {
+		return m
+	}
+	type result struct {
+		msg tea.Msg
+	}
+	done := make(chan result, 1)
+	go func() { done <- result{cmd()} }()
+	var msg tea.Msg
+	select {
+	case r := <-done:
+		msg = r.msg
+	case <-time.After(10 * time.Millisecond):
+		return m
+	}
+	switch msg := msg.(type) {
+	case list.FilterMatchesMsg:
+		got, _ := m.Update(msg)
+		return got.(ListModel)
+	case tea.BatchMsg:
+		for _, c := range msg {
+			m = drainFilterCmds(m, c)
+		}
+	}
+	return m
+}
+
+// TestInitialFilterSeedsChipAndEscClears is the cli-tui-8 regression
+// test: a seeded query must surface as a `filter: <q>` header chip (not
+// a silently narrowed list), and esc must clear back to the full list
+// instead of quitting the program.
+func TestInitialFilterSeedsChipAndEscClears(t *testing.T) {
+	m := readyFilteredModel(t, "foo")
+
+	header := stripANSI(m.renderHeader())
+	if !strings.Contains(header, "filter: foo") {
+		t.Fatalf("header missing filter chip:\n%s", header)
+	}
+	if fv := m.list.FilterValue(); fv != "foo" {
+		t.Fatalf("FilterValue() = %q, want %q", fv, "foo")
+	}
+
+	got, cmd := m.Update(escKey())
+	mm := got.(ListModel)
+	if cmd != nil {
+		t.Fatalf("esc on a seeded filter returned cmd %T, want nil (no quit)", cmd)
+	}
+	if mm.list.FilterValue() != "" {
+		t.Fatalf("FilterValue() after esc = %q, want empty", mm.list.FilterValue())
+	}
+	if got, want := mm.visibleCount(), len(filterTestRows()); got != want {
+		t.Fatalf("visibleCount() after esc = %d, want %d (full list)", got, want)
+	}
+}
+
+// TestInitialFilterEmptySeedIsNoOp pins that an empty seed leaves the
+// model exactly as before: no chip, no filter state, esc quits.
+func TestInitialFilterEmptySeedIsNoOp(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	if fv := m.list.FilterValue(); fv != "" {
+		t.Fatalf("FilterValue() = %q, want empty for empty seed", fv)
+	}
+	if m.list.FilterState() != list.Unfiltered {
+		t.Fatalf("FilterState() = %v, want Unfiltered for empty seed", m.list.FilterState())
+	}
+	header := stripANSI(m.renderHeader())
+	if strings.Contains(header, "filter:") {
+		t.Fatalf("header shows a filter chip for empty seed:\n%s", header)
+	}
+
+	_, cmd := m.Update(escKey())
+	if cmd == nil {
+		t.Fatal("esc on an unfiltered list returned nil cmd, want quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("esc on an unfiltered list returned %T, want tea.QuitMsg", cmd())
+	}
+}
+
+// TestEnterWhileFilteringBlursAndKeepsResults is the cli-tui-12
+// regression test: enter with the filter input open must blur into the
+// FilterApplied state with the narrowed results intact, not open the
+// install picker behind the typing box.
+func TestEnterWhileFilteringBlursAndKeepsResults(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	// Open the filter input and type a matching query.
+	got, _ := m.Update(runeKey('/'))
+	m = typeRunes(got.(ListModel), "foo")
+	if m.list.FilterState() != list.Filtering {
+		t.Fatalf("FilterState() = %v, want Filtering while typing", m.list.FilterState())
+	}
+
+	got, cmd := m.Update(enterKey())
+	mm := got.(ListModel)
+	if cmd != nil {
+		t.Fatalf("enter while filtering returned cmd %T, want nil (no install)", cmd)
+	}
+	if mm.pickInstall {
+		t.Fatal("enter while filtering opened the install picker")
+	}
+	if mm.list.FilterState() != list.FilterApplied {
+		t.Fatalf("FilterState() = %v, want FilterApplied after enter", mm.list.FilterState())
+	}
+	if mm.list.FilterValue() != "foo" {
+		t.Fatalf("FilterValue() = %q, want %q kept after enter", mm.list.FilterValue(), "foo")
+	}
+	if got := mm.visibleCount(); got == 0 || got == len(filterTestRows()) {
+		t.Fatalf("visibleCount() = %d, want a narrowed non-empty set", got)
+	}
+}
+
+// TestEnterWhileFilteringKeepsZeroMatches pins that accepting a filter
+// that matches nothing keeps the query (so the user sees the "no
+// skills match" state) instead of bubbles' default of silently
+// clearing it.
+func TestEnterWhileFilteringKeepsZeroMatches(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	got, _ := m.Update(runeKey('/'))
+	m = typeRunes(got.(ListModel), "zzz")
+
+	got, _ = m.Update(enterKey())
+	mm := got.(ListModel)
+	if mm.list.FilterState() != list.FilterApplied {
+		t.Fatalf("FilterState() = %v, want FilterApplied after enter", mm.list.FilterState())
+	}
+	if mm.list.FilterValue() != "zzz" {
+		t.Fatalf("FilterValue() = %q, want %q kept after enter", mm.list.FilterValue(), "zzz")
+	}
+	if got := mm.visibleCount(); got != 0 {
+		t.Fatalf("visibleCount() = %d, want 0 for a zero-match accept", got)
+	}
+}
+
+// TestEnterWhileFilteringEmptyQueryResets pins the empty-query edge:
+// enter with no text typed fully resets the filter instead of parking
+// the model in a stuck FilterApplied-with-empty-value state.
+func TestEnterWhileFilteringEmptyQueryResets(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	got, _ := m.Update(runeKey('/'))
+	m = got.(ListModel)
+	if m.list.FilterState() != list.Filtering {
+		t.Fatalf("FilterState() = %v, want Filtering after /", m.list.FilterState())
+	}
+
+	got, _ = m.Update(enterKey())
+	mm := got.(ListModel)
+	if mm.list.FilterState() != list.Unfiltered {
+		t.Fatalf("FilterState() = %v, want Unfiltered after empty enter", mm.list.FilterState())
+	}
+}
+
+// TestEscWhileFilteringClearsAndStays pins the other half of cli-tui-12:
+// esc with the filter input open clears the filter and returns to the
+// full list without quitting.
+func TestEscWhileFilteringClearsAndStays(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	got, _ := m.Update(runeKey('/'))
+	m = typeRunes(got.(ListModel), "f")
+
+	got, cmd := m.Update(escKey())
+	mm := got.(ListModel)
+	if cmd != nil {
+		t.Fatalf("esc while filtering returned cmd %T, want nil (no quit)", cmd)
+	}
+	if mm.list.FilterValue() != "" {
+		t.Fatalf("FilterValue() after esc = %q, want empty", mm.list.FilterValue())
+	}
+	if got, want := mm.visibleCount(), len(filterTestRows()); got != want {
+		t.Fatalf("visibleCount() after esc = %d, want %d (full list)", got, want)
+	}
+}
+
+// TestFooterNamesCapturedKeysWhileFiltering pins the cli-tui-12 footer
+// copy: while the filter input is open the footer must say keys are
+// captured, and it must revert to the shortcut list once blurred.
+func TestFooterNamesCapturedKeysWhileFiltering(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	got, _ := m.Update(runeKey('/'))
+	m = got.(ListModel)
+	typing := stripANSI(m.renderFooter())
+	for _, want := range []string{"esc", "clear filter", "enter", "keep results", "keys captured"} {
+		if !strings.Contains(typing, want) {
+			t.Fatalf("filtering footer missing %q:\n%s", want, typing)
+		}
+	}
+
+	got, _ = m.Update(escKey())
+	mm := got.(ListModel)
+	blurred := stripANSI(mm.renderFooter())
+	if !strings.Contains(blurred, "/ filter") || !strings.Contains(blurred, "enter install") {
+		t.Fatalf("blurred footer lost the shortcut list:\n%s", blurred)
+	}
+}
+
+// TestHelpDocumentsFilterAcceptCopy pins the help overlay's new rows so
+// the enter/esc-while-typing contract stays discoverable.
+func TestHelpDocumentsFilterAcceptCopy(t *testing.T) {
+	m := readyFilteredModel(t, "")
+	help := stripANSI(m.renderHelp())
+	for _, want := range []string{"enter (typing)", "accept filter, keep results", "esc (typing)", "clear filter"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help overlay missing %q:\n%s", want, help)
+		}
+	}
+}
+
+// TestZeroMatchFilterRendersEmptyState is the cli-tui-13 regression
+// test: rows present + filter matching nothing must render an explicit
+// "No skills match" message in the list pane — not bubbles' blank
+// string — with the typing affordance still on top.
+func TestZeroMatchFilterRendersEmptyState(t *testing.T) {
+	m := readyFilteredModel(t, "")
+
+	got, _ := m.Update(runeKey('/'))
+	m = typeRunes(got.(ListModel), "zzz")
+	panel := stripANSI(m.renderListPanel())
+	if !strings.Contains(panel, `No skills match "zzz"`) {
+		t.Fatalf("list pane missing zero-match message:\n%s", panel)
+	}
+	if !strings.Contains(panel, "esc clears the filter") {
+		t.Fatalf("list pane missing esc hint:\n%s", panel)
+	}
+	if !strings.Contains(panel, "/zzz") {
+		t.Fatalf("list pane lost the typing affordance:\n%s", panel)
+	}
+	// The panel must keep its full height rather than collapsing around
+	// the message: compare against the unfiltered render of the same
+	// model, which is the height the layout reserves.
+	unfiltered := readyFilteredModel(t, "")
+	if h1, h2 := lipgloss.Height(panel), lipgloss.Height(unfiltered.renderListPanel()); h1 != h2 {
+		t.Fatalf("zero-match pane height = %d, want %d (same as unfiltered)", h1, h2)
+	}
+}
+
+// TestZeroMatchVsEmptyRegistry pins the two empty states apart: a
+// filter matching nothing names the query, while a genuinely empty
+// registry keeps bubbles' generic "No items." text.
+func TestZeroMatchVsEmptyRegistry(t *testing.T) {
+	filtered := readyFilteredModel(t, "")
+	got, _ := filtered.Update(runeKey('/'))
+	filtered = typeRunes(got.(ListModel), "zzz")
+	filteredPanel := stripANSI(filtered.renderListPanel())
+	if !strings.Contains(filteredPanel, "No skills match") {
+		t.Fatalf("filtered-to-zero pane missing query message:\n%s", filteredPanel)
+	}
+
+	empty := NewList(context.Background(), "owner/repo",
+		func() ([]SkillRow, error) { return nil, nil }, nil)
+	got, _ = empty.Update(tea.WindowSizeMsg{Width: 140, Height: 36})
+	empty = got.(ListModel)
+	got, _ = empty.Update(rowsLoadedMsg{rows: nil})
+	empty = got.(ListModel)
+	emptyPanel := stripANSI(empty.renderListPanel())
+	if !strings.Contains(emptyPanel, "No items.") {
+		t.Fatalf("empty-registry pane lost the generic message:\n%s", emptyPanel)
+	}
+	if strings.Contains(emptyPanel, "No skills match") {
+		t.Fatalf("empty-registry pane shows a filter message:\n%s", emptyPanel)
 	}
 }

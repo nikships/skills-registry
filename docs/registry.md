@@ -36,6 +36,8 @@ The bulk initial import uses `git push` over HTTPS with credentials configured b
 
 Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
 
+`list --query` seeds the TUI's `/` filter instead of pre-dropping rows, so the header shows a `filter: <q>` chip and esc clears back to the full list. While the filter input is open, enter accepts and blurs keeping the narrowed results, the footer says shortcut keys are captured, and a filter matching nothing renders an explicit "No skills match" state rather than a blank pane.
+
 ## Discover
 
 `search` ranks the user's own registry. `discover QUERY` is the outward-facing counterpart: it queries the public SkillNet index and returns importable GitHub URLs.

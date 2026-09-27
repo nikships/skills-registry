@@ -39,7 +39,7 @@ func newListCmd() *cobra.Command {
 			return runList(cmd.Context(), queryFlag, plain)
 		},
 	}
-	cmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Initial filter substring.")
+	cmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Seed the TUI filter (shows a filter chip; esc clears).")
 	cmd.Flags().BoolVar(&plain, "plain", false, "Print a plain table instead of opening the TUI.")
 	return cmd
 }
@@ -120,12 +120,12 @@ func runList(ctx context.Context, query string, plain bool) error {
 		if err != nil {
 			return nil, err
 		}
+		// The loader returns the full row set; the initial query seeds
+		// the bubbles filter (WithInitialFilter) instead of pre-dropping
+		// rows, so the header shows a `filter: <q>` chip and esc clears
+		// back to the full list rather than quitting.
 		rows := make([]tui.SkillRow, 0, len(summaries))
-		needle := strings.ToLower(query)
 		for _, s := range summaries {
-			if !summaryMatches(s, needle) {
-				continue
-			}
 			rows = append(rows, tui.SkillRow{Slug: s.Slug, Name: s.Name, Desc: s.Description})
 		}
 		return rows, nil
@@ -151,7 +151,8 @@ func runList(ctx context.Context, query string, plain bool) error {
 
 	model := tui.NewList(ctx, cfg.Repo, loader, installer).
 		WithDeleter(deleter).
-		WithInstallTargets(installPickerTargets)
+		WithInstallTargets(installPickerTargets).
+		WithInitialFilter(query)
 	if _, err := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
