@@ -36,6 +36,12 @@ func newBootstrapCmd() *cobra.Command {
 If a registry config already exists, the repo-creation step is skipped and
 you go straight to the agent multi-select.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			return runBootstrap(cmd.Context(), bootstrapOpts{
 				Repo:           repoFlag,
 				Visibility:     visFlag,

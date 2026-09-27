@@ -33,6 +33,12 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List registry skills (interactive mode also supports durable installation)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			if jsonout.Enabled() {
 				return runListJSON(cmd.Context(), queryFlag)
 			}
@@ -45,25 +51,23 @@ func newListCmd() *cobra.Command {
 }
 
 // runListJSON is the --json code path: never enters a TUI, prints a
-// single JSON array (one row per registry skill) to stdout, and exits
-// with a non-zero code via os.Exit when an error occurs. The empty
-// registry is rendered as `[]` so consumers can `jq 'length'` without
-// special-casing a missing payload.
+// single JSON array (one row per registry skill) to stdout, and returns a
+// marked error (via PrintErrorHandled, so main exits non-zero without
+// re-printing the envelope) when an error occurs. The empty registry is
+// rendered as `[]` so consumers can `jq 'length'` without special-casing a
+// missing payload.
 func runListJSON(ctx context.Context, query string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		jsonout.PrintError(err)
-		os.Exit(1)
+		return jsonout.PrintErrorHandled(err)
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
-		jsonout.PrintError(err)
-		os.Exit(1)
+		return jsonout.PrintErrorHandled(err)
 	}
 	summaries, err := client.List(ctx)
 	if err != nil {
-		jsonout.PrintError(err)
-		os.Exit(1)
+		return jsonout.PrintErrorHandled(err)
 	}
 	rows := make([]listJSONRow, 0, len(summaries))
 	needle := strings.ToLower(query)

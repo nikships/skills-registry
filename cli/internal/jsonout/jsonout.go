@@ -16,6 +16,7 @@ package jsonout
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -111,4 +112,35 @@ func PrintError(err error) {
 		return
 	}
 	fmt.Fprintln(stdout, string(body))
+}
+
+// reportedError wraps an error that PrintError already rendered as a
+// {"error": ...} envelope on stdout. The root error handler uses it (via
+// AlreadyReported) to tell runtime failures, which printed their own
+// envelope inside RunE, apart from usage/arg failures, which return before
+// any RunE runs and need the envelope emitted at the root.
+type reportedError struct{ err error }
+
+func (e *reportedError) Error() string { return e.err.Error() }
+func (e *reportedError) Unwrap() error { return e.err }
+
+// PrintErrorHandled writes the {"error": ...} envelope for err and returns
+// a marked error for the caller to return up the stack. Use in every --json
+// failure path instead of `PrintError(err)` + `return err`: the mark tells
+// the root handler the envelope is already on stdout, so it never prints a
+// second one. The mark is transparent — Error() and Unwrap() delegate to
+// the wrapped error, so errors.Is/As and message assertions keep working.
+func PrintErrorHandled(err error) error {
+	PrintError(err)
+	if err == nil {
+		return nil
+	}
+	return &reportedError{err: err}
+}
+
+// AlreadyReported reports whether err passed through PrintErrorHandled —
+// i.e. whether its {"error"} envelope is already on stdout.
+func AlreadyReported(err error) bool {
+	var r *reportedError
+	return errors.As(err, &r)
 }

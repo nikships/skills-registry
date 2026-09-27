@@ -35,6 +35,12 @@ func newPublishCmd() *cobra.Command {
 		Short: "Publish a single local skill folder to the registry",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			if jsonout.Enabled() {
 				return runPublishJSON(cmd.Context(), args[0], nameOverride)
 			}
@@ -56,14 +62,14 @@ func runPublish(ctx context.Context, path, nameOverride string) error {
 }
 
 // runPublishJSON is the --json code path: publishes the skill folder
-// and emits {slug, sha, url}. Errors land as {"error": "..."} +
-// os.Exit(1). The branch is taken before doPublish so even setup-time
+// and emits {slug, sha, url}. Errors return a marked error (via
+// PrintErrorHandled, so main exits non-zero without re-printing the
+// envelope). The branch is taken before doPublish so even setup-time
 // failures (missing config, bad path) surface as JSON.
 func runPublishJSON(ctx context.Context, path, nameOverride string) error {
 	res, err := doPublish(ctx, path, nameOverride)
 	if err != nil {
-		jsonout.PrintError(err)
-		os.Exit(1)
+		return jsonout.PrintErrorHandled(err)
 	}
 	return jsonout.Print(publishJSONResult{
 		Slug: res.slug,

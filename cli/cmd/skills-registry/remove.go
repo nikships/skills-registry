@@ -74,6 +74,12 @@ that don't pipe --json), or --json to opt into structured stdout output
 (which implies --yes — JSON callers never get a TUI prompt).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			return runRemoveCmd(cmd.Context(), args[0], yes || shouldAutoYes())
 		},
 	}
@@ -83,16 +89,16 @@ that don't pipe --json), or --json to opt into structured stdout output
 
 // runRemoveCmd is the cobra wrapper around runRemove. It bridges the
 // shared core to the two output modes: human-readable status lines for
-// interactive use, and a structured JSON payload (with PrintError +
-// os.Exit(1) on failure) for `--json`. The split keeps runRemove free
+// interactive use, and a structured JSON payload (with PrintErrorHandled +
+// a returned error, so main exits non-zero without re-printing the
+// envelope) for `--json`. The split keeps runRemove free
 // of presentation concerns so the hub launcher can reuse it.
 func runRemoveCmd(ctx context.Context, slug string, yes bool) error {
 	jsonMode := jsonout.Enabled()
 	report, err := runRemove(ctx, slug, yes, jsonMode)
 	if err != nil {
 		if jsonMode {
-			jsonout.PrintError(err)
-			os.Exit(1)
+			return jsonout.PrintErrorHandled(err)
 		}
 		return err
 	}

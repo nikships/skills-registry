@@ -60,9 +60,14 @@ func newSearchCmd() *cobra.Command {
 		Short: "Fuzzy-search your registry (top 10 matches). Use `list` to enumerate every skill.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			query := args[0]
 			if jsonout.Enabled() {
-				cmd.SilenceErrors = true
 				return runSearchJSON(cmd.Context(), query)
 			}
 			return runSearch(cmd.Context(), query)
@@ -74,18 +79,15 @@ func newSearchCmd() *cobra.Command {
 func runSearchJSON(ctx context.Context, query string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	summaries, err := client.List(ctx)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 
 	results := scoreAndSort(summaries, query)

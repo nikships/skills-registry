@@ -38,8 +38,13 @@ func newSyncCmd() *cobra.Command {
 ~/.factory/skills, .agents/skills) for skills whose slug isn't already in
 your registry. Pick which to push with the interactive multi-select.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			if jsonout.Enabled() {
-				cmd.SilenceErrors = true
 				return runSyncJSON(cmd.Context())
 			}
 			return runSync(cmd.Context(), yes || shouldAutoYes(), all)
@@ -59,20 +64,17 @@ your registry. Pick which to push with the interactive multi-select.`,
 func runSyncJSON(ctx context.Context) error {
 	plan, err := planSync(ctx)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	for _, sk := range plan.missing {
 		files := map[string][]byte{}
 		if err := walkSkillIntoFiles(sk, files); err != nil {
-			jsonout.PrintError(err)
-			return err
+			return jsonout.PrintErrorHandled(err)
 		}
 		bySlug := rekeyBySlug(sk.Slug, files)
 		if _, err := plan.client.Publish(ctx, sk.Slug, bySlug, fmt.Sprintf("sync: %s", sk.Slug)); err != nil {
 			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
-			jsonout.PrintError(err)
-			return err
+			return jsonout.PrintErrorHandled(err)
 		}
 	}
 	pushed := make([]string, 0, len(plan.missing))

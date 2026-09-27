@@ -123,8 +123,7 @@ Examples:
 func runDiscoverJSON(ctx context.Context, q discover.Query) error {
 	resp, err := discover.New().Search(ctx, q)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	return jsonout.Print(resp)
 }
