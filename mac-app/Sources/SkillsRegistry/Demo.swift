@@ -62,6 +62,30 @@ extension AppState {
                        skillURL: "https://github.com/deckbot/skills/blob/main/pdf-to-slides"),
     ]
 
+    /// The source the Add pane arrives with in demo mode: a third-party folder
+    /// URL that resolves to the Poor-safety fixture row, so the untrusted
+    /// banner, grades, and acknowledgement are reachable offline. Any other
+    /// typed source classifies through the real `AddGate.build`, degrading to
+    /// unscored when no fixture row matches.
+    static let demoAddSource = "https://github.com/anon/pdf-scraper/blob/main/skills/pdf-scraper"
+
+    /// Demo-mode Add fetch: the fixture skills plus a real gate verdict for
+    /// the typed source. Grades come from the fixture whose folder matches
+    /// the source (`DiscoverClient.skillKey`, revision-insensitive), exactly
+    /// mirroring the production lookup-then-degrade path without networking.
+    func demoResolveAndScan(_ source: String) -> [LocalSkill] {
+        let src = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let row = Self.demoDiscoverResults.first {
+            guard let a = DiscoverClient.skillKey($0.skillURL),
+                  let b = DiscoverClient.skillKey(src) else { return false }
+            return a == b
+        }
+        setAddDemoState(source: src, gate: AddGate.build(
+            source: src, owners: repo.map { [$0.owner] } ?? [],
+            slugs: Self.demoLocal.map(\.slug), indexed: row))
+        return Self.demoLocal
+    }
+
     /// Demo-mode search: filters the fixtures on the query so the pane behaves
     /// like the real one, and reports a miss as an empty result set rather than
     /// an error.

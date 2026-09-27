@@ -11,6 +11,11 @@ final class SourceResolverTests: XCTestCase {
         XCTAssertTrue(SourceResolver.isLocalPath("~/skills"))
         XCTAssertFalse(SourceResolver.isLocalPath("owner/repo"))
         XCTAssertFalse(SourceResolver.isLocalPath("https://github.com/o/r.git"))
+        // Go `trust.IsLocalPath` trims before matching; pasted input with
+        // surrounding whitespace must classify the same way.
+        XCTAssertTrue(SourceResolver.isLocalPath("  ./skills\n"))
+        XCTAssertTrue(SourceResolver.isLocalPath("\t~/skills "))
+        XCTAssertFalse(SourceResolver.isLocalPath("  owner/repo  "))
     }
 
     // MARK: validateLocalSourcePath (relative-only rules, mirror of Go)

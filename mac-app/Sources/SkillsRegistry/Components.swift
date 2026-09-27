@@ -1,4 +1,5 @@
 import SwiftUI
+import SkillsRegistryCore
 
 // MARK: - Toast
 
@@ -88,6 +89,36 @@ struct GitHubMark: View {
     var body: some View {
         Image(systemName: "chevron.left.forwardslash.chevron.right")
             .font(.system(size: size, weight: .bold))
+    }
+}
+
+/// The import-gate blocker warning shared by the Discover confirmation sheet
+/// and the Add results banner: the block summary plus the acknowledgement
+/// checkbox that clears it. Neither consent implies an install.
+struct GateBlockWarning: View {
+    let review: ImportReview
+    @Binding var acknowledged: Bool
+    let toggleID: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12)).foregroundStyle(Brand.danger)
+                Text(review.summary).font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Toggle(isOn: $acknowledged) {
+                Text("I have read the source and want to import it anyway")
+                    .font(.system(size: 12)).foregroundStyle(Brand.fg2)
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier(toggleID)
+        }
+        .padding(12)
+        .background(Brand.surfaceWarm)
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.danger.opacity(0.45), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

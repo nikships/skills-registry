@@ -139,6 +139,38 @@ public struct DiscoverClient: Sendable {
         return cfg
     }
 
+    /// Find the index's row for one skill folder URL, so a caller that already
+    /// has a URL can read the grades the index assigned to it. Swift mirror of
+    /// Go `discover.Client.Lookup`.
+    ///
+    /// The index has no lookup-by-URL endpoint, so this searches for the
+    /// folder's own name and keeps the row whose `skillKey` matches. A miss is
+    /// not an error: the index simply has no row, which means unscored. A
+    /// transport failure propagates, so the caller can degrade to unscored
+    /// rather than blocking the import.
+    public func lookup(_ skillURL: String) async throws -> DiscoverResult? {
+        guard let key = Self.skillKey(skillURL) else { return nil }
+        let name = (key as NSString).lastPathComponent
+        guard !name.isEmpty, name != ".", name != "/" else { return nil }
+        let resp = try await search(DiscoverQuery(text: name, limit: Self.maxLimit))
+        return resp.results.first {
+            guard let got = Self.skillKey($0.skillURL) else { return false }
+            return got == key
+        }
+    }
+
+    /// Reduce a skill URL to an identity that survives a revision change:
+    /// "owner/repo/path", lowercased. Swift mirror of Go
+    /// `discover.SkillKey`. The index links a skill at whatever commit it last
+    /// indexed, so the SHA in a URL the user pasted and the SHA in the
+    /// index's own row routinely differ while naming the same folder. Nil for
+    /// anything that is not a github.com folder URL.
+    public static func skillKey(_ rawURL: String) -> String? {
+        guard let target = GitHubTarget.parse(rawURL), target.isFolder else { return nil }
+        let path = target.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return (target.fullName + "/" + path).lowercased()
+    }
+
     /// Project the index payload onto `DiscoverResult`, dropping rows with no
     /// usable identity and collapsing duplicates.
     ///
