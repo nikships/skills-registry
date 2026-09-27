@@ -296,8 +296,8 @@ const yamlScalarIndicators = "-?:,[]{}#&*!|>'\"%@`"
 // would be ambiguous. A URL stays unquoted, because a colon is only special
 // when whitespace follows it — which keeps the stamped line as readable as the
 // rest of the frontmatter. The category comes from a third-party index, so a
-// value carrying a newline, a quote, or a leading indicator is quoted rather
-// than trusted to be well behaved.
+// value carrying a newline, a quote, a control character, or a leading
+// indicator is quoted rather than trusted to be well behaved.
 func yamlScalar(v string) string {
 	switch {
 	case v == "":
@@ -306,9 +306,17 @@ func yamlScalar(v string) string {
 		strings.ContainsAny(v, "\n\r\"'#"),
 		strings.Contains(v, ": "),
 		strings.HasSuffix(v, ":"),
-		strings.ContainsRune(yamlScalarIndicators, rune(v[0])):
+		strings.ContainsRune(yamlScalarIndicators, rune(v[0])),
+		strings.ContainsFunc(v, isYAMLControlRune):
 		return strconv.Quote(v)
 	default:
 		return v
 	}
+}
+
+// isYAMLControlRune reports whether r is a C0/C1 control or DEL. Such a byte
+// must never reach frontmatter raw: strconv.Quote escapes it, so its presence
+// forces quoting. Mirrors Swift Frontmatter's control-scalar check.
+func isYAMLControlRune(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f)
 }

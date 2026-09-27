@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // stubGH writes a small shell script that replays scripted JSON responses
@@ -713,6 +714,41 @@ func TestParseSummary_PlainMultilineScalarStopsAtNextKey(t *testing.T) {
 	}
 	if desc != "first line continued line" {
 		t.Fatalf("desc = %q", desc)
+	}
+}
+
+// TestParseSummary_TruncatesByRunesNotBytes pins the cross-language contract:
+// a description longer than 300 runes is clipped on a rune boundary, never
+// mid-UTF-8-sequence, and the clipped bytes are identical to Swift's
+// scalar-based clip. Mirrors Swift FrontmatterTests
+// testParseSummaryTruncatesOnAScalarBoundary.
+func TestParseSummary_TruncatesByRunesNotBytes(t *testing.T) {
+	desc := strings.Repeat("a", 299) + "🇺🇸" + strings.Repeat("b", 50)
+	text := "---\nname: x\ndescription: " + desc + "\n---\nBody\n"
+	_, got := parseSummary(text, "x")
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated description is not valid UTF-8: %q", got)
+	}
+	// 299 "a" runes plus the flag's first regional indicator: both sides
+	// clip multi-scalar graphemes at the same scalar, byte for byte.
+	want := strings.Repeat("a", 299) + "🇺🇸"[:4]
+	if got != want {
+		t.Fatalf("truncated description = %q, want %q", got, want)
+	}
+}
+
+// TestParseSummary_CollapsesUnicodeWhitespace pins that Fields-style
+// collapsing covers the full Unicode space set (NBSP, vertical tab, form
+// feed), matching Swift's whitespacesAndNewlines collapse. Mirrors Swift
+// FrontmatterTests testParseSummaryCollapsesUnicodeWhitespace.
+func TestParseSummary_CollapsesUnicodeWhitespace(t *testing.T) {
+	nbsp := string(rune(0x00a0))
+	vt := string(rune(0x000b))
+	ff := string(rune(0x000c))
+	text := "---\nname: x\ndescription: one" + nbsp + "two" + vt + "three" + ff + "four\n---\nBody\n"
+	_, got := parseSummary(text, "x")
+	if got != "one two three four" {
+		t.Fatalf("desc = %q, want %q", got, "one two three four")
 	}
 }
 

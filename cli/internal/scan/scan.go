@@ -283,14 +283,14 @@ func firstParagraph(text string, limit int) string {
 		if cleaned == "" || strings.HasPrefix(cleaned, "#") {
 			continue
 		}
-		if len(cleaned) > limit {
-			return cleaned[:limit]
+		if r := []rune(cleaned); len(r) > limit {
+			return string(r[:limit])
 		}
 		return cleaned
 	}
 	trimmed := strings.TrimSpace(text)
-	if len(trimmed) > limit {
-		return trimmed[:limit]
+	if r := []rune(trimmed); len(r) > limit {
+		return string(r[:limit])
 	}
 	return trimmed
 }

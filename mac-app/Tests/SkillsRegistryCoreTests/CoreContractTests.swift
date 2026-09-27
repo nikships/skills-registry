@@ -236,6 +236,56 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertNil(Frontmatter.merging("---\nname: x\n---\nBody\n", keys: []))
     }
 
+    /// Mirrors Go `TestParseSummary_TruncatesByRunesNotBytes`: the 300-wide cap
+    /// counts Unicode scalars (Go runes), so both sides clip a multibyte
+    /// rune on the boundary at the same scalar, byte for byte.
+    func testParseSummaryTruncatesOnAScalarBoundary() {
+        let desc = String(repeating: "a", count: 299) + "🇺🇸" + String(repeating: "b", count: 50)
+        let md = "---\nname: x\ndescription: \(desc)\n---\nBody\n"
+        let (_, got) = Frontmatter.parseSummary(md, slug: "x")
+        XCTAssertEqual(got.unicodeScalars.count, 300)
+        // 299 "a" scalars plus the flag's first regional indicator: the same
+        // bytes Go's rune clip produces.
+        let firstRegional = String(Character("🇺🇸".unicodeScalars.first!))
+        let want = String(repeating: "a", count: 299) + firstRegional
+        XCTAssertEqual(got, want)
+    }
+
+    /// Mirrors Go `TestParseSummary_CollapsesUnicodeWhitespace`: collapsing
+    /// covers the full Unicode space set, matching Go `strings.Fields`.
+    func testParseSummaryCollapsesUnicodeWhitespace() {
+        let nbsp = String(Unicode.Scalar(0x00A0)!)
+        let vt = String(Unicode.Scalar(0x000B)!)
+        let ff = String(Unicode.Scalar(0x000C)!)
+        let md = "---\nname: x\ndescription: one\(nbsp)two\(vt)three\(ff)four\n---\nBody\n"
+        let (_, got) = Frontmatter.parseSummary(md, slug: "x")
+        XCTAssertEqual(got, "one two three four")
+    }
+
+    /// Mirrors Go `TestYAMLScalarEscapesControlCharacters`: a value carrying
+    /// a C0/C1 control or DEL is quoted, and escaped exactly the way Go
+    /// `strconv.Quote` escapes it, so the byte never reaches frontmatter raw.
+    func testYAMLScalarEscapesControlCharacters() {
+        let cases: [(scalar: UInt32, escaped: String)] = [
+            (0x00, "\\x00"), (0x07, "\\a"), (0x08, "\\b"), (0x0B, "\\v"),
+            (0x0C, "\\f"), (0x1B, "\\x1b"), (0x7F, "\\x7f"), (0x85, "\\u0085"),
+        ]
+        for c in cases {
+            let input = "ab" + String(Unicode.Scalar(c.scalar)!) + "cd"
+            let want = "\"ab" + c.escaped + "cd\""
+            XCTAssertEqual(Frontmatter.yamlScalar(input), want,
+                           "yamlScalar(U+\(String(c.scalar, radix: 16, uppercase: true)))")
+        }
+        // Belt and braces: no raw control scalar may survive in any of them.
+        for c in cases {
+            let input = "ab" + String(Unicode.Scalar(c.scalar)!) + "cd"
+            let got = Frontmatter.yamlScalar(input)
+            XCTAssertFalse(got.unicodeScalars.contains(where: {
+                $0.value < 0x20 || $0.value == 0x7F || (0x80...0x9F).contains($0.value)
+            }), got)
+        }
+    }
+
     /// Matches Go `yamlScalar`: a URL stays plain, and a value that would break
     /// the document (or smuggle a second key into it) is quoted and escaped.
     func testYAMLScalarQuotesOnlyWhenNeeded() {

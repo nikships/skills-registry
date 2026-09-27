@@ -31,7 +31,8 @@ public enum Frontmatter {
 
     /// Extract the display name + description for a registry listing row.
     /// Falls back to `slug` for the name and the first paragraph for the
-    /// description. Whitespace is collapsed; description capped at 300 chars.
+    /// description. Whitespace is collapsed; description capped at 300
+    /// Unicode scalars (Go runes), matching `parseSummary` in Go.
     public static func parseSummary(_ text: String, slug: String) -> (name: String, description: String) {
         var name = slug
         var description = ""
@@ -56,10 +57,12 @@ public enum Frontmatter {
             description = firstParagraph(text)
         }
 
-        description = description.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" })
-            .joined(separator: " ")
-        if description.count > 300 {
-            description = String(description.prefix(300))
+        // Collapse on the full Unicode space set, matching Go strings.Fields.
+        description = description.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        // Clip on Unicode scalars (Go runes), byte-identical to Go's clip.
+        if description.unicodeScalars.count > 300 {
+            description = String(description.unicodeScalars.prefix(300))
         }
         if description.isEmpty {
             description = "Skill: \(name)"
@@ -162,8 +165,8 @@ public enum Frontmatter {
     /// Render a value as a YAML scalar, quoting only when a plain one would be
     /// ambiguous. A URL stays unquoted, because a colon is only special when
     /// whitespace follows it. A category comes from a third-party index, so a
-    /// value carrying a newline, a quote, or a leading indicator is quoted
-    /// rather than trusted to be well behaved.
+    /// value carrying a newline, a quote, a control character, or a leading
+    /// indicator is quoted rather than trusted to be well behaved.
     static func yamlScalar(_ v: String) -> String {
         if v.isEmpty { return "\"\"" }
         let needsQuoting = v.trimmingCharacters(in: .whitespacesAndNewlines) != v
@@ -171,19 +174,38 @@ public enum Frontmatter {
             || v.contains(": ")
             || v.hasSuffix(":")
             || yamlIndicators.contains(v.first!)
+            || v.unicodeScalars.contains(where: isControlScalar)
         guard needsQuoting else { return v }
+        // Escape exactly the way Go strconv.Quote does, so both writers emit
+        // byte-identical scalars. Every escape here is also valid YAML inside
+        // a double-quoted scalar.
         var escaped = ""
-        for c in v {
-            switch c {
-            case "\\": escaped += "\\\\"
-            case "\"": escaped += "\\\""
-            case "\n": escaped += "\\n"
-            case "\r": escaped += "\\r"
-            case "\t": escaped += "\\t"
-            default: escaped.append(c)
+        for scalar in v.unicodeScalars {
+            switch scalar.value {
+            case 0x5C: escaped += "\\\\"
+            case 0x22: escaped += "\\\""
+            case 0x0A: escaped += "\\n"
+            case 0x0D: escaped += "\\r"
+            case 0x09: escaped += "\\t"
+            case 0x07: escaped += "\\a"
+            case 0x08: escaped += "\\b"
+            case 0x0C: escaped += "\\f"
+            case 0x0B: escaped += "\\v"
+            case 0x00...0x1F, 0x7F:
+                escaped += String(format: "\\x%02x", scalar.value)
+            case 0x80...0x9F:
+                escaped += String(format: "\\u%04x", scalar.value)
+            default:
+                escaped.append(Character(scalar))
             }
         }
         return "\"\(escaped)\""
+    }
+
+    /// C0/C1 controls and DEL, which Go strconv.Quote escapes and which must
+    /// never reach frontmatter raw. Mirrors Go isYAMLControlRune.
+    private static func isControlScalar(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value < 0x20 || scalar.value == 0x7F || (0x80...0x9F).contains(scalar.value)
     }
 
     // MARK: - flat YAML
