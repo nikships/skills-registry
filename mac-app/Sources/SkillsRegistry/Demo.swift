@@ -8,9 +8,37 @@ extension AppState {
         identity = Identity(login: "octocat", name: "Mona Octocat")
         repo = RepoRef(owner: "octocat", name: "skills-registry")
         branch = "main"
-        skills = Self.demoSkills
+        skills = Self.demoSkills + Self.demoExtraSkills
         cliInstalled = false
         phase = .ready
+    }
+
+    /// Demo-only screenshot fixture (`--demo-extra-skills N`): appends N
+    /// synthetic skills that all match a "zzztest" query, so Browse search
+    /// can be shown with more matches than the headless top-N cap. Empty
+    /// unless the flag is passed; production paths never set it.
+    static var demoExtraSkills: [SkillSummary] {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "--demo-extra-skills"),
+              i + 1 < args.count, let n = Int(args[i + 1]), n > 0
+        else { return [] }
+        return (1...n).map { k in
+            let num = String(format: "%02d", k)
+            return SkillSummary(
+                slug: "zzztest_skill_\(num)", name: "Zzztest Skill \(num)",
+                description: "Synthetic demo skill \(num) matching zzztest queries.",
+                treeSHA: "z\(num)")
+        }
+    }
+
+    /// Demo-only initial Browse query (`--demo-query TEXT`). Lets automation
+    /// screenshot a filtered list without injecting keystrokes; "" unless
+    /// demo mode is active, so production behavior is unchanged.
+    static var demoInitialQuery: String {
+        let args = ProcessInfo.processInfo.arguments
+        let demo = args.contains("--demo") || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
+        guard demo, let i = args.firstIndex(of: "--demo-query"), i + 1 < args.count else { return "" }
+        return args[i + 1]
     }
 
     static let demoSkills: [SkillSummary] = [

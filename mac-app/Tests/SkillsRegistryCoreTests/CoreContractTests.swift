@@ -80,6 +80,52 @@ final class FuzzyScoreTests: XCTestCase {
         XCTAssertTrue(scoreAndSort(summaries, query: "").isEmpty)
         XCTAssertTrue(scoreAndSort(summaries, query: "   ").isEmpty)
     }
+
+    /// The default limit keeps the cross-language top-N contract pinned: with
+    /// more matches than searchTopN, a default call still returns exactly N.
+    func testDefaultLimitStaysPinnedAtTen() {
+        let summaries = Self.zzztestCorpus(count: 15)
+        let got = scoreAndSort(summaries, query: "zzztest")
+        XCTAssertEqual(got.count, FuzzyConst.searchTopN)
+        XCTAssertEqual(FuzzyConst.searchTopN, 10)
+    }
+
+    /// An explicit limit ranks past the default cap without reordering: every
+    /// match is returned, still score-descending with slug-ascending ties.
+    func testExplicitLimitRanksAllMatches() {
+        let summaries = Self.zzztestCorpus(count: 15)
+        let got = scoreAndSort(summaries, query: "zzztest", limit: summaries.count)
+        XCTAssertEqual(got.count, 15)
+        // Same head as the default call, then the previously truncated tail.
+        let head = scoreAndSort(summaries, query: "zzztest").map(\.slug)
+        XCTAssertEqual(got.map(\.slug).prefix(10), head[...])
+        // Ordering contract holds across the full ranking.
+        let scores = got.map { scoreSkill("zzztest", $0) }
+        for i in got.indices.dropFirst() {
+            let prev = got[i - 1], cur = got[i]
+            XCTAssertTrue(
+                scores[i - 1] > scores[i]
+                    || (scores[i - 1] == scores[i] && prev.slug < cur.slug),
+                "out of order: \(prev.slug) before \(cur.slug)")
+        }
+    }
+
+    func testExplicitSmallLimit() {
+        let summaries = Self.zzztestCorpus(count: 15)
+        let got = scoreAndSort(summaries, query: "zzztest", limit: 3)
+        XCTAssertEqual(got.count, 3)
+        XCTAssertEqual(got.map(\.slug),
+                       Array(scoreAndSort(summaries, query: "zzztest").map(\.slug).prefix(3)))
+    }
+
+    /// Synthetic skills that all match "zzztest" (mirrors the demo fixture).
+    private static func zzztestCorpus(count: Int) -> [SkillSummary] {
+        (1...count).map { k in
+            let num = String(format: "%02d", k)
+            return SkillSummary(slug: "zzztest_skill_\(num)", name: "Zzztest Skill \(num)",
+                                description: "Synthetic demo skill \(num) matching zzztest queries.")
+        }
+    }
 }
 
 final class FrontmatterTests: XCTestCase {

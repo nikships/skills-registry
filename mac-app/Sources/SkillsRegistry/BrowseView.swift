@@ -4,13 +4,17 @@ import SkillsRegistryCore
 
 struct BrowseView: View {
     @EnvironmentObject var state: AppState
-    @State private var query = ""
+    // Demo-only: presets the search field when --demo-query is passed (""
+    // otherwise, so production behavior is unchanged).
+    @State private var query = AppState.demoInitialQuery
     @State private var selected: String?
 
     private var filtered: [SkillSummary] {
         let q = query.trimmingCharacters(in: .whitespaces)
         if q.isEmpty { return state.skills.sorted { $0.slug < $1.slug } }
-        return scoreAndSort(state.skills, query: q)
+        // Browse shows every match (like the CLI list TUI), so rank without
+        // the headless-search top-N cap; the header count stays truthful.
+        return scoreAndSort(state.skills, query: q, limit: state.skills.count)
     }
 
     var body: some View {

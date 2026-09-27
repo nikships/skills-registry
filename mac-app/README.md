@@ -45,6 +45,18 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Two extra demo-only launch arguments exist for search screenshots and
+automation (both inert unless demo mode is active; production behavior is
+unchanged when they are absent):
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-extra-skills 15 --demo-query zzztest
+```
+
+- `--demo-extra-skills N` appends N synthetic `zzztest_skill_NN` fixtures so
+  Browse can be shown with more matches than the headless top-10 search cap.
+- `--demo-query TEXT` presets the Browse search field without keystrokes.
+
 ---
 
 ## Architecture
