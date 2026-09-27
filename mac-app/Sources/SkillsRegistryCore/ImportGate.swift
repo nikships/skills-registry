@@ -312,7 +312,7 @@ public enum ImportProvenance {
     /// naming `SKILL.md` resolves to its directory, matching what the fetch
     /// did. A source with no ref is pinned to `HEAD` rather than to a guessed
     /// branch. A non-GitHub remote has no folder-URL form to derive, so the
-    /// source string is recorded as given.
+    /// source string is recorded as given, minus any userinfo.
     public static func sourceURL(for source: String, relativeFolder: String = "") -> String {
         let rel = relativeFolder.trimmingCharacters(in: .whitespacesAndNewlines)
         if var target = GitHubTarget.parse(source) {
@@ -324,7 +324,21 @@ public enum ImportProvenance {
             return GitHubTarget(owner: owner, repo: repo, ref: defaultRef,
                                 path: repoFolderPath("", rel)).webURL
         }
-        return source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return redactUserInfo(source.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Strip any `user:password@` userinfo from a source URL, mirroring Go
+    /// `redactSourceUserInfo`. The stamped `source_url` is committed to the
+    /// registry, so credentials must never survive in it. A string that is not
+    /// a URL, or a URL without userinfo, is returned unchanged.
+    static func redactUserInfo(_ source: String) -> String {
+        guard var components = URLComponents(string: source),
+              let scheme = components.scheme, !scheme.isEmpty,
+              components.user != nil || components.password != nil
+        else { return source }
+        components.user = nil
+        components.password = nil
+        return components.string ?? source
     }
 
     /// Compose the repository path of a fetched skill folder from the source

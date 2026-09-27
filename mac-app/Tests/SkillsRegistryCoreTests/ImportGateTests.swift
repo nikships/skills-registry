@@ -208,10 +208,29 @@ final class ImportGateTests: XCTestCase {
     }
 
     /// A non-GitHub remote has no folder-URL form to derive, so the source is
-    /// recorded as given.
+    /// recorded as given, minus any userinfo: `source_url` is committed to the
+    /// registry, so credentials must never survive in it. Mirrors Go's
+    /// `TestSourceURLForNamesTheSkillFolder` redact cases.
     func testSourceURLPassesForeignRemotesThrough() {
         XCTAssertEqual(ImportProvenance.sourceURL(for: "https://gitlab.com/o/r.git"),
                        "https://gitlab.com/o/r.git")
+        XCTAssertEqual(ImportProvenance.sourceURL(for: "https://user:token@gitlab.com/o/r.git"),
+                       "https://gitlab.com/o/r.git")
+        XCTAssertEqual(ImportProvenance.sourceURL(for: "https://user@gitlab.com/o/r.git"),
+                       "https://gitlab.com/o/r.git")
+    }
+
+    /// Mirrors Go `TestRedactSourceUserInfo` and
+    /// `TestRedactSourceUserInfoLeavesNonURL`: a string that is not a URL, or a
+    /// URL without userinfo, passes through unchanged.
+    func testRedactUserInfoLeavesNonURLAndCleanURLAlone() {
+        XCTAssertEqual(ImportProvenance.redactUserInfo("owner/repo"), "owner/repo")
+        XCTAssertEqual(ImportProvenance.redactUserInfo("git@github.com:o/r.git"),
+                       "git@github.com:o/r.git")
+        XCTAssertEqual(ImportProvenance.redactUserInfo("https://gitlab.com/o/r.git"),
+                       "https://gitlab.com/o/r.git")
+        XCTAssertEqual(ImportProvenance.redactUserInfo("https://user@example.com/org/repo.git"),
+                       "https://example.com/org/repo.git")
     }
 
     /// The stamp rewrites the fetched copy in place, so the registry receives
