@@ -275,11 +275,12 @@ final class AppState: ObservableObject {
         let removed = skills.filter { $0.slug == slug }
         skills.removeAll { $0.slug == slug }
 
-        // Local cleanup first — instant, and independent of the network.
+        // Local cleanup first — instant, and independent of the network. Use
+        // home as the universal target's base (same as the install call
+        // sites): a Finder-launched app's process cwd is `/`, not a project.
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let cwd = FileManager.default.currentDirectoryPath
         let cacheCleared = LocalRemove.removeFromCache(slug: slug)
-        let dotFolders = LocalRemove.removeFromDotFolders(slug: slug, home: home, cwd: cwd)
+        let dotFolders = LocalRemove.removeFromDotFolders(slug: slug, home: home, cwd: home)
         showToast(removeSummary(slug: slug, cacheCleared: cacheCleared, dotFolders: dotFolders.count), .ok)
         refreshMetaSkillStatus()
 

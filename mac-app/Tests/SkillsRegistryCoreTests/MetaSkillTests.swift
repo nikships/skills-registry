@@ -26,7 +26,34 @@ final class MetaSkillTests: XCTestCase {
         XCTAssertTrue(detected.contains(".claude"))
         XCTAssertTrue(detected.contains(".cursor"))
         XCTAssertFalse(detected.contains(".factory"))   // not created
-        XCTAssertFalse(detected.contains(".agents"))     // cwd-based universal, skipped
+        XCTAssertFalse(detected.contains(".agents"))     // folder doesn't exist here
+    }
+
+    func testDetectsUniversalAgentsOnlyHome() throws {
+        // A home with only `~/.agents` must still detect one target — the
+        // installers write `~/.agents/skills`, so the gateway status,
+        // install, and refresh must cover it too.
+        try mkAgentDir(".agents")
+        let repo = "nikships/my-skills"
+
+        let detected = MetaSkill.detectedTargets(home: home).map(\.dotDir)
+        XCTAssertEqual(detected, [".agents"])
+
+        var status = MetaSkill.status(home: home, registryRepo: repo)
+        XCTAssertEqual(status.detectedCount, 1)
+        XCTAssertTrue(status.anyMissing)
+
+        let written = try MetaSkill.install(home: home, registryRepo: repo)
+        XCTAssertEqual(written, 1)
+
+        let path = MetaSkill.skillPath(for: MetaSkill.detectedTargets(home: home)[0], home: home)
+        XCTAssertTrue(path.hasSuffix("/.agents/skills/skills-registry/SKILL.md"))
+        let body = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertEqual(body, SkillMdTemplate.skillMd(registryRepo: repo))
+
+        status = MetaSkill.status(home: home, registryRepo: repo)
+        XCTAssertFalse(status.needsAction)
+        XCTAssertEqual(status.installedCount, 1)
     }
 
     func testMissingThenInstallThenCurrent() throws {

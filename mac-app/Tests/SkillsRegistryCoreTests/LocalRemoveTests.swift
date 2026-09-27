@@ -102,4 +102,14 @@ final class LocalRemoveTests: XCTestCase {
         XCTAssertTrue(deleted.isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: "\(home!)/.claude/skills/keep_me"))
     }
+
+    func testRemovesUniversalAgentsCopyUnderHome() throws {
+        // The app's installers write the universal target under home
+        // (`cwd: home`), so remove must sweep `~/.agents/skills` too — not the
+        // process cwd (which is `/` for a Finder-launched app).
+        try seedSkill(dot: ".agents", folder: "demo")
+        let deleted = LocalRemove.removeFromDotFolders(slug: "demo", home: home, cwd: home)
+        XCTAssertEqual(deleted.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(home!)/.agents/skills/demo"))
+    }
 }
