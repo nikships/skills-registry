@@ -45,6 +45,14 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Append `--demo-select <slug>` (demo mode only) to open Browse with that
+fixture skill's detail pane preselected — a screenshot helper for states
+synthetic clicks can't reach, since browse rows use `onTapGesture`:
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-select brand_voice
+```
+
 ---
 
 ## Architecture

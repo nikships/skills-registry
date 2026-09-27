@@ -157,7 +157,7 @@ skills-registry get code-review --json
         <section id="cli">
           <div className="container">
             <div className="section-head"><p className="eyebrow"><span className="dot" /> CLI + TUI</p><h2 className="h2">Interactive for people. Headless for scripts and agents.</h2><p className="lead">Run the binary without arguments for the wizard or dashboard. Every subcommand also supports structured output with <span className="inline-code">--json</span>.</p></div>
-            <figure className="media-frame"><img src="assets/hub.gif" alt="Skills Registry dashboard with Manage, Sync, Add, Publish, Purge, and Settings" /><figcaption className="meta-text">The dashboard hub opens every day-to-day workflow.</figcaption></figure>
+            <figure className="media-frame"><img src="assets/hub.gif" alt="Skills Registry dashboard with Manage, Sync, Add, Discover, Publish, Purge, and Settings" /><figcaption className="meta-text">The dashboard hub opens every day-to-day workflow.</figcaption></figure>
             <table className="cli-table"><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody>
               <tr><td className="cmd">skills-registry</td><td className="desc">Launch onboarding on first run, then the dashboard.</td></tr>
               <tr><td className="cmd">skills-registry list / search</td><td className="desc">Browse all skills or fuzzy-rank a query.</td></tr>

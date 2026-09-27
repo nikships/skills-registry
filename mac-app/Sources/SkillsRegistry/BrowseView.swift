@@ -25,6 +25,17 @@ struct BrowseView: View {
                 selected = nil
             }
         }
+        .onAppear {
+            // Demo-only screenshot helper: `--demo --demo-select <slug>`
+            // opens the detail pane without synthetic clicks (the rows use
+            // onTapGesture, which accessibility drivers can't press).
+            // Ignored outside demo mode and when the slug is unknown.
+            if state.isDemo, selected == nil,
+               let slug = Self.demoPreselectSlug(),
+               state.skills.contains(where: { $0.slug == slug }) {
+                selected = slug
+            }
+        }
     }
 
     private var listColumn: some View {
@@ -114,6 +125,17 @@ struct BrowseView: View {
         if panel.runModal() == .OK, let url = panel.url {
             Task { await state.publishFolder(url) }
         }
+    }
+
+    // MARK: - demo-only
+
+    /// Reads the `--demo-select <slug>` launch-argument pair. Demo-only:
+    /// callers must gate on `state.isDemo` so production launches never
+    /// preselect.
+    private static func demoPreselectSlug() -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "--demo-select"), i + 1 < args.count else { return nil }
+        return args[i + 1]
     }
 }
 
