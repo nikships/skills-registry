@@ -39,7 +39,7 @@ func newListCmd() *cobra.Command {
 			return runList(cmd.Context(), queryFlag, plain)
 		},
 	}
-	cmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Initial filter substring.")
+	cmd.Flags().StringVarP(&queryFlag, "query", "q", "", "Filter by substring over slug, name, and description (TUI, --plain, --json).")
 	cmd.Flags().BoolVar(&plain, "plain", false, "Print a plain table instead of opening the TUI.")
 	return cmd
 }
@@ -66,11 +66,7 @@ func runListJSON(ctx context.Context, query string) error {
 		os.Exit(1)
 	}
 	rows := make([]listJSONRow, 0, len(summaries))
-	needle := strings.ToLower(query)
-	for _, s := range summaries {
-		if !summaryMatches(s, needle) {
-			continue
-		}
+	for _, s := range filterSummaries(summaries, strings.ToLower(query)) {
 		rows = append(rows, listJSONRow{
 			Slug:        s.Slug,
 			Name:        s.Name,
@@ -82,14 +78,24 @@ func runListJSON(ctx context.Context, query string) error {
 
 // summaryMatches reports whether s contains the already-lowercased
 // needle across its slug/name/description. An empty needle matches
-// everything. Shared by the --json and TUI list paths so both filter
-// identically.
+// everything. Thin delegate over tui.FilterMatches so the --json,
+// --plain, and TUI-loader paths share the TUI `/` filter's predicate
+// and all four select identically.
 func summaryMatches(s registry.Summary, needle string) bool {
-	if needle == "" {
-		return true
+	return tui.FilterMatches(s.Slug+" "+s.Name+" "+s.Description, needle)
+}
+
+// filterSummaries returns the summaries matching the already-lowercased
+// needle, preserving registry order. Shared by the --json, --plain, and
+// TUI-loader paths so `list --query` selects identically everywhere.
+func filterSummaries(summaries []registry.Summary, needle string) []registry.Summary {
+	filtered := make([]registry.Summary, 0, len(summaries))
+	for _, s := range summaries {
+		if summaryMatches(s, needle) {
+			filtered = append(filtered, s)
+		}
 	}
-	hay := strings.ToLower(s.Slug + " " + s.Name + " " + s.Description)
-	return strings.Contains(hay, needle)
+	return filtered
 }
 
 func runList(ctx context.Context, query string, plain bool) error {
@@ -111,7 +117,12 @@ func runList(ctx context.Context, query string, plain bool) error {
 			fmt.Println("No skills in", cfg.Repo)
 			return nil
 		}
-		printPlainList(cfg.Repo, summaries)
+		filtered := filterSummaries(summaries, strings.ToLower(query))
+		if len(filtered) == 0 {
+			fmt.Printf("No skills matching %q in %s\n", query, cfg.Repo)
+			return nil
+		}
+		printPlainList(cfg.Repo, filtered)
 		return nil
 	}
 
@@ -121,11 +132,7 @@ func runList(ctx context.Context, query string, plain bool) error {
 			return nil, err
 		}
 		rows := make([]tui.SkillRow, 0, len(summaries))
-		needle := strings.ToLower(query)
-		for _, s := range summaries {
-			if !summaryMatches(s, needle) {
-				continue
-			}
+		for _, s := range filterSummaries(summaries, strings.ToLower(query)) {
 			rows = append(rows, tui.SkillRow{Slug: s.Slug, Name: s.Name, Desc: s.Description})
 		}
 		return rows, nil
