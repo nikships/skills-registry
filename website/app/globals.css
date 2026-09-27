@@ -132,6 +132,54 @@
     .topnav nav a:hover { color: var(--accent); }
     .topnav .nav-right { display: flex; align-items: center; gap: 8px; }
 
+    /* Small-screen nav menu (JS-free <details> dropdown, shown <=1024px) */
+    .nav-menu { display: none; }
+    .topnav .nav-menu nav {
+      display: none;
+      position: absolute; left: 0; right: 0; top: 100%;
+      flex-direction: column; gap: 0;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 8px var(--container-gutter-desktop) 16px;
+    }
+    .topnav .nav-menu nav a {
+      padding: 12px 0;
+      font-size: var(--text-base);
+      border-top: 1px solid var(--border);
+    }
+    .topnav .nav-menu nav a:first-child { border-top: 0; }
+    .nav-menu summary {
+      display: grid; place-items: center;
+      width: 36px; height: 36px;
+      border: 1px solid var(--meta);
+      border-radius: var(--radius-sm);
+      list-style: none;
+    }
+    .nav-menu summary::-webkit-details-marker { display: none; }
+    .nav-menu summary:hover { border-color: var(--accent); }
+    .nav-burger, .nav-burger::before, .nav-burger::after {
+      display: block; width: 16px; height: 2px;
+      background: var(--fg); border-radius: 2px;
+      content: "";
+    }
+    .nav-burger { position: relative; }
+    .nav-burger::before { position: absolute; top: -5px; }
+    .nav-burger::after { position: absolute; top: 5px; }
+    .nav-menu[open] .nav-burger { background: transparent; }
+    .nav-menu[open] .nav-burger::before { top: 0; transform: rotate(45deg); }
+    .nav-menu[open] .nav-burger::after { top: 0; transform: rotate(-45deg); }
+
+    /* Horizontal-scroll hint for small-screen tables (shown <=640px) */
+    .scroll-hint {
+      display: none;
+      margin-top: 10px;
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      text-align: right;
+    }
+
     /* Buttons */
     .btn {
       display: inline-flex; align-items: center; gap: 8px;
@@ -508,6 +556,8 @@
       .stats-strip { grid-template-columns: repeat(2, 1fr); }
       .foot-grid { grid-template-columns: 1fr 1fr; }
       .topnav nav { display: none; }
+      .nav-menu { display: block; }
+      .topnav .nav-menu[open] nav { display: flex; }
     }
     @media (max-width: 640px) {
       :root { --container-gutter-desktop: 18px; }
@@ -539,7 +589,13 @@
         max-width: 100%;
         overflow-x: auto;
         white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        /* Right-edge fade so clipped columns read as scrollable. */
+        mask-image: linear-gradient(to right, black calc(100% - 36px), transparent);
+        -webkit-mask-image: linear-gradient(to right, black calc(100% - 36px), transparent);
       }
+      .scroll-hint { display: block; }
       .ds-table th, .ds-table td,
       .cli-table th, .cli-table td {
         padding: 12px 14px;
