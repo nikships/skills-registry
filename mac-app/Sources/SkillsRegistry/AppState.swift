@@ -36,6 +36,8 @@ final class AppState: ObservableObject {
     @Published var dismissedKeys: Set<String> = []
 
     let isDemo: Bool
+    /// Demo-only hover preview (`--demo-hover`). Never set for a real launch.
+    let demoHoverPreview: Bool
     private var token: String?
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
@@ -51,8 +53,9 @@ final class AppState: ObservableObject {
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
 
-    init(demo: Bool = false) {
+    init(demo: Bool = false, demoHoverPreview: Bool = false) {
         self.isDemo = demo
+        self.demoHoverPreview = demo && demoHoverPreview
         dismissedKeys = Set(defaults.stringArray(forKey: dismissKey) ?? [])
     }
 
@@ -687,6 +690,9 @@ final class AppState: ObservableObject {
     func showToast(_ message: String, _ kind: ToastItem.Kind) {
         let item = ToastItem(message: message, kind: kind)
         toast = item
+        // The toast auto-dismisses, so without an announcement a VoiceOver
+        // user never learns a copy/install/remove/import succeeded or failed.
+        AccessibilityAnnouncer.post(message, priority: kind == .error ? .high : .medium)
         Task {
             try? await Task.sleep(nanoseconds: 3_500_000_000)
             if self.toast?.id == item.id { self.toast = nil }

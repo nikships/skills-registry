@@ -45,6 +45,11 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+`--demo-hover` (or `SKILLS_APP_DEMO_HOVER=1`, only honored together with demo
+mode) paints the first Browse row in the hover state. The UI driver cannot
+move the OS pointer inside a window, so this is how a screenshot shows that
+treatment. It does nothing outside demo mode.
+
 ---
 
 ## Architecture
@@ -262,6 +267,15 @@ corpus tests together.**
 
 ---
 
+## Accessibility
+
+Browse and Discover rows are buttons. Keyboard, Full Keyboard Access, and
+VoiceOver can activate them; VoiceOver hears one combined label (name, slug or
+grades, description) plus a selected trait, and the row lifts with an accent
+bar on hover or keyboard focus. Icon-only controls have explicit labels
+(clear search, refresh, copy, remove, dismiss, account). Toasts and section
+changes are announced to VoiceOver.
+
 ## Testing
 
 ```bash
@@ -277,6 +291,7 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
 `agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
+`skillRow-<slug>` / `discoverRow-<name>`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.
 

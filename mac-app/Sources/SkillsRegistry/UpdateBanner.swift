@@ -104,6 +104,7 @@ struct UpdateBanner: View {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Brand.muted)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
             .help("Dismiss")
         }
         .padding(.horizontal, 14)

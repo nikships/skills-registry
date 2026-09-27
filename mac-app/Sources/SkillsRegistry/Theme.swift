@@ -8,6 +8,10 @@ enum Brand {
     static let surface = Color(hex: 0x0D0D0D)
     static let surfaceWarm = Color(hex: 0x141414)
     static let surfaceRaised = Color(hex: 0x171717)
+    /// List-row hover fill. `surfaceWarm` on `bg` is only ~1.1:1, so a hover
+    /// that used it alone does not read as a state. This sits above
+    /// `surfaceRaised` so an unselected hover lifts without matching selection.
+    static let surfaceHover = Color(hex: 0x2C2C2C)
     static let fg = Color(hex: 0xF5F3EE)
     static let fg2 = Color(hex: 0xF5F3EE).opacity(0.86)
     static let muted = Color(hex: 0x8A8A85)
@@ -146,6 +150,17 @@ struct GhostButtonStyle: ButtonStyle {
             .background(configuration.isPressed ? Brand.surfaceWarm : Color.clear)
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.meta, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+    }
+}
+
+/// Plain row button: no chrome of its own (`ListRowButton` draws the
+/// background and hover bar), but dims while pressed so mouse and keyboard
+/// activation both read.
+struct RowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
             .contentShape(Rectangle())
     }
 }

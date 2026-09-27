@@ -202,7 +202,7 @@ The agent catalogue remains centralized in `cli/internal/agents/agents.go`. `.mc
 
 ## macOS app
 
-The app manages the same registry and configuration as the CLI. It supports GitHub device-flow login, browsing and fuzzy search, direct `SKILL.md` editing, publish/remove, bulk import, public-index discovery, and CLI installation. Saving an edit creates one Git commit that replaces only `<slug>/SKILL.md`; supporting files remain unchanged, and the browse-list name and description update immediately from the edited frontmatter. Shared slug, frontmatter, fuzzy-scoring, GitHub-write, add-source URL parsing, discover-contract, import-gate, and gateway-template contracts must remain aligned between Go and Swift. The app's Add field takes the same folder URLs as the CLI and likewise fetches only that folder.
+The app manages the same registry and configuration as the CLI. It supports GitHub device-flow login, browsing and fuzzy search, direct `SKILL.md` editing, publish/remove, bulk import, public-index discovery, and CLI installation. Browse and Discover rows are buttons, so the keyboard and VoiceOver can activate them; icon-only controls have explicit labels, and toasts and section changes are announced. Saving an edit creates one Git commit that replaces only `<slug>/SKILL.md`; supporting files remain unchanged, and the browse-list name and description update immediately from the edited frontmatter. Shared slug, frontmatter, fuzzy-scoring, GitHub-write, add-source URL parsing, discover-contract, import-gate, and gateway-template contracts must remain aligned between Go and Swift. The app's Add field takes the same folder URLs as the CLI and likewise fetches only that folder.
 
 ### Discover pane
 

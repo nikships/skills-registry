@@ -109,12 +109,14 @@ struct SkillDetailView: View {
                 Button { if let d = detail { Clipboard.copy(d.markdown) ; state.showToast("Copied SKILL.md", .ok) } } label: {
                     Image(systemName: "doc.on.doc").font(.system(size: 12))
                 }.buttonStyle(GhostButtonStyle())
+                    .accessibilityLabel("Copy SKILL.md")
             }
             if !isEditing && !state.isDemo {
                 Button { confirmRemove = true } label: {
                     Image(systemName: "trash").font(.system(size: 12))
                 }
                 .buttonStyle(GhostButtonStyle())
+                .accessibilityLabel("Remove skill")
                 .accessibilityIdentifier("removeSkill")
             }
         }

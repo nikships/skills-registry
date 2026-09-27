@@ -32,6 +32,9 @@ struct HomeView: View {
         }
         .background(Brand.bg)
         .task { await state.checkForUpdates() }
+        // VoiceOver announcement: the content swaps with no focus move, so
+        // without this a section switch is silent.
+        .onChange(of: section) { _, new in AccessibilityAnnouncer.post(new.rawValue) }
     }
 
     private var sidebar: some View {
@@ -104,6 +107,7 @@ struct HomeView: View {
                 Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Brand.muted)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 22)
+            .accessibilityLabel("Account")
         }
     }
 

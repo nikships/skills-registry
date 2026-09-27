@@ -97,6 +97,7 @@ struct SetupView: View {
                     Button { Task { await state.loadInstallations() } } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 12))
                     }.buttonStyle(.plain).foregroundStyle(Brand.muted)
+                        .accessibilityLabel("Refresh repositories")
                 }
 
                 if state.installRepos.isEmpty {

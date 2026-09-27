@@ -39,6 +39,7 @@ struct BrowseView: View {
                     if !query.isEmpty {
                         Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundStyle(Brand.meta)
+                            .accessibilityLabel("Clear search")
                     }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 9)
@@ -53,6 +54,7 @@ struct BrowseView: View {
                     Button { Task { await state.refreshSkills() } } label: {
                         Image(systemName: "arrow.clockwise").font(.system(size: 11))
                     }.buttonStyle(.plain).foregroundStyle(Brand.muted)
+                        .accessibilityLabel("Refresh skills")
                     Button { publish() } label: {
                         Label("Publish", systemImage: "plus").font(.system(size: 11, weight: .medium))
                     }
@@ -75,10 +77,17 @@ struct BrowseView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(filtered) { skill in
-                            SkillRow(skill: skill, selected: selected == skill.slug)
-                                .onTapGesture {
+                            ListRowButton(
+                                selected: selected == skill.slug,
+                                hint: "Selects this skill",
+                                identifier: "skillRow-\(skill.slug)",
+                                previewHover: state.demoHoverPreview && skill.slug == filtered.first?.slug,
+                                action: {
                                     withAnimation(.easeInOut(duration: 0.2)) { selected = skill.slug }
                                 }
+                            ) {
+                                SkillRow(skill: skill)
+                            }
                             Divider().overlay(Brand.border).padding(.leading, 14)
                         }
                     }
@@ -119,7 +128,6 @@ struct BrowseView: View {
 
 struct SkillRow: View {
     let skill: SkillSummary
-    let selected: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -131,9 +139,5 @@ struct SkillRow: View {
             Text(skill.description).font(.system(size: 12)).foregroundStyle(Brand.muted)
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected ? Brand.surfaceRaised : Color.clear)
-        .contentShape(Rectangle())
     }
 }

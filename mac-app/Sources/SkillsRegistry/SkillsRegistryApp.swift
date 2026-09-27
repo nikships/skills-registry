@@ -8,9 +8,14 @@ struct SkillsRegistryApp: App {
     @StateObject private var updater = UpdaterManager()
 
     init() {
-        let demo = ProcessInfo.processInfo.arguments.contains("--demo")
+        let args = ProcessInfo.processInfo.arguments
+        let demo = args.contains("--demo")
             || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
-        _state = StateObject(wrappedValue: AppState(demo: demo))
+        // Screenshot-only: paints the first Browse row in the hover state.
+        // Ignored unless demo mode is also on, so a real launch never uses it.
+        let hoverPreview = demo && (args.contains("--demo-hover")
+            || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO_HOVER"] == "1")
+        _state = StateObject(wrappedValue: AppState(demo: demo, demoHoverPreview: hoverPreview))
     }
 
     var body: some Scene {
