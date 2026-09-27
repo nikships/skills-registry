@@ -22,7 +22,6 @@ enum NavSection: String, CaseIterable, Identifiable {
 
 struct HomeView: View {
     @EnvironmentObject var state: AppState
-    @State private var section: NavSection = .browse
 
     var body: some View {
         HStack(spacing: 0) {
@@ -71,15 +70,15 @@ struct HomeView: View {
     }
 
     private func navButton(_ item: NavSection) -> some View {
-        Button { withAnimation(.easeInOut(duration: 0.22)) { section = item } } label: {
+        Button { withAnimation(.easeInOut(duration: 0.22)) { state.section = item } } label: {
             HStack(spacing: 10) {
                 Image(systemName: item.icon).font(.system(size: 13)).frame(width: 18)
                 Text(item.rawValue).font(.system(size: 13, weight: .medium))
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .foregroundStyle(section == item ? Brand.fg : Brand.muted)
-            .background(section == item ? Brand.surfaceRaised : Color.clear)
+            .foregroundStyle(state.section == item ? Brand.fg : Brand.muted)
+            .background(state.section == item ? Brand.surfaceRaised : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
         }
@@ -141,7 +140,7 @@ struct HomeView: View {
         VStack(spacing: 0) {
             UpdateBanner()
             Group {
-                switch section {
+                switch state.section {
                 case .browse: BrowseView()
                 case .discover: DiscoverView()
                 case .add: AddView()
@@ -149,7 +148,7 @@ struct HomeView: View {
                 case .settings: SettingsView()
                 }
             }
-            .id(section)
+            .id(state.section)
             .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
     }

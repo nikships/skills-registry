@@ -22,6 +22,7 @@ struct DiscoverView: View {
     @State private var importing = false
     @State private var pending: PendingImport?
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var queryFocused: Bool
 
     /// The query demo mode arrives with.
     private static let demoQuery = "pdf"
@@ -51,6 +52,9 @@ struct DiscoverView: View {
         .sheet(item: $pending) { item in
             confirmSheet(item)
         }
+        // Cmd-F focuses the query field, Cmd-R re-runs the search.
+        .onChange(of: state.focusSearchRequest) { queryFocused = true }
+        .onChange(of: state.refreshRequest) { search() }
         // Demo mode drives the whole app offline, so the pane arrives with a
         // query already run rather than requiring synthetic keystrokes.
         .onAppear {
@@ -71,21 +75,10 @@ struct DiscoverView: View {
                 .font(.system(size: 13)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                Image(systemName: "sparkle.magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                TextField("pdf · summarize a youtube video · kubernetes", text: $query)
-                    .textFieldStyle(.plain).font(.system(size: 13))
-                    .onSubmit { search() }
-                    .accessibilityIdentifier("discoverQueryField")
-                if !query.isEmpty {
-                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(Brand.meta)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Brand.surfaceWarm)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            SearchField(icon: "sparkle.magnifyingglass",
+                        placeholder: "pdf · summarize a youtube video · kubernetes",
+                        text: $query, focused: $queryFocused,
+                        accessibilityID: "discoverQueryField") { search() }
 
             HStack(spacing: 10) {
                 Button { search() } label: {
@@ -369,13 +362,16 @@ struct DiscoverView: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button("Cancel") { pending = nil }.buttonStyle(GhostButtonStyle())
+                Button("Cancel") { pending = nil }
+                    .buttonStyle(GhostButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 Button {
                     let confirmed = item
                     pending = nil
                     runImport(confirmed)
                 } label: { Text("Import") }
                 .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
                 .disabled(review.blocked && !(pending?.acknowledgedBlock ?? false))
                 .accessibilityIdentifier("discoverConfirmImport")
             }

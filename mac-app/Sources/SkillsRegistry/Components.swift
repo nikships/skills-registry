@@ -48,6 +48,53 @@ extension View {
     }
 }
 
+// MARK: - Text inputs
+
+extension View {
+    /// Rounded input container with an accent focus ring (design-a11y-11).
+    /// At rest it matches the previous static `Brand.border` stroke exactly;
+    /// while focused it draws a 1.5pt accent stroke plus a soft outer glow so
+    /// keyboard focus is visible without relying on the caret alone.
+    func inputContainer(focused: Bool, cornerRadius: CGFloat = 8) -> some View {
+        self
+            .background(Brand.surfaceWarm)
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius)
+                .strokeBorder(focused ? Brand.accent : Brand.border, lineWidth: focused ? 1.5 : 1))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .shadow(color: focused ? Brand.accent.opacity(0.35) : .clear, radius: 6)
+    }
+}
+
+/// The app's shared search/source field chrome (design-a11y-11): leading
+/// icon, plain text field, and clear button in an `inputContainer`. Replaces
+/// the copy-pasted variants in Browse/Discover/Add. Panes own the
+/// `@FocusState` and pass its binding down so Cmd-F can drive focus.
+struct SearchField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+    let focused: FocusState<Bool>.Binding
+    var accessibilityID: String = ""
+    var onSubmit: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Brand.muted)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain).font(.system(size: 13))
+                .focused(focused)
+                .onSubmit(onSubmit)
+                .accessibilityIdentifier(accessibilityID)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(Brand.meta)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .inputContainer(focused: focused.wrappedValue)
+    }
+}
+
 // MARK: - Misc
 
 struct Eyebrow: View {

@@ -18,6 +18,7 @@ struct AddView: View {
     @State private var showPicker = false
     @State private var publishing = false
     @State private var progress: (Int, Int) = (0, 0)
+    @FocusState private var sourceFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -36,6 +37,8 @@ struct AddView: View {
                 runAdd(targets: targets)
             }
         }
+        // Add has a source field (Cmd-F) but nothing to refresh.
+        .onChange(of: state.focusSearchRequest) { sourceFocused = true }
     }
 
     private var head: some View {
@@ -46,21 +49,10 @@ struct AddView: View {
                 .font(.system(size: 13)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                Image(systemName: "link").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                TextField("owner/repo · https://github.com/… · ./local/path", text: $source)
-                    .textFieldStyle(.plain).font(.system(size: 13))
-                    .onSubmit { fetch() }
-                    .accessibilityIdentifier("addSourceField")
-                if !source.isEmpty {
-                    Button { source = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(Brand.meta)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Brand.surfaceWarm)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            SearchField(icon: "link",
+                        placeholder: "owner/repo · https://github.com/… · ./local/path",
+                        text: $source, focused: $sourceFocused,
+                        accessibilityID: "addSourceField") { fetch() }
 
             HStack(spacing: 10) {
                 Button { fetch() } label: {

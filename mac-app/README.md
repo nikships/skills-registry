@@ -45,6 +45,20 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+### Keyboard shortcuts
+
+The **Navigate** menu mirrors every shortcut. Focused text fields show an
+accent ring.
+
+| Shortcut | Action |
+|---|---|
+| `⌘F` | Focus the current section's search / source field (Browse, Discover, Add) |
+| `⌘R` | Refresh: reload the Browse list, re-run the Discover search, rescan Import |
+| `⌘1`–`⌘5` | Switch to Browse · Discover · Add · Import · Settings |
+| `⌘,` | Open Settings |
+| `Return` | Confirm: sign in, create/connect, sheet confirm buttons |
+| `Esc` | Cancel sheets |
+
 ---
 
 ## Architecture

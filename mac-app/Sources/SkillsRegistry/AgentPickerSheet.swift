@@ -102,12 +102,15 @@ struct AgentPickerSheet: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Spacer()
-            Button("Cancel") { dismiss() }.buttonStyle(GhostButtonStyle())
+            Button("Cancel") { dismiss() }
+                .buttonStyle(GhostButtonStyle())
+                .keyboardShortcut(.cancelAction)
             Button {
                 onConfirm(targets.filter { selected.contains($0.dotDir) })
                 dismiss()
             } label: { Text(confirmLabel) }
             .buttonStyle(PrimaryButtonStyle())
+            .keyboardShortcut(.defaultAction)
             .disabled(selected.isEmpty)
             .accessibilityIdentifier("agentPickerConfirm")
         }

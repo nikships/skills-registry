@@ -11,6 +11,14 @@ final class AppState: ObservableObject {
     @Published var repo: RepoRef?
     @Published var branch: String = "main"
 
+    /// Selected sidebar section. Lives here (rather than `HomeView` @State)
+    /// so the menu command layer can switch sections without focus tricks.
+    @Published var section: NavSection = .browse
+    /// Incremented by the Cmd-F / Cmd-R commands; the visible pane observes
+    /// these and focuses its search field / refreshes its content.
+    @Published var focusSearchRequest = 0
+    @Published var refreshRequest = 0
+
     @Published var skills: [SkillSummary] = []
     @Published var skillsLoading = false
     @Published var skillsError: String?

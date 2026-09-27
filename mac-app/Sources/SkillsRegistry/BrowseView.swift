@@ -6,6 +6,7 @@ struct BrowseView: View {
     @EnvironmentObject var state: AppState
     @State private var query = ""
     @State private var selected: String?
+    @FocusState private var searchFocused: Bool
 
     private var filtered: [SkillSummary] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -25,26 +26,18 @@ struct BrowseView: View {
                 selected = nil
             }
         }
+        // Cmd-F focuses search, Cmd-R refreshes the list (design-a11y-4).
+        .onChange(of: state.focusSearchRequest) { searchFocused = true }
+        .onChange(of: state.refreshRequest) { Task { await state.refreshSkills() } }
     }
 
     private var listColumn: some View {
         VStack(spacing: 0) {
             // Search + actions
             VStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                    TextField("Search skills…", text: $query)
-                        .textFieldStyle(.plain).font(.system(size: 13))
-                        .accessibilityIdentifier("searchField")
-                    if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).foregroundStyle(Brand.meta)
-                    }
-                }
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(Brand.surfaceWarm)
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                SearchField(icon: "magnifyingglass", placeholder: "Search skills…",
+                            text: $query, focused: $searchFocused,
+                            accessibilityID: "searchField")
 
                 HStack {
                     Text("\(filtered.count) skill\(filtered.count == 1 ? "" : "s")")
