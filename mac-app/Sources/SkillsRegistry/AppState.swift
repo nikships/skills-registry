@@ -15,6 +15,12 @@ final class AppState: ObservableObject {
     @Published var skillsLoading = false
     @Published var skillsError: String?
 
+    /// Unsaved SKILL.md editor drafts, keyed by slug. The detail view is
+    /// recreated on every skill and sidebar-section switch (`.id(slug)` /
+    /// `.id(section)`), so drafts live here to survive navigation. Cleared on
+    /// save or on an explicit discard.
+    @Published var drafts: [String: String] = [:]
+
     @Published var installRepos: [InstallationRepo] = []
     @Published var setupLoading = false
 
@@ -257,8 +263,26 @@ final class AppState: ObservableObject {
                 message: "edit: \(slug)", branch: branch)
         }
         upsertSkill(summary)
+        drafts.removeValue(forKey: slug)
         showToast("Saved \(slug)", .ok)
         return summary
+    }
+
+    /// The preserved editor draft for `slug`, if the user navigated away
+    /// mid-edit (or hasn't confirmed a discard yet).
+    func draft(for slug: String) -> String? {
+        drafts[slug]
+    }
+
+    /// Preserve the in-progress editor text for `slug` across navigation.
+    func saveDraft(_ text: String, for slug: String) {
+        drafts[slug] = text
+    }
+
+    /// Drop the preserved draft for `slug` after an explicit discard.
+    /// (Saves clear it inside `saveSkillMarkdown` instead.)
+    func clearDraft(for slug: String) {
+        drafts.removeValue(forKey: slug)
     }
 
     /// Remove a skill end-to-end, mirroring `skills-registry remove`: delete
