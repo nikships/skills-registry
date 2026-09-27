@@ -9,6 +9,9 @@ import SkillsRegistryCore
 ///
 /// Locations are never preselected. Existing folders are shown as detected
 /// information only; the user explicitly chooses every install destination.
+/// "Select all detected" selects only the visible rows whose folders exist on
+/// disk, so tools the user never installed are never bulk-selected (and no
+/// junk dot-folders are created); per-row opt-in for the rest is unchanged.
 struct AgentPickerSheet: View {
     let title: String
     let subtitle: String
@@ -18,9 +21,20 @@ struct AgentPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<String> = []
     @State private var targets: [AgentTarget] = []
+    @State private var filter: String = ""
 
     /// The app's home directory is also the install base for `.agents`.
     private var home: String { FileManager.default.homeDirectoryForCurrentUser.path }
+
+    /// Rows matching the filter text (blank matches everything).
+    private var visible: [AgentTarget] { Agents.matching(targets, query: filter) }
+
+    /// Visible rows whose folders exist — the "Select all detected" set.
+    private var selectable: [AgentTarget] { visible.filter(folderExists) }
+
+    private var allSelectableSelected: Bool {
+        !selectable.isEmpty && selectable.allSatisfy { selected.contains($0.dotDir) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -42,13 +56,39 @@ struct AgentPickerSheet: View {
             Text(subtitle).font(.system(size: 12)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
             if !targets.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
+                    TextField("Filter agents…", text: $filter)
+                        .textFieldStyle(.plain).font(.system(size: 13))
+                        .accessibilityIdentifier("agentPickerFilter")
+                    if !filter.isEmpty {
+                        Button { filter = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(Brand.meta)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(Brand.surfaceWarm)
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 HStack(spacing: 10) {
                     Button {
-                        selected = selected.count == targets.count ? [] : Set(targets.map(\.dotDir))
+                        if allSelectableSelected {
+                            // With no filter this clears everything (true
+                            // "Deselect all"); with a filter it clears only
+                            // the visible rows, preserving off-screen picks.
+                            if filter.trimmingCharacters(in: .whitespaces).isEmpty {
+                                selected = []
+                            } else {
+                                selected.subtract(visible.map(\.dotDir))
+                            }
+                        } else {
+                            selected.formUnion(selectable.map(\.dotDir))
+                        }
                     } label: {
-                        Text(selected.count == targets.count ? "Deselect all" : "Select all")
+                        Text(allSelectableSelected ? "Deselect all" : "Select all detected")
                     }
                     .buttonStyle(.plain).foregroundStyle(Brand.accent).font(.system(size: 12))
+                    .disabled(selectable.isEmpty)
                     Spacer()
                     Text("\(selected.count) selected").font(Brand.monoSized(11)).foregroundStyle(Brand.meta)
                 }
@@ -62,10 +102,14 @@ struct AgentPickerSheet: View {
             EmptyState(icon: "questionmark.folder",
                        title: "No agents detected",
                        subtitle: "Create an AI tool folder (e.g. ~/.claude) first, then try again.")
+        } else if visible.isEmpty {
+            EmptyState(icon: "magnifyingglass",
+                       title: "No matches",
+                       subtitle: "No agents match “\(filter)” — try a different filter.")
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(targets, id: \.dotDir) { t in
+                    ForEach(visible, id: \.dotDir) { t in
                         row(t)
                         Divider().overlay(Brand.border).padding(.leading, 44)
                     }

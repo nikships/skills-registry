@@ -227,8 +227,12 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
 universal `.agents` target. In the macOS app, the latter uses the home directory
 as its install base and writes to `~/.agents/skills`. No locations are
 pre-selected: existing `<dot>` folders are marked as detected for information,
-but every destination must be chosen explicitly. The CLI's separate picker
-defaults remain unchanged.
+but every destination must be chosen explicitly. A filter field narrows the
+list by display name or dot-folder, and "Select all detected" selects only the
+visible rows whose folders exist on disk — tools the user never installed stay
+unselected unless picked row by row, so bulk installs never create junk
+dot-folders. The CLI's separate picker defaults remain unchanged. The filter
+field exposes the `agentPickerFilter` accessibility identifier.
 
 ---
 
@@ -275,7 +279,7 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `searchField`, `publishButton`, `importSelected`, `installCLI`,
 `removeSkill`, `installSkill`, `editSkill`, `skillEditor`, `saveSkillEdit`,
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
-`agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
+`agentPickerConfirm`, `agentPickerFilter`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.
