@@ -43,7 +43,12 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline.
+call is short-circuited, so you can drive the whole app offline. Two
+demo-only drivers make otherwise-unreachable states reachable: a Discover
+query starting with `!` fails the search the way an unreachable index would
+(error state, fallback hint, and retry, all offline), and the Discover
+category field filters the fixtures the way the live index filters
+server-side.
 
 ---
 
@@ -275,7 +280,7 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `searchField`, `publishButton`, `importSelected`, `installCLI`,
 `removeSkill`, `installSkill`, `editSkill`, `skillEditor`, `saveSkillEdit`,
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
-`agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
+`agentPickerConfirm`, `discoverQueryField`, `discoverCategoryField`, `discoverSearch`, `discoverLimit-10/25/50`, `discoverRefreshStale`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.

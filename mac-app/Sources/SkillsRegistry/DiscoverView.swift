@@ -14,6 +14,12 @@ struct DiscoverView: View {
     @EnvironmentObject var state: AppState
     @State private var query = ""
     @State private var mode: DiscoverMode = .keyword
+    @State private var category = ""
+    @AppStorage("discoverLimit") private var limit = DiscoverClient.defaultLimit
+    /// The submitted query the list on screen answers, so the header can name
+    /// it and notice when the field drifts away from it (finding: stale rows
+    /// with no query label looked current).
+    @State private var lastSearched: DiscoverQuery?
     @State private var results: [DiscoverResult] = []
     @State private var selected: DiscoverResult?
     @State private var searching = false
@@ -25,6 +31,10 @@ struct DiscoverView: View {
 
     /// The query demo mode arrives with.
     private static let demoQuery = "pdf"
+
+    /// The result-cap stops the limit control offers. They mirror the CLI's
+    /// `--limit` range (default 10, capped at 50).
+    private static let resultLimits = [10, 25, 50]
 
     /// A row the user asked to import, held while the confirmation sheet is up.
     /// `installIntoAgents` starts false, which is what makes registry-only the
@@ -54,6 +64,7 @@ struct DiscoverView: View {
         // Demo mode drives the whole app offline, so the pane arrives with a
         // query already run rather than requiring synthetic keystrokes.
         .onAppear {
+            if !Self.resultLimits.contains(limit) { limit = DiscoverClient.defaultLimit }
             guard state.isDemo, !didSearch, query.isEmpty else { return }
             query = Self.demoQuery
             search()
@@ -88,6 +99,12 @@ struct DiscoverView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             HStack(spacing: 10) {
+                categoryField
+                limitStepper
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
                 Button { search() } label: {
                     HStack(spacing: 8) {
                         if searching { ProgressView().controlSize(.small) }
@@ -100,13 +117,100 @@ struct DiscoverView: View {
 
                 modeToggle
                 Spacer()
-                if !results.isEmpty {
-                    Text("\(results.count) result\(results.count == 1 ? "" : "s")")
-                        .font(Brand.monoSized(11)).foregroundStyle(Brand.muted)
-                }
+                resultsHeader
             }
         }
         .padding(20)
+    }
+
+    /// Optional category filter, threading straight into `DiscoverQuery` like
+    /// the CLI's `--category`. Empty means the whole index.
+    private var categoryField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "tag").font(.system(size: 11)).foregroundStyle(Brand.muted)
+            TextField("Category (optional)", text: $category)
+                .textFieldStyle(.plain).font(.system(size: 12))
+                .onSubmit { search() }
+                .accessibilityIdentifier("discoverCategoryField")
+            if !category.isEmpty {
+                Button { category = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(Brand.meta)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Brand.surfaceWarm)
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 240)
+    }
+
+    /// Result cap, mirroring the CLI's `--limit`. Switching stops re-runs a
+    /// query that already returned, like the mode toggle, and the choice
+    /// persists across launches.
+    private var limitStepper: some View {
+        HStack(spacing: 2) {
+            Text("Limit").font(.system(size: 12)).foregroundStyle(Brand.muted)
+                .padding(.leading, 8)
+            ForEach(Self.resultLimits, id: \.self) { n in
+                Button {
+                    guard limit != n else { return }
+                    limit = n
+                    if didSearch { search() }
+                } label: {
+                    Text("\(n)")
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .foregroundStyle(limit == n ? Brand.fg : Brand.muted)
+                        .background(limit == n ? Brand.surfaceRaised : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("discoverLimit-\(n)")
+            }
+        }
+        .padding(2)
+        .background(Brand.surfaceWarm)
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// What the list shows and which submitted query produced it. When the
+    /// field (or a filter) drifts from the submitted query, the label gives
+    /// way to an explicit re-search affordance instead of letting old rows
+    /// pass as current.
+    private var resultsHeader: some View {
+        HStack(spacing: 8) {
+            if searching && !results.isEmpty {
+                ProgressView().controlSize(.small)
+            }
+            if isStale {
+                Button { search() } label: {
+                    Text("Search to update")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Brand.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("discoverRefreshStale")
+            } else if !results.isEmpty, let last = lastSearched {
+                Text("Results for \"\(last.text)\" · \(results.count) result\(results.count == 1 ? "" : "s")")
+                    .font(Brand.monoSized(11)).foregroundStyle(Brand.muted)
+                    .lineLimit(1).truncationMode(.middle)
+            } else if !results.isEmpty {
+                Text("\(results.count) result\(results.count == 1 ? "" : "s")")
+                    .font(Brand.monoSized(11)).foregroundStyle(Brand.muted)
+            }
+        }
+    }
+
+    /// The field or the filters no longer describe the list on screen: the
+    /// submitted query (or its category/mode) differs from what is typed.
+    /// Suppressed while a search is in flight — the fresh list is on its way.
+    private var isStale: Bool {
+        guard didSearch, !searching, let last = lastSearched else { return false }
+        return query.trimmingCharacters(in: .whitespaces) != last.text
+            || category.trimmingCharacters(in: .whitespacesAndNewlines) != last.category
+            || mode != last.mode
     }
 
     /// Keyword vs vector ranking. Switching mode re-runs a query that already
@@ -163,6 +267,10 @@ struct DiscoverView: View {
                         ? "The index had no hit for that. Try \(DiscoverMode.vector.label) mode to search by meaning instead of literal terms."
                         : "Type what you need above. Results carry the index's own grades and an importable GitHub URL.")
         } else {
+            // The old list stays up during a re-search rather than flashing
+            // away, but dimmed with a spinner over it so it never reads as
+            // the fresh answer; a stale (edited, unsubmitted) field dims it
+            // the same way.
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(results) { row in
@@ -179,6 +287,14 @@ struct DiscoverView: View {
                             .accessibilityIdentifier("discoverRow-\(row.name)")
                         Divider().overlay(Brand.border).padding(.leading, 14)
                     }
+                }
+            }
+            .opacity(isStale || (searching && !results.isEmpty) ? 0.55 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: isStale)
+            .overlay {
+                if searching && !results.isEmpty {
+                    ProgressView().tint(Brand.accent)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -416,7 +532,8 @@ struct DiscoverView: View {
         searchTask?.cancel()
         searching = true
         searchError = nil
-        let q = DiscoverQuery(text: text, mode: mode)
+        let q = DiscoverQuery(text: text, mode: mode, category: category, limit: limit)
+        lastSearched = q
         searchTask = Task {
             do {
                 let resp = try await state.discoverSearch(q)

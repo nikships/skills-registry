@@ -224,6 +224,32 @@ final class DiscoverClientTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty, "an empty query must not be sent")
     }
 
+    // MARK: - category filter matching
+
+    /// `categoryMatches` is what lets demo mode honor the Discover pane's
+    /// category field offline; the live index applies its own filter
+    /// server-side. An empty filter matches everything.
+    func testEmptyCategoryFilterMatchesEverything() {
+        XCTAssertTrue(DiscoverQuery(text: "x").categoryMatches("Productivity"))
+        XCTAssertTrue(DiscoverQuery(text: "x").categoryMatches(""))
+        XCTAssertTrue(DiscoverQuery(text: "x", category: "   ").categoryMatches("Security"))
+    }
+
+    /// A set filter is a case-insensitive substring match, so `product`
+    /// finds `Productivity`.
+    func testCategoryFilterIsCaseInsensitiveSubstring() {
+        let q = DiscoverQuery(text: "x", category: "product")
+        XCTAssertTrue(q.categoryMatches("Productivity"))
+        XCTAssertTrue(q.categoryMatches("  PRODUCTIVITY  "))
+        XCTAssertFalse(q.categoryMatches("Security"))
+        XCTAssertFalse(q.categoryMatches(""))
+    }
+
+    func testCategoryFilterIsTrimmed() {
+        XCTAssertTrue(DiscoverQuery(text: "x", category: "  AIGC ").categoryMatches("AIGC"))
+        XCTAssertFalse(DiscoverQuery(text: "x", category: "  AIGC ").categoryMatches("Data"))
+    }
+
     // MARK: - the security assertion behind plain HTTP
 
     /// The index endpoint is plain HTTP (its certificate does not match the
