@@ -70,6 +70,10 @@ type SettingsModel struct {
 func NewSettings(repo, branch, cacheRoot string, saver SettingsSaver) SettingsModel {
 	repoInput := textinput.New()
 	repoInput.Placeholder = "owner/repo"
+	// Widths must be set: bubbles sizes the placeholder buffer as Width+1
+	// runes, so a zero Width renders only its first character. Both cover
+	// their hints with room for typical values; longer values scroll.
+	repoInput.Width = 32
 	repoInput.SetValue(repo)
 	repoInput.Prompt = "› "
 	repoInput.PromptStyle = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
@@ -78,6 +82,7 @@ func NewSettings(repo, branch, cacheRoot string, saver SettingsSaver) SettingsMo
 
 	branchInput := textinput.New()
 	branchInput.Placeholder = "main"
+	branchInput.Width = 24
 	branchInput.SetValue(branch)
 	branchInput.Prompt = "› "
 	branchInput.PromptStyle = lipgloss.NewStyle().Foreground(ColPink).Bold(true)

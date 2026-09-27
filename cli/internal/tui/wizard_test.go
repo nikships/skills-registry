@@ -490,6 +490,20 @@ func TestWizardRepoNameViewSurfacesInput(t *testing.T) {
 	}
 }
 
+// TestWizardRepoNameShowsFullPlaceholder is the cli-tui-3 regression test:
+// bubbles sizes the placeholder buffer as Width+1 runes, so an unset Width
+// rendered only "› s" instead of "› skills-registry". The placeholder is
+// per-rune ANSI styled, so strip escapes before asserting the full hint
+// survives in the rendered panel.
+func TestWizardRepoNameShowsFullPlaceholder(t *testing.T) {
+	m := atStep(WizardStepRepoName)
+	m.width, m.height = 120, 30
+	v := stripANSI(m.View())
+	if !strings.Contains(v, "› skills-registry") {
+		t.Errorf("RepoName view clips the placeholder, want full %q:\n%s", "› skills-registry", v)
+	}
+}
+
 // TestWizardVisibilityArrowsMoveCursor checks WIZARD-004 navigation:
 // left/right (and h/l) shuttle between the two cards.
 func TestWizardVisibilityArrowsMoveCursor(t *testing.T) {
