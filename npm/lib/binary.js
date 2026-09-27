@@ -56,8 +56,12 @@ function assetName() {
   return `skills-registry_${goos}_${goarch}.${ext}`;
 }
 
-// The package version maps directly to a release tag. Pin to "latest" only
-// via SKILLS_REGISTRY_VERSION for local testing / pre-publish smoke tests.
+// The package version maps directly to a release tag. "latest" (via
+// SKILLS_REGISTRY_VERSION) is only for local testing / pre-publish smoke
+// tests, and must be resolved through downloadUrlAsync: the repo also ships
+// macOS app releases (macapp-v* tags) with no CLI binary, so the
+// tag-agnostic /releases/latest/download endpoint 404s whenever the newest
+// release overall is an app release.
 function downloadUrl() {
   const asset = assetName();
   const version = process.env.SKILLS_REGISTRY_VERSION || `v${PKG_VERSION}`;
@@ -65,15 +69,76 @@ function downloadUrl() {
     return process.env.SKILLS_REGISTRY_URL;
   }
   if (version === "latest") {
-    return `https://github.com/${REPO}/releases/latest/download/${asset}`;
+    throw new Error(
+      'version "latest" must be resolved with downloadUrlAsync() ' +
+        "(the /releases/latest/download endpoint is ambiguous across the CLI and macOS app streams)"
+    );
   }
   return `https://github.com/${REPO}/releases/download/${version}/${asset}`;
 }
 
-function get(url) {
+// Async variant of downloadUrl that resolves "latest" to the newest
+// published `v<digit>` release carrying the platform asset (skipping
+// drafts, prereleases, and the macapp-* app stream). Pinned versions and
+// SKILLS_REGISTRY_URL behave exactly like downloadUrl.
+async function downloadUrlAsync() {
+  const version = process.env.SKILLS_REGISTRY_VERSION || `v${PKG_VERSION}`;
+  if (process.env.SKILLS_REGISTRY_URL) {
+    return process.env.SKILLS_REGISTRY_URL;
+  }
+  if (version !== "latest") {
+    return downloadUrl();
+  }
+  const tag = await resolveLatestTag();
+  return `https://github.com/${REPO}/releases/download/${tag}/${assetName()}`;
+}
+
+// List releases newest-first and return the first published CLI-stream tag
+// with a matching platform asset.
+async function resolveLatestTag() {
+  const asset = assetName();
+  const body = await get(
+    `https://api.github.com/repos/${REPO}/releases?per_page=100`,
+    { Accept: "application/vnd.github+json", "User-Agent": "skills-registry-npm" }
+  );
+  let releases;
+  try {
+    releases = JSON.parse(body.toString("utf8"));
+  } catch (err) {
+    throw new Error(`could not parse releases for ${REPO}: ${err.message}`);
+  }
+  if (!Array.isArray(releases)) {
+    throw new Error(`could not list releases for ${REPO}: unexpected API response`);
+  }
+  let sawCli = false;
+  for (const r of releases) {
+    if (r.draft || r.prerelease) {
+      continue;
+    }
+    const tag = r.tag_name || "";
+    if (!/^v[0-9]/.test(tag) || tag.startsWith("macapp-")) {
+      continue;
+    }
+    sawCli = true;
+    const names = (r.assets || []).map((a) => a.name);
+    if (names.includes(asset)) {
+      return tag;
+    }
+  }
+  if (sawCli) {
+    throw new Error(
+      `no published CLI release of ${REPO} contains asset ${asset} (pin one with SKILLS_REGISTRY_VERSION)`
+    );
+  }
+  throw new Error(
+    `no published CLI release found for ${REPO} (pin one with SKILLS_REGISTRY_VERSION)`
+  );
+}
+
+function get(url, headers) {
   return new Promise((resolve, reject) => {
     https
-      .get(url, { headers: { "User-Agent": "skills-registry-npm" } }, (res) => {
+      .get(url, { headers: headers || { "User-Agent": "skills-registry-npm" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
           resolve(get(res.headers.location));
@@ -116,7 +181,7 @@ function extract(archivePath, destDir) {
 }
 
 async function downloadBinary() {
-  const url = downloadUrl();
+  const url = await downloadUrlAsync();
   const dest = binaryPath();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "skills-registry-"));
   try {
@@ -154,6 +219,8 @@ module.exports = {
   binaryPath,
   assetName,
   downloadUrl,
+  downloadUrlAsync,
+  resolveLatestTag,
   downloadBinary,
   isInstalled,
 };

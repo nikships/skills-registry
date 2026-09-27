@@ -76,10 +76,13 @@ func newUpdateCmd() *cobra.Command {
 and replaces the current binary in place. Mirrors install.sh — no gh
 dependency, just a straight HTTPS GET against the public release URL.
 
-By default this installs the latest release from nikships/skills-registry.
-Use --version to pin a tag (for example v0.5.1), or --bin to update a
-specific binary path. Set SKILLS_REGISTRY_AUTO_UPDATE=1 to opportunistically
-update right before opening the hub.`,
+By default this installs the newest CLI release from nikships/skills-registry.
+The repo also ships macOS app releases (macapp-v* tags), which carry no CLI
+binary, so "latest" resolves to the newest published v* release that actually
+contains the CLI asset for your platform — never the tag-agnostic
+/releases/latest endpoint. Use --version to pin a tag (for example v0.5.1),
+or --bin to update a specific binary path. Set SKILLS_REGISTRY_AUTO_UPDATE=1
+to opportunistically update right before opening the hub.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUpdate(cmd.Context(), opts)
@@ -134,7 +137,7 @@ func performUpdate(ctx context.Context, opts updateOpts) (updateResult, error) {
 		client = &http.Client{Timeout: updateHTTPTimeout}
 	}
 	if opts.version == "latest" && opts.tarball == "" {
-		tag, err := latestReleaseTag(ctx, client, updateAPIBase(opts), opts.repo)
+		tag, err := latestReleaseTag(ctx, client, updateAPIBase(opts), opts.repo, asset)
 		if err != nil {
 			return updateResult{}, err
 		}
@@ -229,35 +232,133 @@ func updateReleaseBase(opts updateOpts) string {
 	return defaultReleaseBaseURL
 }
 
-// latestReleaseTag hits the GitHub REST API to discover the tag of the
-// newest published release for repo. Returns the tag (e.g. "v0.7.0").
-func latestReleaseTag(ctx context.Context, client *http.Client, apiBase, repo string) (string, error) {
-	url := fmt.Sprintf("%s/repos/%s/releases/latest", strings.TrimRight(apiBase, "/"), repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", fmt.Errorf("build latest release request: %w", err)
+// githubRelease is the subset of the GitHub release object that
+// latestReleaseTag needs: the tag, the draft/prerelease flags, and the
+// attached asset names.
+type githubRelease struct {
+	TagName    string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
+}
+
+// maxReleasePages bounds how many /releases list pages latestReleaseTag
+// follows. The CLI and macOS app streams share one repo, so in the worst
+// case a burst of app releases could push the newest CLI release off page
+// one; five pages (500 releases) is plenty of headroom.
+const maxReleasePages = 5
+
+// isCLIReleaseTag reports whether tag belongs to the Go CLI release
+// stream: `v<digit>...`, explicitly excluding the `macapp-*` app stream
+// that shares this repo.
+func isCLIReleaseTag(tag string) bool {
+	if strings.HasPrefix(tag, "macapp-") || len(tag) < 2 || tag[0] != 'v' {
+		return false
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", updateUserAgent)
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("resolve latest release: %w", err)
+	return tag[1] >= '0' && tag[1] <= '9'
+}
+
+// releaseHasAsset reports whether rel attaches an asset named asset.
+func releaseHasAsset(rel githubRelease, asset string) bool {
+	for _, a := range rel.Assets {
+		if a.Name == asset {
+			return true
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", fmt.Errorf("resolve latest release: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	return false
+}
+
+// pickLatestCLIRelease returns the tag of the newest CLI-stream release
+// (releases must arrive newest-first, as the GitHub list endpoint
+// returns them) that is published and carries asset. Drafts,
+// prereleases, and the macapp-* stream are skipped. The second return
+// reports whether any CLI-stream release was seen at all, so callers
+// can distinguish "no CLI releases" from "no CLI release has this asset".
+func pickLatestCLIRelease(releases []githubRelease, asset string) (tag string, sawCLI bool) {
+	for _, rel := range releases {
+		if rel.Draft || rel.Prerelease || !isCLIReleaseTag(rel.TagName) {
+			continue
+		}
+		sawCLI = true
+		if releaseHasAsset(rel, asset) {
+			return rel.TagName, true
+		}
 	}
-	var payload struct {
-		TagName string `json:"tag_name"`
+	return "", sawCLI
+}
+
+// nextReleasesPage extracts the rel="next" URL from a GitHub list
+// endpoint Link header, or "" when there is no next page.
+func nextReleasesPage(link string) string {
+	for _, part := range strings.Split(link, ",") {
+		segments := strings.Split(part, ";")
+		if len(segments) != 2 {
+			continue
+		}
+		url := strings.Trim(strings.TrimSpace(segments[0]), "<>")
+		rel := strings.TrimSpace(segments[1])
+		if rel == `rel="next"` && url != "" {
+			return url
+		}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", fmt.Errorf("parse latest release: %w", err)
+	return ""
+}
+
+// latestReleaseTag discovers the tag of the newest published CLI release
+// for repo that carries the asset binary. It lists releases newest-first
+// and picks the first published `v<digit>` tag (skipping drafts,
+// prereleases, and the `macapp-*` app stream) with a matching asset,
+// following pagination as needed.
+//
+// It deliberately does NOT use /releases/latest: that endpoint is
+// tag-agnostic, so whenever the newest release overall is a macOS app
+// release its tag resolves here and the CLI asset download 404s.
+func latestReleaseTag(ctx context.Context, client *http.Client, apiBase, repo, asset string) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/releases?per_page=100", strings.TrimRight(apiBase, "/"), repo)
+	sawCLI := false
+	for page := 0; page < maxReleasePages; page++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", fmt.Errorf("build latest release request: %w", err)
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", updateUserAgent)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("resolve latest release: %w", err)
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		link := resp.Header.Get("Link")
+		status := resp.Status
+		statusCode := resp.StatusCode
+		resp.Body.Close()
+		if readErr != nil {
+			return "", fmt.Errorf("read latest release response: %w", readErr)
+		}
+		if statusCode != http.StatusOK {
+			return "", fmt.Errorf("resolve latest release: %s: %s", status, strings.TrimSpace(string(body)))
+		}
+		var releases []githubRelease
+		if err := json.Unmarshal(body, &releases); err != nil {
+			return "", fmt.Errorf("parse latest release: %w", err)
+		}
+		tag, saw := pickLatestCLIRelease(releases, asset)
+		sawCLI = sawCLI || saw
+		if tag != "" {
+			return tag, nil
+		}
+		next := nextReleasesPage(link)
+		if next == "" {
+			break
+		}
+		url = next
 	}
-	if payload.TagName == "" {
-		return "", fmt.Errorf("latest release for %s did not include a tag", repo)
+	if sawCLI {
+		return "", fmt.Errorf("no published CLI release of %s contains asset %s (use --version to pin a tag)", repo, asset)
 	}
-	return payload.TagName, nil
+	return "", fmt.Errorf("no published CLI release found for %s (use --version to pin a tag)", repo)
 }
 
 // versionMatches is the "should we skip this update" comparator.
@@ -356,15 +457,15 @@ func cleanupOldBinaries() {
 
 // downloadUpdateAsset writes the release tarball at the given URL to
 // dest. URL composition mirrors install.sh:build_url exactly so the
-// two paths stay in lockstep.
+// two paths stay in lockstep. The version must already be resolved to a
+// real tag: "latest" is rejected because /releases/latest/download is
+// ambiguous across the CLI and macOS app streams sharing this repo.
 func downloadUpdateAsset(ctx context.Context, client *http.Client, releaseBase, repo, version, asset, dest string) error {
 	base := strings.TrimRight(releaseBase, "/")
-	var url string
 	if version == "" || version == "latest" {
-		url = fmt.Sprintf("%s/%s/releases/latest/download/%s", base, repo, asset)
-	} else {
-		url = fmt.Sprintf("%s/%s/releases/download/%s/%s", base, repo, version, asset)
+		return fmt.Errorf("cannot download %s for unresolved version %q: resolve the newest CLI release first (use --version to pin a tag)", asset, version)
 	}
+	url := fmt.Sprintf("%s/%s/releases/download/%s/%s", base, repo, version, asset)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("build download request: %w", err)

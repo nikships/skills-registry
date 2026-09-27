@@ -176,12 +176,46 @@ func TestPerformUpdateFromLocalTarball(t *testing.T) {
 	}
 }
 
-// TestLatestReleaseTagViaHTTP exercises the GitHub API JSON path.
+// latestReleaseListBody renders a /releases list payload from (tag,
+// draft, prerelease, asset-names) tuples, newest first.
+func latestReleaseListBody(t *testing.T, releases ...any) string {
+	t.Helper()
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i := 0; i < len(releases); i += 4 {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		tag := releases[i].(string)
+		draft := releases[i+1].(bool)
+		pre := releases[i+2].(bool)
+		assets := releases[i+3].([]string)
+		fmt.Fprintf(&sb, `{"tag_name":%q,"draft":%v,"prerelease":%v,"assets":[`, tag, draft, pre)
+		for j, a := range assets {
+			if j > 0 {
+				sb.WriteString(",")
+			}
+			fmt.Fprintf(&sb, `{"name":%q}`, a)
+		}
+		sb.WriteString("]}")
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+const updateTestAsset = "skills-registry_darwin_arm64.tar.gz"
+
+// TestLatestReleaseTagViaHTTP exercises the GitHub list-releases path:
+// the newest release overall is a macOS app release (no CLI asset) and
+// must be skipped in favor of the newest CLI release carrying the asset.
 func TestLatestReleaseTagViaHTTP(t *testing.T) {
 	wantTag := "v1.2.3"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/nikships/skills-registry/releases/latest" {
+		if r.URL.Path != "/repos/nikships/skills-registry/releases" {
 			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if r.URL.Query().Get("per_page") != "100" {
+			t.Errorf("per_page = %q, want 100", r.URL.Query().Get("per_page"))
 		}
 		if ua := r.Header.Get("User-Agent"); ua != updateUserAgent {
 			t.Errorf("missing User-Agent: %q", ua)
@@ -189,16 +223,69 @@ func TestLatestReleaseTagViaHTTP(t *testing.T) {
 		if ac := r.Header.Get("Accept"); !strings.Contains(ac, "github") {
 			t.Errorf("expected GitHub Accept header, got %q", ac)
 		}
-		_, _ = io.WriteString(w, fmt.Sprintf(`{"tag_name":%q}`, wantTag))
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"macapp-v9.9.9", false, false, []string{"SkillsRegistry-macos-arm64.zip"},
+			"v1.2.4", true, false, []string{updateTestAsset}, // draft: skipped
+			"v1.2.3", false, false, []string{updateTestAsset},
+			"v1.2.2", false, false, []string{updateTestAsset},
+		))
 	}))
 	t.Cleanup(srv.Close)
 
-	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
+	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
 	if err != nil {
 		t.Fatalf("latestReleaseTag: %v", err)
 	}
 	if got != wantTag {
 		t.Fatalf("tag = %q, want %q", got, wantTag)
+	}
+}
+
+// TestLatestReleaseTagSkipsCLIReleaseWithoutAsset verifies a newer CLI
+// release that lacks the platform asset does not shadow an older one
+// that has it.
+func TestLatestReleaseTagSkipsCLIReleaseWithoutAsset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"v2.0.0", false, false, []string{"skills-registry_linux_amd64.tar.gz"},
+			"v1.9.9", false, false, []string{updateTestAsset},
+		))
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
+	if err != nil {
+		t.Fatalf("latestReleaseTag: %v", err)
+	}
+	if got != "v1.9.9" {
+		t.Fatalf("tag = %q, want v1.9.9", got)
+	}
+}
+
+// TestLatestReleaseTagFollowsPagination verifies the resolver follows
+// rel="next" when page one holds no usable CLI release.
+func TestLatestReleaseTagFollowsPagination(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.String(), "page=2") {
+			_, _ = io.WriteString(w, latestReleaseListBody(t,
+				"v1.0.0", false, false, []string{updateTestAsset},
+			))
+			return
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/nikships/skills-registry/releases?page=2>; rel="next"`, srv.URL))
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"macapp-v9.9.9", false, false, []string{"SkillsRegistry-macos-arm64.zip"},
+		))
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
+	if err != nil {
+		t.Fatalf("latestReleaseTag: %v", err)
+	}
+	if got != "v1.0.0" {
+		t.Fatalf("tag = %q, want v1.0.0", got)
 	}
 }
 
@@ -208,7 +295,7 @@ func TestLatestReleaseTagHTTPError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
 	if err == nil {
 		t.Fatal("expected error on non-200 response")
 	}
@@ -217,17 +304,40 @@ func TestLatestReleaseTagHTTPError(t *testing.T) {
 	}
 }
 
-func TestLatestReleaseTagEmptyTag(t *testing.T) {
+// TestLatestReleaseTagNoCLIRelease verifies the error when the repo has
+// no CLI-stream release at all names --version as the escape hatch.
+func TestLatestReleaseTagNoCLIRelease(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"tag_name":""}`)
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"macapp-v9.9.9", false, false, []string{"SkillsRegistry-macos-arm64.zip"},
+		))
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
 	if err == nil {
-		t.Fatal("expected error when tag_name is empty")
+		t.Fatal("expected error when no CLI release exists")
 	}
-	if !strings.Contains(err.Error(), "did not include a tag") {
+	if !strings.Contains(err.Error(), "no published CLI release") || !strings.Contains(err.Error(), "--version") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestLatestReleaseTagNoMatchingAsset verifies the error when CLI
+// releases exist but none carries the platform asset.
+func TestLatestReleaseTagNoMatchingAsset(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"v1.2.3", false, false, []string{"skills-registry_linux_amd64.tar.gz"},
+		))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
+	if err == nil {
+		t.Fatal("expected error when no CLI release has the asset")
+	}
+	if !strings.Contains(err.Error(), updateTestAsset) || !strings.Contains(err.Error(), "--version") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -238,12 +348,38 @@ func TestLatestReleaseTagInvalidJSON(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry")
+	_, err := latestReleaseTag(context.Background(), srv.Client(), srv.URL, "nikships/skills-registry", updateTestAsset)
 	if err == nil {
 		t.Fatal("expected JSON decode error")
 	}
 	if !strings.Contains(err.Error(), "parse latest release") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestIsCLIReleaseTag(t *testing.T) {
+	for _, tag := range []string{"v0.5.50", "v1.2.3", "v10.0.0-rc1"} {
+		if !isCLIReleaseTag(tag) {
+			t.Fatalf("isCLIReleaseTag(%q) = false, want true", tag)
+		}
+	}
+	for _, tag := range []string{"macapp-v0.1.18", "macapp-v9.9.9", "v", "release-1", "", "latest"} {
+		if isCLIReleaseTag(tag) {
+			t.Fatalf("isCLIReleaseTag(%q) = true, want false", tag)
+		}
+	}
+}
+
+func TestNextReleasesPage(t *testing.T) {
+	link := `<https://api.github.com/repos/o/r/releases?page=2>; rel="next", <https://api.github.com/repos/o/r/releases?page=5>; rel="last"`
+	if got := nextReleasesPage(link); got != "https://api.github.com/repos/o/r/releases?page=2" {
+		t.Fatalf("next = %q", got)
+	}
+	if got := nextReleasesPage(`<https://api.github.com/x>; rel="last"`); got != "" {
+		t.Fatalf("next = %q, want empty", got)
+	}
+	if got := nextReleasesPage(""); got != "" {
+		t.Fatalf("next = %q, want empty", got)
 	}
 }
 
@@ -281,30 +417,33 @@ func TestDownloadUpdateAssetPinnedVersion(t *testing.T) {
 	}
 }
 
-// TestDownloadUpdateAssetLatestPath verifies the latest-release URL
-// uses /releases/latest/download/<asset> (matches install.sh).
-func TestDownloadUpdateAssetLatestPath(t *testing.T) {
-	wantPath := "/nikships/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz"
+// TestDownloadUpdateAssetRejectsLatest verifies the downloader refuses
+// the ambiguous /releases/latest/download shape: callers must resolve a
+// real CLI tag first, since the repo's overall-latest release may be a
+// macOS app release with no CLI asset.
+func TestDownloadUpdateAssetRejectsLatest(t *testing.T) {
 	hit := atomic.Bool{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hit.Store(true)
-		if r.URL.Path != wantPath {
-			t.Errorf("unexpected path %q (want %q)", r.URL.Path, wantPath)
-		}
-		_, _ = w.Write([]byte("payload"))
 	}))
 	t.Cleanup(srv.Close)
 
 	dest := filepath.Join(t.TempDir(), "asset.tar.gz")
-	if err := downloadUpdateAsset(
-		context.Background(), srv.Client(), srv.URL,
-		"nikships/skills-registry", "latest",
-		"skills-registry_linux_amd64.tar.gz", dest,
-	); err != nil {
-		t.Fatalf("downloadUpdateAsset: %v", err)
+	for _, version := range []string{"latest", ""} {
+		err := downloadUpdateAsset(
+			context.Background(), srv.Client(), srv.URL,
+			"nikships/skills-registry", version,
+			"skills-registry_linux_amd64.tar.gz", dest,
+		)
+		if err == nil {
+			t.Fatalf("expected error for version %q", version)
+		}
+		if !strings.Contains(err.Error(), "unresolved version") {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	}
-	if !hit.Load() {
-		t.Fatal("expected the server to be hit")
+	if hit.Load() {
+		t.Fatal("no HTTP request should have been made")
 	}
 }
 
@@ -365,7 +504,10 @@ func TestPerformUpdateEndToEndViaHTTP(t *testing.T) {
 
 	apiSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		apiCalls.Add(1)
-		_, _ = io.WriteString(w, fmt.Sprintf(`{"tag_name":%q}`, wantTag))
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"macapp-v9.9.9", false, false, []string{"SkillsRegistry-macos-arm64.zip"},
+			wantTag, false, false, []string{asset},
+		))
 	}))
 	t.Cleanup(apiSrv.Close)
 
@@ -447,7 +589,10 @@ func TestPerformUpdateSkipsWhenAlreadyLatest(t *testing.T) {
 	}
 
 	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"tag_name":"v9.9.9"}`)
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"macapp-v9.9.9", false, false, []string{"SkillsRegistry-macos-arm64.zip"},
+			"v9.9.9", false, false, []string{"skills-registry_darwin_amd64.tar.gz", "skills-registry_darwin_arm64.tar.gz", "skills-registry_linux_amd64.tar.gz", "skills-registry_linux_arm64.tar.gz", "skills-registry_windows_amd64.zip", "skills-registry_windows_arm64.zip"},
+		))
 	}))
 	t.Cleanup(apiSrv.Close)
 
@@ -493,7 +638,10 @@ func TestPerformUpdateDryRunResolvesLatest(t *testing.T) {
 	bin := filepath.Join(dir, "skills-registry")
 
 	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"tag_name":"v1.0.0"}`)
+		_, _ = io.WriteString(w, latestReleaseListBody(t,
+			"macapp-v9.9.9", false, false, []string{"SkillsRegistry-macos-arm64.zip"},
+			"v1.0.0", false, false, []string{"skills-registry_darwin_amd64.tar.gz", "skills-registry_darwin_arm64.tar.gz", "skills-registry_linux_amd64.tar.gz", "skills-registry_linux_arm64.tar.gz", "skills-registry_windows_amd64.zip", "skills-registry_windows_arm64.zip"},
+		))
 	}))
 	t.Cleanup(apiSrv.Close)
 

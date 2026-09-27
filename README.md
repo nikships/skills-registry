@@ -279,7 +279,7 @@ skills-registry update --version v0.6.0 # pin a specific tag
 skills-registry update --force          # reinstall even if you're already current
 ```
 
-`update` mirrors the installer — it hits `api.github.com` to resolve the latest tag, downloads `skills-registry_<os>_<arch>.tar.gz` (or `.zip` on Windows) directly from GitHub Releases, and atomically swaps the binary in place. No `gh` required, no auth, no shell state. Supports `darwin/linux/windows × amd64/arm64`. Set `SKILLS_REGISTRY_AUTO_UPDATE=1` in your shell to check for updates automatically right before the hub opens.
+`update` mirrors the installer — it hits `api.github.com` to resolve the newest CLI release tag, downloads `skills-registry_<os>_<arch>.tar.gz` (or `.zip` on Windows) directly from GitHub Releases, and atomically swaps the binary in place. No `gh` required, no auth, no shell state. Supports `darwin/linux/windows × amd64/arm64`. "Latest" always means the newest published `v*` release carrying the CLI asset for your platform: the repo also ships macOS app releases (`macapp-v*` tags) with no CLI binary, so the tag-agnostic `/releases/latest` endpoint is never used. Set `SKILLS_REGISTRY_AUTO_UPDATE=1` in your shell to check for updates automatically right before the hub opens.
 
 ### Programmatic use — `--json`
 

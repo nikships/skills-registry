@@ -217,6 +217,11 @@ jobs:
           name: Skills Registry (macOS) ${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
+          # The CLI and macOS app streams share this repo, and every
+          # installer resolves "latest" to a CLI release. A macapp release
+          # must never become the repo's Latest release, or all
+          # /releases/latest/download/<cli asset> URLs 404.
+          make_latest: false
           generate_release_notes: true
           files: |
             mac-app/build/SkillsRegistry-macos-arm64.zip

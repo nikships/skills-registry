@@ -22,6 +22,7 @@
 #   SKILLS_REGISTRY_OS       Override detected OS (default: $(uname -s))
 #   SKILLS_REGISTRY_ARCH     Override detected arch (default: $(uname -m))
 #   SKILLS_REGISTRY_URL      Override the full tarball URL
+#   SKILLS_REGISTRY_API_BASE Override the GitHub API base URL (default: https://api.github.com; for tests)
 #   SKILLS_REGISTRY_TARBALL  Use a local tarball file instead of downloading
 #   SKILLS_REGISTRY_DRY_RUN  If non-empty, print resolved URL/dest and exit
 #
@@ -71,11 +72,54 @@ build_url() {
     os=$1
     arch=$2
     asset="skills-registry_${os}_${arch}.tar.gz"
-    if [ "$VERSION" = "latest" ]; then
-        printf 'https://github.com/%s/releases/latest/download/%s' "$REPO" "$asset"
+    # VERSION is always a real tag here: "latest" is resolved to the newest
+    # CLI release by resolve_latest_tag before this runs. Never use
+    # /releases/latest/download — that endpoint is tag-agnostic and 404s
+    # whenever the repo's newest release overall is a macOS app release.
+    printf 'https://github.com/%s/releases/download/%s/%s' "$REPO" "$VERSION" "$asset"
+}
+
+# resolve_latest_tag prints the tag of the newest published CLI release.
+# The repo also ships macOS app releases (macapp-v* tags) which carry no CLI
+# binary, so /releases/latest is ambiguous — list releases newest-first and
+# take the first published `v<digit>` tag, skipping drafts and prereleases.
+resolve_latest_tag() {
+    api_base=${SKILLS_REGISTRY_API_BASE:-https://api.github.com}
+    api_url="$api_base/repos/$REPO/releases?per_page=100"
+    if command -v curl >/dev/null 2>&1; then
+        body=$(curl -fsSL --retry 3 -H "Accept: application/vnd.github+json" -H "User-Agent: skills-registry-install" "$api_url") || return 1
+    elif command -v wget >/dev/null 2>&1; then
+        body=$(wget -q -O - --header "Accept: application/vnd.github+json" --header "User-Agent: skills-registry-install" "$api_url") || return 1
     else
-        printf 'https://github.com/%s/releases/download/%s/%s' "$REPO" "$VERSION" "$asset"
+        err "need curl or wget to resolve the latest CLI release"
+        return 1
     fi
+    # Split the JSON on commas so each key lands on its own line, then walk
+    # releases in order. GitHub emits "draft"/"prerelease" after "tag_name"
+    # within each object, so a new tag_name line finalizes the previous
+    # candidate. Prints the first published tag matching ^v[0-9].
+    tag=$(printf '%s' "$body" | tr ',' '\n' | awk '
+        function flush() {
+            if (done) { exit }
+            if (pending != "" && ok && pending ~ /^v[0-9]/) { print pending; done = 1; exit }
+        }
+        /"tag_name"/ {
+            flush()
+            line = $0
+            sub(/.*"tag_name":[ ]*"/, "", line)
+            sub(/".*/, "", line)
+            pending = line
+            ok = 1
+            next
+        }
+        /"draft":[ ]*true/ { ok = 0; next }
+        /"prerelease":[ ]*true/ { ok = 0; next }
+        END { flush() }
+    ')
+    if [ -z "$tag" ]; then
+        return 1
+    fi
+    printf '%s' "$tag"
 }
 
 download_to() {
@@ -94,7 +138,18 @@ download_to() {
 main() {
     os=$(detect_os) || exit $?
     arch=$(detect_arch) || exit $?
-    url=${SKILLS_REGISTRY_URL:-$(build_url "$os" "$arch")}
+    if [ "$VERSION" = "latest" ] && [ -z "${SKILLS_REGISTRY_URL:-}" ] && [ -z "${SKILLS_REGISTRY_TARBALL:-}" ]; then
+        log "resolving latest CLI release…"
+        VERSION=$(resolve_latest_tag) || { err "could not resolve the latest CLI release for $REPO (pin one with SKILLS_REGISTRY_VERSION=vX.Y.Z)"; exit 1; }
+        log "  version  : $VERSION"
+    fi
+    # In tarball mode nothing is downloaded, so show the fixture path
+    # instead of a download URL that will never be fetched.
+    if [ -n "${SKILLS_REGISTRY_TARBALL:-}" ]; then
+        url=$SKILLS_REGISTRY_TARBALL
+    else
+        url=${SKILLS_REGISTRY_URL:-$(build_url "$os" "$arch")}
+    fi
     dest=$BIN_DIR/$BINARY
 
     log "skills-registry installer"

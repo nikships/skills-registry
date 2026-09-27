@@ -12,6 +12,8 @@ Skills Registry has four user-facing surfaces: release installers and the npm la
 | macOS app | `mac-app/` | Signed and notarized native SwiftUI app. |
 | Website | `website/` | Static Next.js landing site. |
 
+The repo ships two release streams from the same GitHub Releases page: CLI releases (`v*` tags, cut by `release.yml` and marked Latest) and macOS app releases (`macapp-v*` tags, cut by `release-macapp.yml` with `make_latest: false`). Every consumer that resolves "latest" — `install.sh`, `install.ps1`, the npm launcher, `skills-registry update`, and the app's one-click CLI install — lists releases and picks the newest published `v*` release carrying the needed CLI asset, never the tag-agnostic `/releases/latest` endpoint. Explicit version pinning (`SKILLS_REGISTRY_VERSION`, `--version`) downloads that tag directly.
+
 Native macOS CI and Darwin CLI releases use the dedicated Aqua-session self-hosted runner labeled `mac-mini`. Linux, Windows, and untrusted fork jobs remain on GitHub-hosted runners. See [`.github/AGENTS.md`](../.github/AGENTS.md).
 
 ## CLI flow

@@ -285,8 +285,13 @@ jobs:
             "\`install.sh\` / \`install.ps1\` download the right CLI binary from the *latest* release; this is it.")
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
+            # Re-uploads must not lose Latest status to an app release.
+            gh release edit "$tag" --latest
           else
-            gh release create "$tag" --title "$tag" --notes "$notes" artifacts/*
+            # Explicitly Latest: the macOS app stream (macapp-v* tags, released
+            # via release-macapp.yml with make_latest: false) shares this repo,
+            # and installers resolve "latest" to a CLI release.
+            gh release create "$tag" --title "$tag" --notes "$notes" --latest artifacts/*
           fi
 
   publish-npm:

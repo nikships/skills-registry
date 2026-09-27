@@ -63,16 +63,58 @@ function Get-Arch {
 
 function Build-Url($arch) {
     $asset = "skills-registry_windows_$arch.zip"
-    if ($Version -eq "latest") {
-        return "https://github.com/$Repo/releases/latest/download/$asset"
+    # $Version is always a real tag here: "latest" is resolved to the newest
+    # CLI release by Resolve-LatestTag before this runs. Never use
+    # /releases/latest/download — that endpoint is tag-agnostic and 404s
+    # whenever the repo's newest release overall is a macOS app release.
+    return "https://github.com/$Repo/releases/download/$Version/$asset"
+}
+
+# Resolve-LatestTag returns the tag of the newest published CLI release.
+# The repo also ships macOS app releases (macapp-v* tags) which carry no CLI
+# binary, so /releases/latest is ambiguous — list releases newest-first and
+# take the first published `v<digit>` tag carrying the platform asset,
+# skipping drafts and prereleases.
+function Resolve-LatestTag($repo, $asset) {
+    $api = "https://api.github.com/repos/$repo/releases?per_page=100"
+    $headers = @{ "Accept" = "application/vnd.github+json"; "User-Agent" = "skills-registry-install" }
+    try {
+        $releases = Invoke-RestMethod -Uri $api -Headers $headers -UseBasicParsing
     }
-    else {
-        return "https://github.com/$Repo/releases/download/$Version/$asset"
+    catch {
+        throw "could not list releases for ${repo}: $($_.Exception.Message)"
     }
+    $sawCli = $false
+    foreach ($r in $releases) {
+        if ($r.draft -or $r.prerelease) { continue }
+        $tag = $r.tag_name
+        if ($tag -notmatch '^v[0-9]' -or $tag -like 'macapp-*') { continue }
+        $sawCli = $true
+        if ($r.assets.name -contains $asset) {
+            return $tag
+        }
+    }
+    if ($sawCli) {
+        throw "no published CLI release of $repo contains asset $asset (pin one with SKILLS_REGISTRY_VERSION)"
+    }
+    throw "no published CLI release found for $repo (pin one with SKILLS_REGISTRY_VERSION)"
 }
 
 $arch = Get-Arch
-$url = if ($env:SKILLS_REGISTRY_URL) { $env:SKILLS_REGISTRY_URL } else { Build-Url $arch }
+if ($Version -eq "latest" -and -not $env:SKILLS_REGISTRY_URL -and -not $env:SKILLS_REGISTRY_TARBALL) {
+    Write-Log "resolving latest CLI release..."
+    try {
+        $Version = Resolve-LatestTag $Repo "skills-registry_windows_$arch.zip"
+    }
+    catch {
+        Write-Err $_.Exception.Message
+        exit 1
+    }
+    Write-Log "  version  : $Version"
+}
+# In tarball mode nothing is downloaded, so show the fixture path instead
+# of a download URL that will never be fetched.
+$url = if ($env:SKILLS_REGISTRY_TARBALL) { $env:SKILLS_REGISTRY_TARBALL } elseif ($env:SKILLS_REGISTRY_URL) { $env:SKILLS_REGISTRY_URL } else { Build-Url $arch }
 $dest = Join-Path $BinDir $Binary
 
 Write-Log "skills-registry installer"

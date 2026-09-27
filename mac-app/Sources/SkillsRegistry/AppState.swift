@@ -587,13 +587,24 @@ final class AppState: ObservableObject {
     // MARK: - CLI
 
     func installCLI() async {
+        // Pin the resolved CLI tag so we never pull the CLI asset from a
+        // `macapp-v*` release (the project ships both streams from one repo;
+        // GitHub's `releases/latest` is ambiguous across them). Resolution
+        // failures surface as their own error — never a "latest" fallback,
+        // which would 404 whenever the newest release is an app release.
+        let tag: String
         do {
-            // Pin the resolved CLI tag so we never pull the CLI asset from a
-            // `macapp-v*` release (the project ships both streams from one repo;
-            // GitHub's `releases/latest` is ambiguous across them).
-            let resolved = try? await Updates.latestRelease(repo: AppConfig.projectRepo, channel: .cli)
-            let version = (resolved ?? nil)?.tag ?? "latest"
-            _ = try await CLIInstaller.install(version: version)
+            guard let resolved = try await Updates.latestRelease(repo: AppConfig.projectRepo, channel: .cli) else {
+                showToast("No published CLI release found — try again later", .error)
+                return
+            }
+            tag = resolved.tag
+        } catch {
+            showToast("Couldn't reach GitHub to resolve the latest CLI release", .error)
+            return
+        }
+        do {
+            _ = try await CLIInstaller.install(version: tag)
             cliInstalled = true
             cliVersion = await CLIInstaller.installedVersion()
             cliInstallDirOnPath = await CLIInstaller.shellInstallDirOnPath()
