@@ -13,6 +13,7 @@ public enum WriteError: Error, LocalizedError {
     case conflictAfterRetries(String)
     case adminPermissionMissing
     case nothingToUpload
+    case treeTruncated
 
     public var errorDescription: String? {
         switch self {
@@ -21,6 +22,8 @@ public enum WriteError: Error, LocalizedError {
         case .adminPermissionMissing:
             return "The Skills Registry app can't create repos (Administration permission not granted). Create it on github.com instead."
         case .nothingToUpload: return "Nothing to upload."
+        case .treeTruncated:
+            return "The registry is too large for an atomic write: GitHub truncated the file listing. Narrow or split the repo and try again."
         }
     }
 }
@@ -228,6 +231,7 @@ extension GitHubAPI {
     private func listTreePaths(_ repo: RepoRef, rootSHA: String, subPath: String) async throws -> Set<String> {
         do {
             let resp = try await getDecoded("repos/\(repo.fullName)/git/trees/\(rootSHA)?recursive=1", as: GHTreeResp.self)
+            if resp.truncated == true { throw WriteError.treeTruncated }
             let prefix = subPath + "/"
             var out = Set<String>()
             for e in resp.tree where e.type == "blob" && e.path.hasPrefix(prefix) {

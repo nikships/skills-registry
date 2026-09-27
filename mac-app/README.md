@@ -45,6 +45,10 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Demo-only screenshot fixture: `--demo-truncated-list` (alongside `--demo`)
+pretends the browse fetch hit GitHub's truncated tree listing, so the
+"Results incomplete" banner renders without a huge registry.
+
 ---
 
 ## Architecture
@@ -222,6 +226,11 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   registry, then `LocalRemove` clears the CLI download (`<slug>/` +
   `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
   slugified-name match. The toast reports `registry · cache · N dot-folders`.
+- **Huge registries warn instead of silently omitting.** When GitHub answers
+  the recursive tree listing with `truncated: true`, publish/remove refuse
+  with a "registry too large" error, Browse shows a "Results incomplete"
+  banner over the partial list, and opening or installing a skill toasts that
+  its file list may be shortened.
 
 **Install locations.** `AgentPickerSheet` lists the home-based agents plus the
 universal `.agents` target. In the macOS app, the latter uses the home directory

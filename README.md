@@ -268,7 +268,7 @@ skills-registry remove code-review
 2. The local cache (`~/.cache/skills-registry/skills/<slug>/` + `<slug>.meta.json`).
 3. Every known AI tool dot-folder copy (`~/.claude/skills/<slug>/`, `~/.factory/skills/<slug>/`, `.agents/skills/<slug>/`, …).
 
-Interactive runs prompt for confirmation first. Pass `--yes` to skip it, or `--json` (which implies `--yes`) for machine-readable output. Removing a slug that isn't in the registry exits 1 cleanly — nothing destructive runs.
+Interactive runs prompt for confirmation first. Pass `--yes` to skip it, or `--json` (which implies `--yes`) for machine-readable output. Removing a slug that isn't in the registry exits 1 cleanly — nothing destructive runs. On very large registries GitHub truncates the file listing; `publish` and `remove` then fail with a "registry too large" error instead of writing a partial result, and the macOS app's browse list shows a "Results incomplete" banner.
 
 ### `update`: self-update the installed binary
 

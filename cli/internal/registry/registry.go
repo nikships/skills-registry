@@ -302,6 +302,15 @@ func (c *Client) downloadRecursive(ctx context.Context, repoPath, destDir string
 // this as a clean exit-1 condition rather than a generic API failure.
 var ErrSlugNotFound = errors.New("slug not found in registry")
 
+// ErrTreeTruncated is returned by Publish and Delete when GitHub's
+// recursive tree listing sets truncated=true. The repo exceeds the tree
+// size limit, so the listing is incomplete and an atomic write cannot
+// enumerate stale files safely: publishing would leave deleted files
+// behind and deleting could report a false slug-not-found. Both refuse
+// loudly instead. Reads are unaffected — they use the Contents API and
+// the git mirror, never the recursive tree endpoint.
+var ErrTreeTruncated = errors.New("registry too large for atomic tree write: GitHub truncated the file listing; narrow or split the repo and try again")
+
 // Delete atomically removes the entire <slug>/ subtree from the
 // registry. Returns the new commit SHA, or ErrSlugNotFound if the slug
 // has no files in the current tree. Retries on 409/422 with the same
@@ -513,6 +522,7 @@ func (c *Client) listTreePaths(ctx context.Context, rootSHA, subPath string) (ma
 			Path string `json:"path"`
 			Type string `json:"type"`
 		} `json:"tree"`
+		Truncated bool `json:"truncated"`
 	}
 	endpoint := fmt.Sprintf("repos/%s/git/trees/%s?recursive=1", c.Repo, rootSHA)
 	if err := c.getJSON(ctx, endpoint, &resp); err != nil {
@@ -520,6 +530,9 @@ func (c *Client) listTreePaths(ctx context.Context, rootSHA, subPath string) (ma
 			return map[string]struct{}{}, nil
 		}
 		return nil, err
+	}
+	if resp.Truncated {
+		return nil, ErrTreeTruncated
 	}
 	prefix := subPath + "/"
 	out := map[string]struct{}{}

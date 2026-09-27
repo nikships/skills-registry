@@ -64,6 +64,20 @@ struct BrowseView: View {
 
             Divider().overlay(Brand.border)
 
+            if state.skillsTruncated {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11)).foregroundStyle(Brand.warn)
+                    Text("Results incomplete — the registry is too large for GitHub's file listing, so some skills may be missing.")
+                        .font(.system(size: 11)).foregroundStyle(Brand.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Brand.warn.opacity(0.08))
+                Divider().overlay(Brand.border)
+            }
+
             if state.skillsLoading && state.skills.isEmpty {
                 VStack { Spacer(); ProgressView().tint(Brand.accent); Spacer() }
             } else if let err = state.skillsError {

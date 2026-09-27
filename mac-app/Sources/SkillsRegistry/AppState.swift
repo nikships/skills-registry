@@ -14,6 +14,10 @@ final class AppState: ObservableObject {
     @Published var skills: [SkillSummary] = []
     @Published var skillsLoading = false
     @Published var skillsError: String?
+    /// True when the last browse-list fetch hit GitHub's truncated tree
+    /// listing: `skills` is partial and BrowseView warns instead of
+    /// presenting it as complete.
+    @Published var skillsTruncated = false
 
     @Published var installRepos: [InstallationRepo] = []
     @Published var setupLoading = false
@@ -224,7 +228,9 @@ final class AppState: ObservableObject {
         skillsError = nil
         defer { skillsLoading = false }
         do {
-            skills = try await api.listSkills(repo, branch: branch)
+            let result = try await api.listSkills(repo, branch: branch)
+            skills = result.value
+            skillsTruncated = result.truncated
         } catch {
             skillsError = error.localizedDescription
         }
@@ -233,7 +239,11 @@ final class AppState: ObservableObject {
     func fetchDetail(_ slug: String) async throws -> SkillDetail {
         if isDemo { return Self.demoDetail(slug) }
         guard let api, let repo else { throw GitHubError(status: 0, message: "Not ready", endpoint: "") }
-        return try await api.getSkill(repo, slug: slug, branch: branch)
+        let detail = try await api.getSkill(repo, slug: slug, branch: branch)
+        if detail.truncated {
+            showToast("Warning: the registry file listing was truncated — this skill's file list may be incomplete.", .info)
+        }
+        return detail
     }
 
     /// Contents of a single supporting file (path relative to `<slug>/`).
@@ -312,10 +322,14 @@ final class AppState: ObservableObject {
         guard let api, let repo else { return }
         guard !targets.isEmpty else { showToast("Pick at least one agent to install into.", .info); return }
         do {
-            let files = try await api.skillFileData(repo, slug: slug, branch: branch)
+            let result = try await api.skillFileData(repo, slug: slug, branch: branch)
             let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let written = try LocalInstall.install(slug: slug, files: files, targets: targets, home: home, cwd: home)
-            showToast("Installed \(slug) into \(written.count) agent\(written.count == 1 ? "" : "s")", .ok)
+            let written = try LocalInstall.install(slug: slug, files: result.value, targets: targets, home: home, cwd: home)
+            if result.truncated {
+                showToast("Installed \(slug), but the file listing was truncated — some files may be missing.", .info)
+            } else {
+                showToast("Installed \(slug) into \(written.count) agent\(written.count == 1 ? "" : "s")", .ok)
+            }
             refreshMetaSkillStatus()
         } catch {
             showToast("Install failed: \(error.localizedDescription)", .error)

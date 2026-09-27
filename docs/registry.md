@@ -34,6 +34,8 @@ The returning-user dashboard is a card grid of seven tiles: Manage skills, Sync,
 
 The bulk initial import uses `git push` over HTTPS with credentials configured by `gh auth setup-git`. Day-to-day `publish`, `add`, `sync`, and `remove` operations use the GitHub Git Data API through the authenticated `gh` CLI. Reads use a shallow local mirror when available and fall back to `gh api`.
 
+On very large registries GitHub answers the recursive tree listing with `truncated: true` instead of the full file set. Both writers refuse loudly in that state — `publish`/`remove` (and the app's publish/remove) fail with a "registry too large" error rather than commit against a partial listing, which would leave deleted files behind or report a false slug-not-found. The app's reads return the partial data flagged instead: Browse shows a "Results incomplete" banner, and opening or installing a skill warns that its file list may be shortened. The CLI's reads are unaffected — they use the Contents API and the git mirror, never the recursive tree endpoint.
+
 Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
 
 ## Discover
