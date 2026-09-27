@@ -45,6 +45,16 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 Demo mode injects fixture skills, identity, and detail markdown; every network
 call is short-circuited, so you can drive the whole app offline.
 
+Two demo-only fixtures cover the detail-header edge cases: `plain_notes` (no
+frontmatter block, so the name falls back to the slug) and `unclosed_draft`
+(a `---` block that never closes, so the raw file renders with a header
+hint). Pass `--demo-select=<slug>` to land directly on one skill's detail
+pane for screenshots:
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-select=plain_notes
+```
+
 ---
 
 ## Architecture

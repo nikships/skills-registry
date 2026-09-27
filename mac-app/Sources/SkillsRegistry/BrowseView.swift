@@ -5,7 +5,9 @@ import SkillsRegistryCore
 struct BrowseView: View {
     @EnvironmentObject var state: AppState
     @State private var query = ""
-    @State private var selected: String?
+    // Demo-only seed: `--demo-select=<slug>` lands directly on one skill so
+    // screenshot runs don't need to drive row taps. Nil in production.
+    @State private var selected: String? = AppState.demoInitialSelection
 
     private var filtered: [SkillSummary] {
         let q = query.trimmingCharacters(in: .whitespaces)

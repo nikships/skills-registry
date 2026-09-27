@@ -26,6 +26,13 @@ extension AppState {
                      description: "Rewrite copy in the company's voice — concise, warm, technically precise, never hyped.", treeSHA: "e5"),
         SkillSummary(slug: "k8s_debug", name: "Kubernetes Debugging",
                      description: "Triage CrashLoopBackOff, pending pods, and OOMKills. Walks the events → logs → describe → resources path.", treeSHA: "f6"),
+        // Fixtures for the detail-header edge cases: no frontmatter at all
+        // (name falls back to the slug), and a frontmatter block that never
+        // closes (the whole file renders as body with a header hint).
+        SkillSummary(slug: "plain_notes", name: "plain_notes",
+                     description: "A skill written without any frontmatter block.", treeSHA: "g7"),
+        SkillSummary(slug: "unclosed_draft", name: "unclosed_draft",
+                     description: "Skill: unclosed_draft", treeSHA: "h8"),
     ]
 
     static let demoLocal: [LocalSkill] = [
@@ -79,6 +86,15 @@ extension AppState {
     static func demoDetail(_ slug: String) -> SkillDetail {
         let match = demoSkills.first { $0.slug == slug }
         let name = match?.name ?? slug
+        if let fixture = demoHeaderFixture(slug: slug) {
+            return SkillDetail(
+                slug: slug,
+                name: name,
+                description: match?.description ?? "",
+                markdown: fixture,
+                files: ["SKILL.md", "references/checklist.md", "scripts/run.sh"]
+            )
+        }
         let md = """
         ---
         name: \(name)
@@ -123,6 +139,48 @@ extension AppState {
             markdown: md,
             files: ["SKILL.md", "references/checklist.md", "scripts/run.sh"]
         )
+    }
+
+    /// Raw `SKILL.md` fixtures for the detail-header edge cases, or `nil` for
+    /// a regular skill. The summaries in `demoSkills` mirror what
+    /// `Frontmatter.parseSummary` derives from these documents.
+    static func demoHeaderFixture(slug: String) -> String? {
+        switch slug {
+        case "plain_notes":
+            return """
+            # Plain Notes
+
+            A skill written without any frontmatter block.
+
+            ## Second section
+
+            More content here to make the body non-trivial.
+            """
+        case "unclosed_draft":
+            return """
+            ---
+            name: Unclosed Draft Skill
+            description: This frontmatter block is never closed, so the parser should treat the whole file as body.
+
+            ## Oops, still inside "frontmatter"
+
+            Nothing here is metadata. Every line below the opening fence is body.
+            """
+        default:
+            return nil
+        }
+    }
+
+    /// Demo-only initial Browse selection (`--demo-select=<slug>`), so a
+    /// screenshot run can land directly on one skill's detail pane. `nil`
+    /// unless the flag is passed; production selection behavior is unchanged.
+    static var demoInitialSelection: String? {
+        let prefix = "--demo-select="
+        for arg in ProcessInfo.processInfo.arguments where arg.hasPrefix(prefix) {
+            let slug = String(arg.dropFirst(prefix.count))
+            if !slug.isEmpty { return slug }
+        }
+        return nil
     }
 
     static func demoFile(slug: String, path: String) -> String {
