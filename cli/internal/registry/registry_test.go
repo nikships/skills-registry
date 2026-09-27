@@ -698,6 +698,20 @@ func TestParseSummary_PlainMultilineScalar(t *testing.T) {
 	}
 }
 
+// TestParseSummary_CRLFFrontmatter pins parity with the Swift frontmatter
+// parser: CRLF line endings parse identically to LF — the closing fence
+// still matches and values lose their trailing carriage return.
+func TestParseSummary_CRLFFrontmatter(t *testing.T) {
+	text := "---\r\nname: My Skill\r\ndescription: A short description here.\r\n---\r\n# Heading\r\n\r\nBody text.\r\n"
+	name, desc := parseSummary(text, "my_skill")
+	if name != "My Skill" {
+		t.Fatalf("name = %q, want My Skill", name)
+	}
+	if desc != "A short description here." {
+		t.Fatalf("desc = %q, want the frontmatter description", desc)
+	}
+}
+
 // TestParseSummary_PlainMultilineScalarStopsAtNextKey verifies that a plain
 // multi-line scalar terminates at the next top-level key (no false fold of
 // the following entry).
