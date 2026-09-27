@@ -36,6 +36,9 @@ final class AppState: ObservableObject {
     @Published var dismissedKeys: Set<String> = []
 
     let isDemo: Bool
+    /// Demo-only: start with an empty registry (welcome-card state). Ignored
+    /// outside demo mode; see `startDemo`.
+    let isDemoEmpty: Bool
     private var token: String?
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
@@ -51,8 +54,9 @@ final class AppState: ObservableObject {
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
 
-    init(demo: Bool = false) {
+    init(demo: Bool = false, demoEmpty: Bool = false) {
         self.isDemo = demo
+        self.isDemoEmpty = demo && demoEmpty
         dismissedKeys = Set(defaults.stringArray(forKey: dismissKey) ?? [])
     }
 

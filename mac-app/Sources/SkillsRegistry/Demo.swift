@@ -1,14 +1,15 @@
 import Foundation
 import SkillsRegistryCore
 
-/// Fixture data + entry for demo mode (`--demo` / `SKILLS_APP_DEMO=1`). Lets
+/// Fixture data + entry for demo mode (`--demo` / `SKILLS_APP_DEMO=1`, plus
+/// `--demo-empty` / `SKILLS_APP_DEMO_EMPTY=1` for an empty registry). Lets
 /// the full authed UI be exercised by cua-driver without GitHub credentials.
 extension AppState {
     func startDemo() {
         identity = Identity(login: "octocat", name: "Mona Octocat")
         repo = RepoRef(owner: "octocat", name: "skills-registry")
         branch = "main"
-        skills = Self.demoSkills
+        skills = isDemoEmpty ? [] : Self.demoSkills
         cliInstalled = false
         phase = .ready
     }

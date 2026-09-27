@@ -43,7 +43,10 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline.
+call is short-circuited, so you can drive the whole app offline. Pass
+`--demo-empty` (or `SKILLS_APP_DEMO_EMPTY=1`) instead to start with an empty
+registry, which shows the Browse welcome card a new user sees after
+create/connect.
 
 ---
 
@@ -277,6 +280,8 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
 `agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
+`welcomeCard`, `welcomeRepoLink`, `welcomeImport`, `welcomePublish`,
+`welcomeDiscover`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.
 

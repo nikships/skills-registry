@@ -10,7 +10,10 @@ struct SkillsRegistryApp: App {
     init() {
         let demo = ProcessInfo.processInfo.arguments.contains("--demo")
             || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
-        _state = StateObject(wrappedValue: AppState(demo: demo))
+        // Demo-only: start with an empty registry to exercise the welcome card.
+        let demoEmpty = ProcessInfo.processInfo.arguments.contains("--demo-empty")
+            || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO_EMPTY"] == "1"
+        _state = StateObject(wrappedValue: AppState(demo: demo || demoEmpty, demoEmpty: demoEmpty))
     }
 
     var body: some Scene {
