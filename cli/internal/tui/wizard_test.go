@@ -775,6 +775,343 @@ func TestRunPushJobInvokesDepsInOrder(t *testing.T) {
 	}
 }
 
+// TestValidateRepoName pins the GitHub repo-name rules enforced inline on
+// step 2: no empty/whitespace, no owner prefix, length ≤ 100, and only
+// [A-Za-z0-9._-]. Each rejected shape must produce its own specific
+// message for the `✗` error row.
+func TestValidateRepoName(t *testing.T) {
+	long := strings.Repeat("a", 101)
+	maxLen := strings.Repeat("a", 100)
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  string // "" means accepted; otherwise a substring of the error
+	}{
+		{"empty", "", "can't be empty"},
+		{"blank", "   ", "can't be empty"},
+		{"spaces", "INVALID NAME!!!", "can't contain spaces"},
+		{"tab", "my\trepo", "can't contain spaces"},
+		{"owner prefix", "owner/repo", "no `owner/` prefix"},
+		{"too long", long, "longer than 100"},
+		{"bang", "my-repo!", "'!'"},
+		{"at sign", "my@repo", "'@'"},
+		{"dot only", ".", "can't be `.`"},
+		{"dotdot", "..", "can't be `.`"},
+		{"simple", "skills-registry", ""},
+		{"dots underscores", "my.registry_2-0", ""},
+		{"padded ok", "  my-registry  ", ""},
+		{"max length", maxLen, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateRepoName(tc.value)
+			if tc.want == "" && got != "" {
+				t.Errorf("validateRepoName(%q) = %q, want accepted", tc.value, got)
+			}
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("validateRepoName(%q) = %q, want substring %q", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestWizardRepoNameEnterRejectsInvalidShapes is the cli-tui-7 regression
+// test: names GitHub would reject must block advance with an inline error
+// instead of failing later at push time.
+func TestWizardRepoNameEnterRejectsInvalidShapes(t *testing.T) {
+	for _, value := range []string{"INVALID NAME!!!", "owner/repo", "bad!name", strings.Repeat("x", 101)} {
+		m := atStep(WizardStepRepoName)
+		m.repoInput.SetValue(value)
+		nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		wiz := nm.(WizardModel)
+		if wiz.transitioning {
+			t.Errorf("value %q advanced despite being invalid", value)
+		}
+		if wiz.repoErr == "" {
+			t.Errorf("value %q surfaced no inline error", value)
+		}
+		wiz.width, wiz.height = 120, 30
+		if v := wiz.View(); !strings.Contains(v, "✗") {
+			t.Errorf("value %q: View() missing ✗ error row:\n%s", value, v)
+		}
+	}
+}
+
+// TestWizardRepoNameEnterAdvancesWithValidChars verifies the full
+// allowed charset still advances to the Visibility step.
+func TestWizardRepoNameEnterAdvancesWithValidChars(t *testing.T) {
+	m := atStep(WizardStepRepoName)
+	m.repoInput.SetValue("My.Registry_2-0")
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	wiz := nm.(WizardModel)
+	if !wiz.transitioning {
+		t.Fatal("valid dotted/underscored name did not start transition")
+	}
+	if wiz.transitionTarget != WizardStepVisibility {
+		t.Errorf("transitionTarget = %v, want WizardStepVisibility", wiz.transitionTarget)
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Back navigation (cli-tui-11)
+// ────────────────────────────────────────────────────────────────────────────
+
+var backKeys = []tea.KeyMsg{
+	{Type: tea.KeyShiftTab},
+	{Type: tea.KeyCtrlB},
+}
+
+// settleBackState parks the model on s with any in-flight async work
+// resolved, so back navigation is expected to succeed.
+func settleBackState(m WizardModel, s WizardStep) WizardModel {
+	m.step = s
+	switch s {
+	case WizardStepPush:
+		m.pushStarted = true
+		m.pushDone = true
+		m.pushErr = nil
+	case WizardStepAgentSelect:
+		m.agentInstalling = false
+		m.agentInstallDone = true
+	case WizardStepCleanup:
+		m.cleanupRunning = false
+		m.cleanupChosen = true
+		m.cleanupDone = true
+	}
+	return m
+}
+
+// TestWizardBackFromSafeSteps verifies shift+tab and ctrl+b move to the
+// previous step from every step that is safe to revisit.
+func TestWizardBackFromSafeSteps(t *testing.T) {
+	for _, key := range backKeys {
+		for _, s := range []WizardStep{
+			WizardStepRepoName, WizardStepVisibility,
+			WizardStepAgentSelect, WizardStepCleanup, WizardStepDone,
+		} {
+			m := settleBackState(atStep(s), s)
+			nm, cmd := m.Update(key)
+			wiz := nm.(WizardModel)
+			if !wiz.transitioning {
+				t.Errorf("step %v key %q: back did not start a transition", s, key.String())
+				continue
+			}
+			if wiz.transitionTarget != s-1 {
+				t.Errorf("step %v key %q: target = %v, want %v", s, key.String(), wiz.transitionTarget, s-1)
+			}
+			if cmd == nil {
+				t.Errorf("step %v key %q: back returned nil Cmd", s, key.String())
+			}
+		}
+	}
+}
+
+// TestWizardBackPreservesValues walks back from Visibility to RepoName and
+// confirms the entered repo name and visibility choice survive the
+// round trip, then walks back from AgentSelect with a selection intact.
+func TestWizardBackPreservesValues(t *testing.T) {
+	m := atStep(WizardStepVisibility)
+	m.repoInput.SetValue("my-registry")
+	m.visCursor = 1
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	nm, _ = nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepRepoName})
+	wiz := nm.(WizardModel)
+	if wiz.Step() != WizardStepRepoName {
+		t.Fatalf("step = %v, want WizardStepRepoName", wiz.Step())
+	}
+	if got := wiz.repoInput.Value(); got != "my-registry" {
+		t.Errorf("repo name = %q after back nav, want %q", got, "my-registry")
+	}
+	if wiz.visCursor != 1 {
+		t.Errorf("visCursor = %d after back nav, want 1", wiz.visCursor)
+	}
+	// Forward again and confirm the value is still submittable.
+	nm, _ = wiz.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if wiz := nm.(WizardModel); !wiz.transitioning {
+		t.Error("enter after back-nav round trip did not advance")
+	}
+
+	deps := WizardDeps{AgentChoices: func() []WizardAgent { return testAgents }}
+	am := atStep(WizardStepAgentSelect).WithDeps(deps)
+	am.loadAgentChoices()
+	am.agentSelected = map[int]struct{}{2: {}}
+	am.agentFilter = "cur"
+	nm, _ = am.Update(tea.KeyMsg{Type: tea.KeyCtrlB})
+	nm, _ = nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepPush})
+	aw := nm.(WizardModel)
+	if _, ok := aw.agentSelected[2]; !ok {
+		t.Error("agent selection lost across back navigation")
+	}
+	if aw.agentFilter != "cur" {
+		t.Errorf("agent filter = %q after back nav, want %q", aw.agentFilter, "cur")
+	}
+}
+
+// TestWizardBackFromScanIsNoop pins the lower bound: step 1 has nowhere
+// to go back to.
+func TestWizardBackFromScanIsNoop(t *testing.T) {
+	for _, key := range backKeys {
+		m := NewWizard(context.Background())
+		nm, _ := m.Update(key)
+		if wiz := nm.(WizardModel); wiz.transitioning {
+			t.Errorf("key %q from Scan started a transition", key.String())
+		}
+	}
+}
+
+// TestWizardBackDuringTransitionIsNoop guards against stacking a retreat
+// on top of an in-flight transition.
+func TestWizardBackDuringTransitionIsNoop(t *testing.T) {
+	m := atStep(WizardStepVisibility)
+	m.transitioning = true
+	m.transitionTarget = WizardStepPush
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if wiz := nm.(WizardModel); wiz.transitionTarget != WizardStepPush {
+		t.Errorf("back during transition shifted target to %v", wiz.transitionTarget)
+	}
+}
+
+// TestWizardBackWithOverlayOpenIsNoop confirms the cancel overlay keeps
+// its own keymap — shift+tab must not navigate behind it.
+func TestWizardBackWithOverlayOpenIsNoop(t *testing.T) {
+	m := atStep(WizardStepVisibility)
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	nm, _ = nm.(WizardModel).Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	wiz := nm.(WizardModel)
+	if wiz.transitioning {
+		t.Error("back navigated while the cancel overlay was open")
+	}
+	if !wiz.cancelOverlay {
+		t.Error("back dismissed the cancel overlay")
+	}
+}
+
+// TestWizardBackBlockedWhilePushInFlight is the safety core of cli-tui-11:
+// back navigation must never interrupt the push goroutine.
+func TestWizardBackBlockedWhilePushInFlight(t *testing.T) {
+	for _, key := range backKeys {
+		m := atStep(WizardStepPush)
+		m.pushStarted = true
+		m.pushCh = make(chan tea.Msg, 4)
+		nm, _ := m.Update(key)
+		if wiz := nm.(WizardModel); wiz.transitioning {
+			t.Errorf("key %q retreated during an in-flight push", key.String())
+		}
+	}
+}
+
+// TestWizardBackFromFailedPushResetsAndRestarts covers the retry path: a
+// failed push allows back navigation, leaving the step resets the push
+// bookkeeping, and re-entering the step restarts the push goroutine.
+func TestWizardBackFromFailedPushResetsAndRestarts(t *testing.T) {
+	deps := WizardDeps{
+		CreateRepo: func(_ context.Context, _, _ string) (string, error) { return "owner/name", nil },
+	}
+	m := atStep(WizardStepPush).WithDeps(deps)
+	m.repoInput.SetValue("name")
+	m.pushStarted = true
+	m.pushDone = true
+	m.pushErr = errors.New("boom")
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	wiz := nm.(WizardModel)
+	if !wiz.transitioning || wiz.transitionTarget != WizardStepVisibility {
+		t.Fatalf("back from failed push: transitioning=%v target=%v, want Visibility",
+			wiz.transitioning, wiz.transitionTarget)
+	}
+	if wiz.pushStarted || wiz.pushDone || wiz.pushErr != nil {
+		t.Errorf("push bookkeeping not reset: started=%v done=%v err=%v",
+			wiz.pushStarted, wiz.pushDone, wiz.pushErr)
+	}
+	// Deliver the transition, then walk forward again: the push must
+	// restart instead of showing the stale failure.
+	nm, _ = wiz.Update(wizardTransitionMsg{to: WizardStepVisibility})
+	nm, _ = nm.(WizardModel).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	nm, cmd := nm.(WizardModel).Update(wizardTransitionMsg{to: WizardStepPush})
+	wiz = nm.(WizardModel)
+	if !wiz.pushStarted {
+		t.Fatal("re-entering the push step did not restart the push")
+	}
+	if cmd == nil {
+		t.Error("re-entered push step returned nil Cmd (no channel listener)")
+	}
+	drainMsgs(wiz.pushCh)
+}
+
+// TestWizardBackFromSuccessfulPushIsBlocked pins the step-4 rule: once the
+// push has succeeded the repo exists on GitHub, so there is nothing to go
+// back and fix — enter is the only way out.
+func TestWizardBackFromSuccessfulPushIsBlocked(t *testing.T) {
+	m := atStep(WizardStepPush)
+	m.pushStarted = true
+	m.pushDone = true
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if wiz := nm.(WizardModel); wiz.transitioning {
+		t.Error("back retreated from a successfully pushed step")
+	}
+}
+
+// TestWizardBackBlockedDuringAgentInstallAndCleanup extends the
+// never-interrupt-async-work rule to the other two in-flight goroutines.
+func TestWizardBackBlockedDuringAgentInstallAndCleanup(t *testing.T) {
+	m := atStep(WizardStepAgentSelect)
+	m.agentInstalling = true
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if wiz := nm.(WizardModel); wiz.transitioning {
+		t.Error("back retreated during an in-flight agent install")
+	}
+	m = atStep(WizardStepCleanup)
+	m.cleanupChosen = true
+	m.cleanupRunning = true
+	nm, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if wiz := nm.(WizardModel); wiz.transitioning {
+		t.Error("back retreated during an in-flight cleanup")
+	}
+}
+
+// TestWizardFooterAdvertisesBack checks every step footer shows the
+// shift+tab hint exactly where back navigation is available.
+func TestWizardFooterAdvertisesBack(t *testing.T) {
+	m := NewWizard(context.Background())
+	m.width, m.height = 120, 30
+	advertised := []WizardStep{
+		WizardStepRepoName, WizardStepVisibility,
+		WizardStepAgentSelect, WizardStepCleanup, WizardStepDone,
+	}
+	for _, s := range advertised {
+		m.step = s
+		if v := m.View(); !strings.Contains(v, "shift+tab") {
+			t.Errorf("step %v footer missing shift+tab hint:\n%s", s, v)
+		}
+	}
+	m.step = WizardStepScan
+	if v := m.View(); strings.Contains(v, "shift+tab") {
+		t.Errorf("Scan footer advertises back with nowhere to go:\n%s", v)
+	}
+	// Push advertises back only after a failure, never mid-push.
+	m.step = WizardStepPush
+	m.pushStarted = true
+	if v := m.View(); strings.Contains(v, "shift+tab") {
+		t.Errorf("in-flight push footer advertises back:\n%s", v)
+	}
+	m.pushDone = true
+	m.pushErr = errors.New("boom")
+	if v := m.View(); !strings.Contains(v, "shift+tab") {
+		t.Errorf("failed-push footer missing shift+tab hint:\n%s", v)
+	}
+}
+
+// TestWizardPushFailureViewSurfacesBackCTA checks the post-failure panel
+// points at the retry path, not just the exit.
+func TestWizardPushFailureViewSurfacesBackCTA(t *testing.T) {
+	m := atStep(WizardStepPush)
+	m.width, m.height = 120, 30
+	m.repoInput.SetValue("my-registry")
+	m.pushDone = true
+	m.pushErr = errors.New("boom")
+	if v := m.View(); !strings.Contains(v, "back to fix the name") {
+		t.Errorf("failed-push panel missing back CTA:\n%s", v)
+	}
+}
+
 // TestRunPushJobSurfacesCreateError verifies that a CreateRepo failure
 // terminates the push pipeline with the error captured in the done msg.
 func TestRunPushJobSurfacesCreateError(t *testing.T) {

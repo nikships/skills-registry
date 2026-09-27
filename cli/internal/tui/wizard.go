@@ -595,6 +595,13 @@ func (m WizardModel) handleStepKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelCursor = 0
 		return m, nil
 	}
+	// Back navigation is intercepted here — before the per-step handlers
+	// — so shift+tab never lands in the repo-name textinput or the agent
+	// select-all binding. retreatStep decides whether the current step is
+	// safe to leave.
+	if msg.String() == "shift+tab" || msg.String() == "ctrl+b" {
+		return m.retreatStep()
+	}
 	switch m.step {
 	case WizardStepScan:
 		return m.handleScanKey(msg)
@@ -629,12 +636,12 @@ func (m WizardModel) handleScanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleRepoNameKey forwards typing to the textinput and treats enter as
-// "validate and advance". An empty value blocks advance and surfaces an
-// inline error.
+// "validate and advance". Anything GitHub would reject as a repo name
+// blocks advance and surfaces a specific inline error.
 func (m WizardModel) handleRepoNameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "enter" {
-		if strings.TrimSpace(m.repoInput.Value()) == "" {
-			m.repoErr = "Repository name can't be empty."
+		if errMsg := validateRepoName(m.repoInput.Value()); errMsg != "" {
+			m.repoErr = errMsg
 			return m, nil
 		}
 		m.repoErr = ""
@@ -644,6 +651,46 @@ func (m WizardModel) handleRepoNameKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.repoInput, cmd = m.repoInput.Update(msg)
 	m.repoErr = ""
 	return m, cmd
+}
+
+// validateRepoName checks the entered value against GitHub's
+// repository-name rules. Returns "" when the name is acceptable,
+// otherwise a specific message for the inline `✗` error row.
+func validateRepoName(raw string) string {
+	name := strings.TrimSpace(raw)
+	switch {
+	case name == "":
+		return "Repository name can't be empty."
+	case len(name) > 100:
+		return "Repository names can't be longer than 100 characters."
+	case strings.Contains(name, "/"):
+		return "Just the repo name — no `owner/` prefix."
+	case strings.ContainsAny(name, " \t"):
+		return "Repository names can't contain spaces."
+	case name == "." || name == "..":
+		return "Repository name can't be `.` or `..`."
+	}
+	for _, r := range name {
+		if !isRepoNameRune(r) {
+			return fmt.Sprintf("Character %q isn't allowed — use letters, numbers, `.`, `_`, `-`.", r)
+		}
+	}
+	return ""
+}
+
+// isRepoNameRune reports whether r is in GitHub's repo-name set:
+// ASCII letters and digits plus `.`, `_`, `-`.
+func isRepoNameRune(r rune) bool {
+	if r >= 'a' && r <= 'z' {
+		return true
+	}
+	if r >= 'A' && r <= 'Z' {
+		return true
+	}
+	if r >= '0' && r <= '9' {
+		return true
+	}
+	return r == '.' || r == '_' || r == '-'
 }
 
 // handleVisibilityKey moves the card cursor and locks in the choice on
@@ -710,6 +757,57 @@ func (m WizardModel) advanceStep() (tea.Model, tea.Cmd) {
 	m.transitioning = true
 	m.transitionTarget = next
 	return m, tea.Batch(wizardTransition(next), m.spinner.Tick)
+}
+
+// retreatStep moves to the previous step after a short transition
+// animation. Already-entered values (repo name, visibility, agent
+// selections) are preserved — nothing is cleared except the push
+// bookkeeping when leaving the push step, so revisiting it restarts the
+// push instead of showing a stale result.
+func (m WizardModel) retreatStep() (tea.Model, tea.Cmd) {
+	if !m.canRetreat() {
+		return m, nil
+	}
+	if m.step == WizardStepPush {
+		m.pushStarted = false
+		m.pushDone = false
+		m.pushErr = nil
+		m.pushRepo = ""
+		m.pushed = 0
+		m.pushDoneFiles = 0
+		m.pushTotalFiles = 0
+		m.pushStatus = ""
+		m.pushCh = nil
+	}
+	prev := m.step - 1
+	m.transitioning = true
+	m.transitionTarget = prev
+	return m, tea.Batch(wizardTransition(prev), m.spinner.Tick)
+}
+
+// canRetreat reports whether back navigation is safe from the current
+// step. Async work is never interrupted: the push, agent install, and
+// cleanup goroutines each block retreat while in flight, and the scan
+// step has nowhere to go back to.
+func (m WizardModel) canRetreat() bool {
+	if m.transitioning || m.cancelOverlay {
+		return false
+	}
+	switch m.step {
+	case WizardStepScan:
+		return false
+	case WizardStepPush:
+		// Back only before the push starts or after it fails —
+		// never mid-push. (Landing on the step auto-starts the push,
+		// so in practice this is the post-failure retry path.)
+		return !m.pushStarted || (m.pushDone && m.pushErr != nil)
+	case WizardStepAgentSelect:
+		return !m.agentInstalling || m.agentInstallDone
+	case WizardStepCleanup:
+		return !m.cleanupRunning
+	default:
+		return true
+	}
 }
 
 // handleCancelKey runs the keymap while the cancel-confirmation overlay
@@ -1070,7 +1168,7 @@ func (m WizardModel) renderRepoNameBody() string {
 		Render("Name the GitHub repo that will host your registry.")
 	input := m.repoInput.View()
 	hint := lipgloss.NewStyle().Foreground(ColMuted).Italic(true).
-		Render("· just the repo name (no `owner/` prefix) — created on your authenticated user account.")
+		Render("· just the repo name (no `owner/` prefix) — letters, numbers, `.`, `_`, `-`, max 100 chars.")
 	cta := DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColMuted).Render("  continue · ") +
 		KeyStyle.Render("esc") +
@@ -1279,7 +1377,12 @@ func (m WizardModel) renderPushCTA() string {
 	if m.pushErr != nil {
 		return DownloadChip.Render("⏎ enter") +
 			lipgloss.NewStyle().Foreground(ColDanger).
-				Render("  exit the wizard")
+				Render("  exit the wizard") +
+			lipgloss.NewStyle().Foreground(ColMuted).
+				Render(" · ") +
+			KeyStyle.Render("shift+tab") +
+			lipgloss.NewStyle().Foreground(ColMuted).
+				Render(" back to fix the name")
 	}
 	return DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColAccent).Bold(true).
@@ -1311,25 +1414,41 @@ func (m WizardModel) renderFooter() string {
 
 // footerKeys returns the keybindings to surface at the current step. The
 // keymap follows the existing TUI conventions: enter advances, esc cancels,
-// arrow keys navigate where they're meaningful.
+// arrow keys navigate where they're meaningful. Every step that can go back
+// advertises shift+tab (ctrl+b works everywhere shift+tab does).
 func (m WizardModel) footerKeys() []struct{ k, d string } {
+	back := struct{ k, d string }{"shift+tab", "back"}
 	switch m.step {
 	case WizardStepVisibility:
 		return []struct{ k, d string }{
 			{"←/→", "switch"},
 			{"enter", "confirm"},
+			back,
 			{"esc", "cancel"},
 		}
 	case WizardStepRepoName:
 		return []struct{ k, d string }{
 			{"type", "name"},
 			{"enter", "continue"},
+			back,
 			{"esc", "cancel"},
+		}
+	case WizardStepPush:
+		// After a push failure the useful recovery is going back to fix
+		// the name or visibility, so the footer says so. While the push
+		// is in flight back is a no-op and stays unadvertised.
+		if m.pushDone && m.pushErr != nil {
+			return []struct{ k, d string }{
+				back,
+				{"enter", "exit"},
+				{"esc", "cancel"},
+			}
 		}
 	case WizardStepAgentSelect:
 		if m.agentInstalling || m.agentInstallDone {
 			return []struct{ k, d string }{
 				{"enter", "continue"},
+				back,
 				{"esc", "cancel"},
 			}
 		}
@@ -1337,23 +1456,27 @@ func (m WizardModel) footerKeys() []struct{ k, d string } {
 			{"space", "toggle"},
 			{"tab", "select all"},
 			{"enter", "install"},
+			back,
 			{"esc", "cancel"},
 		}
 	case WizardStepCleanup:
 		if m.cleanupChosen {
 			return []struct{ k, d string }{
 				{"enter", "continue"},
+				back,
 				{"esc", "cancel"},
 			}
 		}
 		return []struct{ k, d string }{
 			{"←/→", "choose"},
 			{"enter", "confirm"},
+			back,
 			{"esc", "cancel"},
 		}
 	case WizardStepDone:
 		return []struct{ k, d string }{
 			{"enter", "open the hub"},
+			back,
 		}
 	}
 	return []struct{ k, d string }{

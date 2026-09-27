@@ -57,7 +57,7 @@ The npm package is a thin launcher that downloads the same prebuilt binary from 
 
 The installer drops the `skills-registry` Go binary into `~/.local/bin/`. Bare `skills-registry` routes automatically:
 
-- **First-time users** → **seven-step onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → **install the gateway skill into the agents you pick** → optionally delete the now-redundant local copies → show the registry URL.
+- **First-time users** → **seven-step onboarding wizard** (alt-screen TUI): scan dot-folders → pick repo name/visibility → push every skill with one `git push` → **install the gateway skill into the agents you pick** → optionally delete the now-redundant local copies → show the registry URL. Repo names are validated inline, and `shift+tab` / `ctrl+b` goes back a step without losing what you typed.
 - **Returning users** → **dashboard hub** with cards for Manage / Sync / Add / Discover / Publish / Purge / Settings.
 - **Piped / `--json` invocations** → usage text instead of a TUI (safe to drop into scripts).
 

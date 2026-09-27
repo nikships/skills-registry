@@ -28,6 +28,8 @@ The onboarding wizard has seven steps:
 6. Optionally remove redundant local skill copies.
 7. Show the resulting registry URL and completion summary.
 
+Step 2 validates the repository name inline against GitHub's rules (letters, numbers, `.`, `_`, `-`, max 100 characters, no `owner/` prefix), and `shift+tab` (or `ctrl+b`) moves back one step from any step where it is safe — never while the push, agent install, or cleanup is running. Entered values are preserved across back navigation.
+
 The headless `skills-registry bootstrap` command performs the same setup and ends by printing the registry URL. Neither flow emits configuration for another protocol or service.
 
 The returning-user dashboard is a card grid of seven tiles: Manage skills, Sync, Add, Discover, Publish, Purge local, and Settings. Each launches its flow embedded in the one long-lived `HubProgram`, so the terminal never drops back to scrollback between actions, and each flow's ending becomes a toast above the footer. The grid is responsive: four columns at ≥160, three at ≥120, two at ≥80, one below, which keeps seven tiles inside two rows on a wide terminal. `HubModel` measures that threshold against the width the grid is rendered at, not the raw terminal width.
