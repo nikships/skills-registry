@@ -28,6 +28,13 @@ extension AppState {
                      description: "Triage CrashLoopBackOff, pending pods, and OOMKills. Walks the events → logs → describe → resources path.", treeSHA: "f6"),
     ]
 
+    /// Fixture rows for the Setup connect list after "Switch registry…" in
+    /// demo mode (there is no API client, so the list can't be fetched).
+    static let demoInstallRepos: [InstallationRepo] = [
+        InstallationRepo(fullName: "octocat/skills-registry", defaultBranch: "main", isPrivate: true),
+        InstallationRepo(fullName: "octocat-team/shared-skills", defaultBranch: "main", isPrivate: false),
+    ]
+
     static let demoLocal: [LocalSkill] = [
         LocalSkill(slug: "terraform_lint", name: "Terraform Lint",
                    description: "Catch insecure defaults and drift in Terraform modules.",

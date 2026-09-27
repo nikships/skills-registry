@@ -18,7 +18,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Eyebrow(text: "Settings")
-                    Text("Connect your agents").font(.system(size: 22, weight: .semibold)).foregroundStyle(Brand.fg)
+                    Text("Settings").font(.system(size: 22, weight: .semibold)).foregroundStyle(Brand.fg)
+                    Text("Appearance, updates, agents, and your registry.")
+                        .font(.system(size: 13)).foregroundStyle(Brand.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 appearanceCard
                 appCard
@@ -221,6 +224,9 @@ struct SettingsView: View {
                             Text("branch \(state.branch) · \(state.skills.count) skills").font(Brand.monoSized(11)).foregroundStyle(Brand.meta)
                         }
                         Spacer()
+                        Button("Switch registry…") { state.switchRegistry() }
+                            .buttonStyle(GhostButtonStyle())
+                            .accessibilityIdentifier("switchRegistry")
                         Button { NSWorkspace.shared.open(repo.htmlURL) } label: {
                             Label("Open", systemImage: "arrow.up.right.square")
                         }.buttonStyle(GhostButtonStyle())

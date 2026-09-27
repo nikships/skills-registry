@@ -99,6 +99,7 @@ struct HomeView: View {
                 Button("Open repo on GitHub") {
                     if let repo = state.repo { NSWorkspace.shared.open(repo.htmlURL) }
                 }
+                Button("Switch registry…") { state.switchRegistry() }
                 Button("Sign out", role: .destructive) { state.logout() }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 13)).foregroundStyle(Brand.muted)

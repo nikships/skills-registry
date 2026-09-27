@@ -9,7 +9,10 @@ skills from an external source (local path, `owner/repo`, a git URL, or a
 GitHub `/tree/<ref>/<path>` link) and publish + install them in one pass,
 **remove** one end-to-end (registry + local downloads + agent folders),
 bulk-import the skills already sitting in your local AI-tool folders, and
-install or update the CLI from Settings.
+install or update the CLI from Settings. To point the app at a different
+registry, use **Switch registry…** in the Settings Registry card or the
+sidebar account menu — it returns to the create/connect flow without signing
+you out, and connecting writes the new `registry.toml` and refreshes skills.
 
 It complements the Go CLI with the same registry format, slug derivation,
 fuzzy scorer, and frontmatter parsing.
@@ -42,8 +45,9 @@ open "build/Skills Registry.app" --args --demo
 SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
-Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline.
+Demo mode injects fixture skills, identity, detail markdown, and install
+repos (so the Setup create/connect flow is reachable via Switch registry…);
+every network call is short-circuited, so you can drive the whole app offline.
 
 ---
 
@@ -277,7 +281,8 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
 `agentPickerConfirm`, `discoverQueryField`, `discoverSearch`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
-`nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
+`nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`,
+`switchRegistry`)
 so an automated driver can find them deterministically.
 
 ---
