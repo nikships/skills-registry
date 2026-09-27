@@ -13,7 +13,31 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
 
-                if state.setupLoading && state.installRepos.isEmpty {
+                if let err = state.setupError {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13)).foregroundStyle(Brand.danger)
+                            .padding(.top, 2)
+                        Text(err)
+                            .font(.system(size: 13)).foregroundStyle(Brand.fg2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button {
+                            state.setupError = nil
+                        } label: {
+                            Image(systemName: "xmark").font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain).foregroundStyle(Brand.muted)
+                        .accessibilityIdentifier("dismissSetupError")
+                    }
+                    .padding(14)
+                    .background(Brand.danger.opacity(0.08))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.danger.opacity(0.4), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityIdentifier("setupErrorCard")
+                }
+
+                if state.isListingRepos && state.installRepos.isEmpty {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small).tint(Brand.accent)
                         Text("Checking your GitHub App installation…")
@@ -52,32 +76,41 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Label("Create a new registry", systemImage: "plus.circle.fill")
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(Brand.fg)
-                HStack(spacing: 12) {
-                    TextField("repo name", text: $newName)
-                        .textFieldStyle(.plain)
-                        .font(Brand.monoSized(13))
-                        .padding(.horizontal, 12).padding(.vertical, 9)
-                        .background(Brand.surfaceWarm)
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.border, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                        .accessibilityIdentifier("newRepoName")
-                    Picker("", selection: $isPrivate) {
-                        Text("Private").tag(true)
-                        Text("Public").tag(false)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 12) {
+                        TextField("repo name", text: $newName)
+                            .textFieldStyle(.plain)
+                            .font(Brand.monoSized(13))
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .background(Brand.surfaceWarm)
+                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .accessibilityIdentifier("newRepoName")
+                        Picker("", selection: $isPrivate) {
+                            Text("Private").tag(true)
+                            Text("Public").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 160)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 160)
+                    if let hint = SetupValidation.repoNameHint(newName) {
+                        Text(hint)
+                            .font(Brand.monoSized(11)).foregroundStyle(Brand.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("newRepoNameHint")
+                    }
                 }
                 Button {
                     Task { await state.createRegistry(name: newName.trimmingCharacters(in: .whitespaces), isPrivate: isPrivate) }
                 } label: {
                     HStack(spacing: 8) {
-                        if state.setupLoading { ProgressView().controlSize(.small) }
+                        if state.isCreatingRepo { ProgressView().controlSize(.small) }
                         Text("Create \(state.identity?.login ?? "you")/\(newName)")
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || state.setupLoading)
+                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty
+                    || SetupValidation.repoNameHint(newName) != nil || state.isCreatingRepo)
                 .accessibilityIdentifier("createRegistry")
 
                 Text("Needs the app's Administration permission. If it's not granted, we'll open github.com to create it, then you can connect it below.")
@@ -133,21 +166,33 @@ struct SetupView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
 
-                HStack(spacing: 8) {
-                    TextField("owner/repo", text: $connectManual)
-                        .textFieldStyle(.plain).font(Brand.monoSized(13))
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(Brand.surfaceWarm)
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.border, lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                    Button("Connect") {
-                        if let ref = RepoRef(fullName: connectManual.trimmingCharacters(in: .whitespaces)) {
-                            Task { await state.connect(ref, branch: "main") }
-                        } else {
-                            state.showToast("Enter owner/repo", .error)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        TextField("owner/repo", text: $connectManual)
+                            .textFieldStyle(.plain).font(Brand.monoSized(13))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(Brand.surfaceWarm)
+                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.border, lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .accessibilityIdentifier("connectManual")
+                        Button("Connect") {
+                            if let ref = RepoRef(fullName: connectManual.trimmingCharacters(in: .whitespaces)) {
+                                Task { await state.connect(ref, branch: "main") }
+                            } else {
+                                state.showToast("Enter owner/repo", .error)
+                            }
                         }
+                        .buttonStyle(GhostButtonStyle())
+                        .disabled(connectManual.trimmingCharacters(in: .whitespaces).isEmpty
+                            || SetupValidation.repoRefHint(connectManual) != nil)
+                        .accessibilityIdentifier("connectManualButton")
                     }
-                    .buttonStyle(GhostButtonStyle())
+                    if let hint = SetupValidation.repoRefHint(connectManual) {
+                        Text(hint)
+                            .font(Brand.monoSized(11)).foregroundStyle(Brand.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("connectManualHint")
+                    }
                 }
             }
         }

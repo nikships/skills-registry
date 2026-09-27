@@ -1,10 +1,28 @@
 import Foundation
 import SkillsRegistryCore
 
+/// Demo-only Setup entry point, selected by `--demo-setup` /
+/// `--demo-setup-loading` (or `SKILLS_APP_DEMO_SETUP=1` / `=loading`). Lets
+/// SetupView be driven offline without GitHub credentials.
+enum DemoSetup {
+    case none
+    /// Setup with fixture installations (loaded list).
+    case loaded
+    /// Setup held in the listing-loading state (empty list + spinner).
+    case loading
+}
+
 /// Fixture data + entry for demo mode (`--demo` / `SKILLS_APP_DEMO=1`). Lets
 /// the full authed UI be exercised by cua-driver without GitHub credentials.
 extension AppState {
     func startDemo() {
+        switch demoSetup {
+        case .loaded, .loading:
+            startDemoSetup(loading: demoSetup == .loading)
+            return
+        case .none:
+            break
+        }
         identity = Identity(login: "octocat", name: "Mona Octocat")
         repo = RepoRef(owner: "octocat", name: "skills-registry")
         branch = "main"
@@ -12,6 +30,22 @@ extension AppState {
         cliInstalled = false
         phase = .ready
     }
+
+    /// Demo-only Setup fixture: signed-in identity on the Setup screen. The
+    /// loaded variant shows fixture installations; the loading variant holds
+    /// the listing spinner with an empty list so the loading state can be
+    /// screenshotted. No network calls are made either way.
+    func startDemoSetup(loading: Bool) {
+        identity = Identity(login: "octocat", name: "Mona Octocat")
+        installRepos = loading ? [] : Self.demoInstallRepos
+        isListingRepos = loading
+        phase = .setup
+    }
+
+    static let demoInstallRepos: [InstallationRepo] = [
+        InstallationRepo(fullName: "octocat/skills-registry", defaultBranch: "main", isPrivate: true),
+        InstallationRepo(fullName: "octocat/team-skills", defaultBranch: "main", isPrivate: false),
+    ]
 
     static let demoSkills: [SkillSummary] = [
         SkillSummary(slug: "pdf_tools", name: "PDF Tools",

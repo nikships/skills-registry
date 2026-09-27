@@ -8,9 +8,23 @@ struct SkillsRegistryApp: App {
     @StateObject private var updater = UpdaterManager()
 
     init() {
-        let demo = ProcessInfo.processInfo.arguments.contains("--demo")
-            || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
-        _state = StateObject(wrappedValue: AppState(demo: demo))
+        let args = ProcessInfo.processInfo.arguments
+        let env = ProcessInfo.processInfo.environment
+        let demo = args.contains("--demo")
+            || args.contains("--demo-setup")
+            || args.contains("--demo-setup-loading")
+            || env["SKILLS_APP_DEMO"] == "1"
+            || env["SKILLS_APP_DEMO_SETUP"] == "1"
+            || env["SKILLS_APP_DEMO_SETUP"] == "loading"
+        let setup: DemoSetup
+        if args.contains("--demo-setup-loading") || env["SKILLS_APP_DEMO_SETUP"] == "loading" {
+            setup = .loading
+        } else if args.contains("--demo-setup") || env["SKILLS_APP_DEMO_SETUP"] == "1" {
+            setup = .loaded
+        } else {
+            setup = .none
+        }
+        _state = StateObject(wrappedValue: AppState(demo: demo, demoSetup: setup))
     }
 
     var body: some Scene {
