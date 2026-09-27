@@ -1,8 +1,9 @@
 import SwiftUI
 import SkillsRegistryCore
 
-/// Reusable agent multi-select used by both "Install" (registry skill → local)
-/// and "Add" (external source → publish + install). Lists the home-based
+/// Reusable agent multi-select used by "Install" (registry skill → local),
+/// "Add" (external source → publish + install), and "Discover" (index row →
+/// import + install). Lists the home-based
 /// agents from `Agents.all()` (`underHome == true`) plus the universal
 /// `.agents` target. The app uses the home directory as the universal target's
 /// install base, so that row writes to `~/.agents/skills`.
@@ -13,6 +14,12 @@ struct AgentPickerSheet: View {
     let title: String
     let subtitle: String
     let confirmLabel: String
+    /// When true, confirming with nothing selected is allowed and reports an
+    /// empty target list (the caller treats it as "skip the install"). The
+    /// Install and Add flows keep this false: their confirm is meaningless
+    /// without a destination. Declared before `onConfirm` so the confirm
+    /// handler stays the trailing closure.
+    var allowEmptySelection = false
     let onConfirm: ([AgentTarget]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -108,7 +115,7 @@ struct AgentPickerSheet: View {
                 dismiss()
             } label: { Text(confirmLabel) }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(selected.isEmpty)
+            .disabled(selected.isEmpty && !allowEmptySelection)
             .accessibilityIdentifier("agentPickerConfirm")
         }
         .padding(16)

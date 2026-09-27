@@ -21,6 +21,7 @@ struct DiscoverView: View {
     @State private var searchError: String?
     @State private var importing = false
     @State private var pending: PendingImport?
+    @State private var pickerFor: PendingImport?
     @State private var searchTask: Task<Void, Never>?
 
     /// The query demo mode arrives with.
@@ -346,18 +347,24 @@ struct DiscoverView: View {
                         Spacer()
                     }
                 }
+                // The sheet states the verdict; the disclaimer states what the
+                // verdict is worth. The detail pane already shows this line —
+                // the confirmation must not be the one place that omits it.
+                Text(ImportGate.gradeDisclaimer).font(.system(size: 11)).foregroundStyle(Brand.muted)
+                    .fixedSize(horizontal: false, vertical: true)
                 Toggle(isOn: Binding(
                     get: { pending?.installIntoAgents ?? false },
                     set: { pending?.installIntoAgents = $0 })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Also install into agents").font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Brand.fg)
-                        Text("Off by default. Every agent then loads this SKILL.md each session.")
+                        Text("Off by default. When on, Import asks which agents load this SKILL.md each session.")
                             .font(.system(size: 11)).foregroundStyle(Brand.meta)
                     }
                 }
                 .toggleStyle(.checkbox)
                 .accessibilityIdentifier("discoverInstallToggle")
+                .accessibilityLabel("Also install into agents")
 
                 if review.blocked {
                     blockWarning(review)
@@ -371,9 +378,17 @@ struct DiscoverView: View {
                 Spacer()
                 Button("Cancel") { pending = nil }.buttonStyle(GhostButtonStyle())
                 Button {
-                    let confirmed = item
-                    pending = nil
-                    runImport(confirmed)
+                    // Read the live toggle state: the sheet's content rebuilds
+                    // as the toggles flip, but the captured item lags it.
+                    let confirmed = pending ?? item
+                    if confirmed.installIntoAgents {
+                        // The opt-in chooses destinations rather than spraying
+                        // every detected folder: the picker opens on confirm.
+                        pickerFor = confirmed
+                    } else {
+                        pending = nil
+                        runImport(confirmed, targets: [], pickedNoAgents: false)
+                    }
                 } label: { Text("Import") }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(review.blocked && !(pending?.acknowledgedBlock ?? false))
@@ -383,6 +398,21 @@ struct DiscoverView: View {
         }
         .frame(width: 480)
         .background(Brand.bg)
+        // Nested over the confirmation: cancelling the picker falls back to
+        // the confirmation rather than abandoning the import. Nothing is
+        // preselected, and confirming with none picked imports registry-only
+        // with a toast that says the install was skipped.
+        .sheet(item: $pickerFor) { pick in
+            AgentPickerSheet(
+                title: "Install into which agents?",
+                subtitle: "\(pick.result.name) will be imported into your registry, then installed into the agents you pick. Confirm with none selected for a registry-only import.",
+                confirmLabel: "Import + install",
+                allowEmptySelection: true
+            ) { targets in
+                pending = nil
+                runImport(pick, targets: targets, pickedNoAgents: targets.isEmpty)
+            }
+        }
     }
 
     private func blockWarning(_ review: ImportReview) -> some View {
@@ -390,7 +420,7 @@ struct DiscoverView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 12)).foregroundStyle(Brand.danger)
-                Text(review.summary).font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
+                Text(review.displaySummary).font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Toggle(isOn: Binding(
@@ -401,6 +431,7 @@ struct DiscoverView: View {
             }
             .toggleStyle(.checkbox)
             .accessibilityIdentifier("discoverAllowUnsafe")
+            .accessibilityLabel("I have read the source and want to import it anyway")
         }
         .padding(12)
         .background(Brand.surfaceWarm)
@@ -436,31 +467,21 @@ struct DiscoverView: View {
         }
     }
 
-    private func runImport(_ item: PendingImport) {
+    /// Run the confirmed import. `targets` are the agents the user picked (or
+    /// empty for registry-only); `pickedNoAgents` is true only when the picker
+    /// was shown and nothing was chosen, so the toast can say so.
+    private func runImport(_ item: PendingImport, targets: [AgentTarget], pickedNoAgents: Bool) {
         let decision = ImportDecision(
             url: item.result.skillURL,
             scores: item.result.scores,
-            installIntoAgents: item.installIntoAgents,
+            installIntoAgents: !targets.isEmpty,
             allowUnsafe: item.acknowledgedBlock)
         guard decision.permitted else { return }
         importing = true
         Task {
-            let targets = decision.installPermitted
-                ? Agents.all().filter { $0.underHome || $0.universal }.filter(installTargetExists)
-                : []
-            await state.importDiscovered(item.result, targets: targets)
+            await state.importDiscovered(item.result, targets: targets, pickedNoAgents: pickedNoAgents)
             importing = false
         }
-    }
-
-    /// The durable install writes into agent folders that already exist. A
-    /// user who opted in wants their agents to load the skill, not a new dot
-    /// folder per catalogue entry.
-    private func installTargetExists(_ target: AgentTarget) -> Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let base = (home as NSString).appendingPathComponent(target.dotDir)
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: base, isDirectory: &isDir) && isDir.boolValue
     }
 }
 
