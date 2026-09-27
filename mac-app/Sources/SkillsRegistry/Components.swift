@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Toast
 
@@ -83,11 +84,34 @@ struct Wordmark: View {
     }
 }
 
+/// The GitHub mark for the sign-in button. SF Symbols has no GitHub logo, so
+/// the mark ships as a bundled vector (`Resources/GitHubMark.pdf`, converted
+/// from the Simple Icons GitHub path) and renders as a template tinted by the
+/// button foreground. Falls back to a generic glyph when the asset is missing
+/// (e.g. running the raw SwiftPM binary instead of the bundled .app).
 struct GitHubMark: View {
     var size: CGFloat = 16
+
+    private static var cached: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "GitHubMark", withExtension: "pdf"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = true
+        return image
+    }()
+
     var body: some View {
-        Image(systemName: "chevron.left.forwardslash.chevron.right")
-            .font(.system(size: size, weight: .bold))
+        if let image = Self.markImage(size: size) {
+            image
+        } else {
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: size, weight: .bold))
+        }
+    }
+
+    private static func markImage(size: CGFloat) -> Image? {
+        guard let mark = cached else { return nil }
+        mark.size = NSSize(width: size, height: size)
+        return Image(nsImage: mark)
     }
 }
 

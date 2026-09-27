@@ -36,6 +36,9 @@ final class AppState: ObservableObject {
     @Published var dismissedKeys: Set<String> = []
 
     let isDemo: Bool
+    /// Demo-login variant: stay on the signed-out screen instead of loading
+    /// the authed fixtures, so the login card is drivable offline.
+    private let demoLogin: Bool
     private var token: String?
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
@@ -51,15 +54,19 @@ final class AppState: ObservableObject {
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
 
-    init(demo: Bool = false) {
+    init(demo: Bool = false, demoLogin: Bool = false) {
         self.isDemo = demo
+        self.demoLogin = demoLogin
         dismissedKeys = Set(defaults.stringArray(forKey: dismissKey) ?? [])
     }
 
     // MARK: - lifecycle
 
     func bootstrap() async {
-        if isDemo { startDemo(); return }
+        if isDemo {
+            if demoLogin { phase = .signedOut; return }
+            startDemo(); return
+        }
         cliInstalled = CLIInstaller.isInstalled()
         guard let saved = Keychain.get() else { phase = .signedOut; return }
         token = saved
@@ -100,6 +107,9 @@ final class AppState: ObservableObject {
     // MARK: - auth
 
     func beginLogin() {
+        // The demo login screen is a visual fixture: never fire a real
+        // device flow (network + browser) from it.
+        guard !isDemo else { return }
         authError = nil
         authInProgress = true
         authTask?.cancel()

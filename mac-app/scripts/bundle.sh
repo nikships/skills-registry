@@ -61,6 +61,9 @@ if [ ! -f "$ROOT/Resources/AppIcon.icns" ]; then
 fi
 [ -f "$ROOT/Resources/AppIcon.icns" ] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# Vector GitHub mark for the sign-in button (see GitHubMark in Components.swift).
+[ -f "$ROOT/Resources/GitHubMark.pdf" ] && cp "$ROOT/Resources/GitHubMark.pdf" "$APP/Contents/Resources/GitHubMark.pdf"
+
 # MarkdownUI bundles resources next to the binary; copy any .bundle dirs in.
 for b in "$BIN_DIR"/*.bundle; do
     [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/" || true

@@ -10,7 +10,11 @@ struct SkillsRegistryApp: App {
     init() {
         let demo = ProcessInfo.processInfo.arguments.contains("--demo")
             || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
-        _state = StateObject(wrappedValue: AppState(demo: demo))
+        // Screenshot/driving hook for the signed-out screen: demo isolation
+        // with the login card visible instead of the authed fixtures.
+        let demoLogin = ProcessInfo.processInfo.arguments.contains("--demo-login")
+            || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO_LOGIN"] == "1"
+        _state = StateObject(wrappedValue: AppState(demo: demo || demoLogin, demoLogin: demoLogin))
     }
 
     var body: some Scene {

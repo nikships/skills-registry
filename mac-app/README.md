@@ -43,7 +43,10 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline.
+call is short-circuited, so you can drive the whole app offline. To drive the
+signed-out screen instead (same isolation, login card visible), pass
+`--demo-login` (`SKILLS_APP_DEMO_LOGIN=1`); its sign-in button is inert by
+design — it never fires a real device flow.
 
 ---
 
