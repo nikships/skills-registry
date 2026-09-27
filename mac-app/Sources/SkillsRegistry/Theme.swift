@@ -125,12 +125,13 @@ struct Card<Content: View>: View {
 struct PrimaryButtonStyle: ButtonStyle {
     var tint: Color = Brand.fg
     var fg: Color = Color(hex: 0x0A0A0A)
+    @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 14, weight: .semibold))
             .padding(.horizontal, 16).padding(.vertical, 9)
-            .background(tint.opacity(configuration.isPressed ? 0.85 : 1))
-            .foregroundStyle(fg)
+            .background(tint.opacity(!isEnabled ? 0.35 : configuration.isPressed ? 0.85 : 1))
+            .foregroundStyle(isEnabled ? fg : fg.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
     }
@@ -138,13 +139,14 @@ struct PrimaryButtonStyle: ButtonStyle {
 
 /// Ghost (outline) button style.
 struct GhostButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 14, weight: .medium))
             .padding(.horizontal, 16).padding(.vertical, 9)
-            .foregroundStyle(Brand.fg)
-            .background(configuration.isPressed ? Brand.surfaceWarm : Color.clear)
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.meta, lineWidth: 1))
+            .foregroundStyle(isEnabled ? Brand.fg : Brand.fg.opacity(0.4))
+            .background(isEnabled && configuration.isPressed ? Brand.surfaceWarm : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(isEnabled ? Brand.meta : Brand.meta.opacity(0.5), lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
     }
