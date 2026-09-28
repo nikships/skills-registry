@@ -7,8 +7,9 @@ import Foundation
 /// gateway skill in every agent they have installed.
 ///
 /// "Detected agents" are the home-based dot-folders whose base dir (e.g.
-/// `~/.claude`) exists. The cwd-based universal `.agents` target is skipped —
-/// a desktop app has no meaningful project working directory.
+/// `~/.claude`) exists, plus the universal `.agents` target (detected via
+/// `~/.agents`, mirroring the installers' home-dir convention — a desktop
+/// app has no meaningful project working directory).
 public enum MetaSkill {
     /// Slug of the meta-skill (matches the folder name the CLI installs into).
     public static let slug = "skills-registry"
@@ -42,11 +43,13 @@ public enum MetaSkill {
         public var needsAction: Bool { anyMissing || anyOutdated }
     }
 
-    /// Home-based agent targets whose base dot-folder exists on disk.
+    /// Home-based agent targets whose base dot-folder exists on disk, plus
+    /// the universal `.agents` target when `~/.agents` exists (the installers
+    /// write it under home, so detection must look there too).
     public static func detectedTargets(home: String) -> [AgentTarget] {
         let fm = FileManager.default
         return Agents.all().filter { t in
-            guard t.underHome else { return false }
+            guard t.underHome || t.universal else { return false }
             let base = (home as NSString).appendingPathComponent(t.dotDir)
             var isDir: ObjCBool = false
             return fm.fileExists(atPath: base, isDirectory: &isDir) && isDir.boolValue
