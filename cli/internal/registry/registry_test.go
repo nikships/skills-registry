@@ -1044,3 +1044,59 @@ func TestResolve(t *testing.T) {
 		t.Errorf("Not found failed: got=%q found=%v err=%v", got, found, err)
 	}
 }
+
+func TestAPIReadsPinConfiguredBranch(t *testing.T) {
+	// The API fallback must honor the @branch override the same way the
+	// mirror and write paths do: every Contents read (list, summarize,
+	// download) pins ?ref=<branch>. The stub only replays calls whose
+	// argv contains the key, so any unpinned read fails the test.
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
+	frontmatter := "---\nname: Demo\ndescription: demo skill\n---\nBody.\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(frontmatter))
+	ref := "?ref=feature%2Fx"
+	bin, _ := stubGH(t, []map[string]any{
+		{
+			"key": "GET repos/x/y/contents/" + ref,
+			"body": []map[string]any{
+				{"name": "demo", "type": "dir", "sha": "tree-1"},
+			},
+		},
+		{
+			"key":  "GET repos/x/y/contents/demo/SKILL.md" + ref,
+			"body": map[string]any{"encoding": "base64", "content": encoded},
+		},
+		{
+			"key": "GET repos/x/y/contents/demo" + ref,
+			"body": []map[string]any{
+				{"name": "SKILL.md", "type": "file"},
+			},
+		},
+		{
+			"key":  "GET repos/x/y/contents/demo/SKILL.md" + ref,
+			"body": map[string]any{"encoding": "base64", "content": encoded},
+		},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "feature/x"}
+	summaries, err := c.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].Slug != "demo" {
+		t.Fatalf("unexpected summaries: %+v", summaries)
+	}
+	if err := c.Get(context.Background(), "demo", t.TempDir()); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+}
+
+func TestContentsEndpointPinsEscapedBranch(t *testing.T) {
+	c := &Client{Repo: "o/r", DefaultBranch: "release/1 2"}
+	want := "repos/o/r/contents/skills/pdf?ref=release%2F1+2"
+	if got := c.contentsEndpoint("skills/pdf"); got != want {
+		t.Errorf("contentsEndpoint = %q, want %q", got, want)
+	}
+	c = &Client{Repo: "o/r"}
+	if got := c.contentsEndpoint("a"); got != "repos/o/r/contents/a" {
+		t.Errorf("contentsEndpoint without a branch = %q", got)
+	}
+}

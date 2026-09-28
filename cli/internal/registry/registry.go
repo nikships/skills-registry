@@ -217,7 +217,7 @@ func (c *Client) listViaAPI(ctx context.Context) ([]Summary, error) {
 
 func (c *Client) summarize(ctx context.Context, slug, treeSHA string) (Summary, bool, error) {
 	var blob fileBlob
-	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/contents/%s/SKILL.md", c.Repo, slug), &blob); err != nil {
+	if err := c.getJSON(ctx, c.contentsEndpoint(slug+"/SKILL.md"), &blob); err != nil {
 		if isStatus(err, 404) {
 			return Summary{}, false, nil
 		}
@@ -340,7 +340,7 @@ func (c *Client) downloadRecursive(ctx context.Context, repoPath, topSlug, destD
 // matching the legacy downloadRecursive behavior.
 func (c *Client) downloadFile(ctx context.Context, repoPath, name, destDir string) error {
 	var blob fileBlob
-	if err := c.getJSON(ctx, fmt.Sprintf("repos/%s/contents/%s/%s", c.Repo, repoPath, name), &blob); err != nil {
+	if err := c.getJSON(ctx, c.contentsEndpoint(repoPath+"/"+name), &blob); err != nil {
 		return err
 	}
 	raw, err := decodeBlob(blob)
@@ -1106,7 +1106,7 @@ type fileBlob struct {
 }
 
 func (c *Client) contents(ctx context.Context, path string) ([]contentEntry, error) {
-	endpoint := fmt.Sprintf("repos/%s/contents/%s", c.Repo, path)
+	endpoint := c.contentsEndpoint(path)
 	var entries []contentEntry
 	if err := c.getJSON(ctx, endpoint, &entries); err != nil {
 		if isStatus(err, 404) {
@@ -1115,6 +1115,17 @@ func (c *Client) contents(ctx context.Context, path string) ([]contentEntry, err
 		return nil, err
 	}
 	return entries, nil
+}
+
+// contentsEndpoint builds a `gh api` Contents endpoint for path, pinning the
+// configured branch via ?ref= so API-fallback reads observe the same @branch
+// override the mirror and write paths use.
+func (c *Client) contentsEndpoint(path string) string {
+	endpoint := fmt.Sprintf("repos/%s/contents/%s", c.Repo, path)
+	if c.DefaultBranch != "" {
+		endpoint += "?ref=" + url.QueryEscape(c.DefaultBranch)
+	}
+	return endpoint
 }
 
 // apiJSON runs `gh api -X <method> <endpoint>` and unmarshals the JSON
