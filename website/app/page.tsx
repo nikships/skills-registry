@@ -38,7 +38,7 @@ export default function Home() {
                 <a className="btn btn-ghost" href={repo}>View on GitHub</a>
               </div>
               <p className="meta-text" style={{ marginTop: 20 }}>
-                GitHub-backed · works with private repos · needs <span className="inline-code">gh</span> + <span className="inline-code">git</span>
+                GitHub-backed · works with private repos · needs <span className="inline-code">gh</span>, plus <span className="inline-code">git</span> for the first-run bulk push
               </p>
             </div>
 
@@ -112,7 +112,7 @@ export default function Home() {
               {[
                 ["01", "Discover", "The wizard scans known agent folders and finds existing skills."],
                 ["02", "Bootstrap", "Create a private or public GitHub repo and push the initial skill tree."],
-                ["03", "Manage", "Browse, search, add, sync, publish, remove, and update from the TUI or commands."],
+                ["03", "Manage", "Browse, search, discover third-party skills, add, sync, publish, remove, and update from the TUI or commands."],
                 ["04", "Read quickly", "A shallow local Git mirror makes repeat listing and fetching fast."],
                 ["05", "Delegate", "The gateway skill teaches compatible agents to invoke the CLI only when a skill is needed."],
                 ["06", "Work anywhere", "Point another laptop, desktop, or remote machine at the same repository."],
@@ -154,6 +154,18 @@ skills-registry get code-review --json
           </div>
         </section>
 
+        <section id="trust">
+          <div className="container">
+            <div className="section-head"><p className="eyebrow"><span className="dot" /> Import gate</p><h2 className="h2">Safe by default.</h2><p className="lead">A skill is prose your agents treat as instructions, so skills from strangers pass through an import gate before they can reach your machines.</p></div>
+            <div className="features-grid">
+              <div className="feature-cell card"><span className="feature-num">01</span><h4 className="h4">Registry-only imports</h4><p>Skills from untrusted sources publish to your repo only — one commit you can revert.</p></div>
+              <div className="feature-cell card"><span className="feature-num">02</span><h4 className="h4">Explicit install opt-in</h4><p>Copying into agent dot-folders needs <span className="inline-code">--install</span> or an explicit yes — from then on every agent loads it each session.</p></div>
+              <div className="feature-cell card"><span className="feature-num">03</span><h4 className="h4"><span className="inline-code">Poor</span> safety is a blocker</h4><p>A <span className="inline-code">Poor</span> safety grade or a local scan hit needs <span className="inline-code">--allow-unsafe</span> to import non-interactively. <span className="inline-code">--yes</span> never clears it.</p></div>
+              <div className="feature-cell card"><span className="feature-num">04</span><h4 className="h4">Fetched code never runs</h4><p><span className="inline-code">scripts/</span>, <span className="inline-code">references/</span>, and <span className="inline-code">assets/</span> are copied as bytes. Nothing fetched is ever executed.</p></div>
+            </div>
+          </div>
+        </section>
+
         <section id="cli">
           <div className="container">
             <div className="section-head"><p className="eyebrow"><span className="dot" /> CLI + TUI</p><h2 className="h2">Interactive for people. Headless for scripts and agents.</h2><p className="lead">Run the binary without arguments for the wizard or dashboard. Every subcommand also supports structured output with <span className="inline-code">--json</span>.</p></div>
@@ -162,17 +174,19 @@ skills-registry get code-review --json
               <tr><td className="cmd">skills-registry</td><td className="desc">Launch onboarding on first run, then the dashboard.</td></tr>
               <tr><td className="cmd">skills-registry list / search</td><td className="desc">Browse all skills or fuzzy-rank a query.</td></tr>
               <tr><td className="cmd">skills-registry get &lt;slug&gt;</td><td className="desc">Fetch one skill from the configured registry.</td></tr>
+              <tr><td className="cmd">skills-registry discover &lt;query&gt;</td><td className="desc">Search the public skill index and import one skill into your registry.</td></tr>
               <tr><td className="cmd">skills-registry sync</td><td className="desc">Publish newly discovered local skills.</td></tr>
               <tr><td className="cmd">skills-registry add &lt;owner/repo&gt;</td><td className="desc">Select skills from another GitHub registry.</td></tr>
               <tr><td className="cmd">skills-registry publish / remove</td><td className="desc">Commit a skill update or remove a registry entry.</td></tr>
               <tr><td className="cmd">skills-registry update</td><td className="desc">Update the installed CLI binary.</td></tr>
+              <tr><td className="cmd">skills-registry bootstrap</td><td className="desc">Re-run non-interactive setup; ends with the registry URL.</td></tr>
             </tbody></table>
           </div>
         </section>
 
         <section id="mac-app">
           <div className="container">
-            <div className="section-head"><p className="eyebrow"><span className="dot" /> Native macOS app</p><h2 className="h2">The same registry, without the terminal.</h2><p className="lead">The Apple Silicon SwiftUI app supports GitHub login, rich Markdown browsing, fuzzy search, publishing, removal, bulk local import, and one-click CLI installation.</p></div>
+            <div className="section-head"><p className="eyebrow"><span className="dot" /> Native macOS app</p><h2 className="h2">The same registry, without the terminal.</h2><p className="lead">The Apple Silicon SwiftUI app supports GitHub login, rich Markdown browsing, fuzzy search, in-app SKILL.md editing, publishing, removal, a Discover pane that imports behind the same gate, bulk local import, and one-click CLI installation.</p></div>
             <figure className="media-frame"><img src="assets/mac-app.png" alt="Skills Registry macOS app with skill list, rendered Markdown, and file browser" /></figure>
           </div>
         </section>
@@ -210,8 +224,8 @@ curl -fsSL https://raw.githubusercontent.com/nikships/skills-registry/main/insta
 npx skills-registry
 
 # Windows PowerShell
-irm https://raw.githubusercontent.com/nikships/skills-registry/main/install.ps1 | iex`}</code></pre>
-              <p className="meta-text" style={{ marginTop: 14 }}>Prerequisites: <span className="inline-code">gh auth login</span> and Git.</p>
+powershell -c "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nikships/skills-registry/main/install.ps1)))"`}</code></pre>
+              <p className="meta-text" style={{ marginTop: 14 }}>Prerequisites: <span className="inline-code">gh auth login</span> and Git (first-run bulk push only).</p>
             </div>
           </div>
         </section>
