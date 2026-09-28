@@ -283,7 +283,7 @@ skills-registry update --force          # reinstall even if you're already curre
 
 ### Programmatic use — `--json`
 
-Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses TUIs and prompts and emits a single JSON payload to stdout. Errors land as `{"error": "..."}` with a non-zero exit. Use this when an agent or script drives the binary.
+Every subcommand accepts a persistent `--json` flag. With it, the CLI suppresses TUIs and prompts and emits a single JSON payload to stdout. Errors land as `{"error": "..."}` with a non-zero exit. That holds for every failure mode, including usage errors (wrong arg count, unknown command): stdout carries the envelope and stderr carries one human-readable `Error:` line. Use this when an agent or script drives the binary.
 
 | Command | Payload shape |
 |---|---|

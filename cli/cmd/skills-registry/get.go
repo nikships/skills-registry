@@ -31,8 +31,13 @@ func newGetCmd() *cobra.Command {
 		Short: "Temporarily fetch a registry skill into the global cache (use `list` to durably install)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			if jsonout.Enabled() {
-				cmd.SilenceErrors = true
 				return runGetJSON(cmd.Context(), args[0], destFlag)
 			}
 			return runGet(cmd.Context(), args[0], destFlag)
@@ -48,18 +53,15 @@ func newGetCmd() *cobra.Command {
 func runGetJSON(ctx context.Context, slug, dest string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	client, err := registry.New(cfg.Repo, cfg.DefaultBranch)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	finalDest, _, err := DownloadSkill(ctx, client, slug, dest)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	return jsonout.Print(getJSONResult{
 		Slug: scan.Slugify(slug),

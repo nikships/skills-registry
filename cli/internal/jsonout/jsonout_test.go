@@ -97,6 +97,40 @@ func TestPrintErrorWithNilUsesEmptyString(t *testing.T) {
 	}
 }
 
+// TestPrintErrorHandledMarksError pins the root-handler protocol: the
+// returned error prints the same envelope as PrintError, carries the
+// original message, and reports AlreadyReported — while a plain error
+// does not.
+func TestPrintErrorHandledMarksError(t *testing.T) {
+	buf := captureStdout(t)
+	cause := errors.New("boom")
+	marked := PrintErrorHandled(cause)
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %q (%v)", buf.String(), err)
+	}
+	if payload.Error != "boom" {
+		t.Fatalf("payload.Error = %q, want %q", payload.Error, "boom")
+	}
+	if marked == nil || marked.Error() != "boom" {
+		t.Fatalf("marked error = %v, want message %q", marked, "boom")
+	}
+	if !errors.Is(marked, cause) {
+		t.Fatal("marked error must unwrap to the cause for errors.Is/As")
+	}
+	if !AlreadyReported(marked) {
+		t.Fatal("AlreadyReported(marked) = false, want true")
+	}
+	if AlreadyReported(cause) {
+		t.Fatal("AlreadyReported(plain) = true, want false")
+	}
+	if AlreadyReported(nil) {
+		t.Fatal("AlreadyReported(nil) = true, want false")
+	}
+}
+
 // TestEnabledDefaultsFalse pins down the zero value: before BindFlag
 // fires (or any test calls SetEnabled), Enabled() must return false so
 // subcommands default to their interactive behavior.

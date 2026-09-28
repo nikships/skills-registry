@@ -558,18 +558,15 @@ func TestIsStdinTerminalDefaultReadsOSStdin(t *testing.T) {
 	_ = isStdinTerminal()
 }
 
-// TestRunSyncJSONPropagatesPublishErrorAsJSON pins the JSON-008
-// contract for sync's error branch: a 500 from the publish call must
-// surface as a JSON-encoded error object on stdout (via PrintError +
-// os.Exit). We assert by intercepting the inner publish call through
-// the scripted gh shim — a non-200 from GET ref/heads triggers the
-// error path before any os.Exit can fire.
-//
-// NOTE: We test the planSync helper directly because runSyncJSON
-// calls os.Exit, which terminates the test binary. planSync owns the
-// pre-publish "discover + dedupe" stage; we verify it surfaces the
-// upstream error so the wrapping os.Exit path is structurally sound.
-func TestPlanSyncSurfacesRegistryError(t *testing.T) {
+// TestRunSyncJSONSurfacesRegistryErrorAsJSON pins the JSON-008
+// contract for sync's error branch: a 500 from the registry list call must
+// surface as a JSON-encoded error object on stdout (via PrintErrorHandled +
+// a returned error) with a non-nil error so main exits non-zero. We assert
+// by intercepting the list call through the scripted gh shim — a non-200
+// from GET contents/ triggers the error path. runSyncJSON returns instead
+// of exiting, so the test drives it directly in-process.
+func TestRunSyncJSONSurfacesRegistryErrorAsJSON(t *testing.T) {
+	enableJSON(t)
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	cwd := t.TempDir()
@@ -585,9 +582,20 @@ func TestPlanSyncSurfacesRegistryError(t *testing.T) {
 	bin := stubGHForRemove(t, entries)
 	installGHEnv(t, bin)
 
-	_, err := planSync(context.Background())
+	buf := captureJSONOut(t)
+	err := runSyncJSON(context.Background())
 	if err == nil {
 		t.Fatal("expected error when registry list fails")
+	}
+	if !jsonout.AlreadyReported(err) {
+		t.Error("runSyncJSON must return a marked error so main skips its own envelope")
+	}
+	var payload map[string]any
+	if uErr := json.Unmarshal(buf.Bytes(), &payload); uErr != nil {
+		t.Fatalf("stdout must be a single parseable JSON object, got %q", buf.String())
+	}
+	if payload["error"] == "" || payload["error"] == nil {
+		t.Errorf("missing error field in %q", buf.String())
 	}
 }
 

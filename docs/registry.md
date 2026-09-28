@@ -34,7 +34,7 @@ The returning-user dashboard is a card grid of seven tiles: Manage skills, Sync,
 
 The bulk initial import uses `git push` over HTTPS with credentials configured by `gh auth setup-git`. Day-to-day `publish`, `add`, `sync`, and `remove` operations use the GitHub Git Data API through the authenticated `gh` CLI. Reads use a shallow local mirror when available and fall back to `gh api`.
 
-Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`.
+Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`. Runtime failures print no usage text and a single `Error:` line; usage appears only for actual misuse. Under `--json` every failure mode — including wrong arg counts and unknown commands — emits one `{"error": "..."}` object on stdout with exit 1, plus the single `Error:` line on stderr.
 
 ## Discover
 

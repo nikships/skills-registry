@@ -18,12 +18,33 @@ import (
 var version = "dev"
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run executes argv against a fresh command tree and returns the process exit
+// code. Split from main so tests can drive the full parse → execute → report
+// pipeline in-process. Cobra's usage and error streams go to stdout/stderr;
+// --json envelopes go through jsonout's writer (os.Stdout in production,
+// swapped out by tests), so they stay on stdout whatever cobra does.
+func run(argv []string, stdout, stderr io.Writer) int {
 	cleanupOldBinaries()
 	root := newRootCmd()
+	root.SetArgs(argv)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		// Usage/arg failures under --json never reach a RunE, so no
+		// {"error"} envelope was printed yet; emit it here so the stdout
+		// contract holds for every failure mode. Runtime --json failures
+		// already printed theirs (see jsonout.PrintErrorHandled) and carry
+		// the mark, so this never double-prints.
+		if jsonout.Enabled() && !jsonout.AlreadyReported(err) {
+			jsonout.PrintError(err)
+		}
+		fmt.Fprintln(stderr, "Error:", err)
+		return 1
 	}
+	return 0
 }
 
 // newRootCmd assembles the cobra command tree. A bare `skills-registry`
@@ -61,6 +82,12 @@ Day-to-day, use:
 		Version: version,
 		Args:    cobra.NoArgs,
 		RunE:    runRoot,
+		// SilenceErrors quiets cobra's own "Error:" line for every failure,
+		// including argument-count and unknown-command errors that return
+		// before any RunE runs; run prints the error exactly once. Usage
+		// still prints for those (SilenceUsage stays false) unless --json
+		// silenced it via applyJSONArgsContract.
+		SilenceErrors: true,
 	}
 
 	// Bind the persistent --json flag on the root so every subcommand
@@ -80,13 +107,54 @@ Day-to-day, use:
 		newRemoveCmd(),
 		newUpdateCmd(),
 	)
+	applyJSONArgsContract(root)
 
 	return root
+}
+
+// applyJSONArgsContract wraps the Args validators of root and every
+// subcommand so usage-level failures (wrong arg count, unknown command)
+// under --json suppress cobra's usage dump; run then emits the {"error"}
+// envelope to stdout instead. Human invocations are untouched: validation
+// still fails with the same error and cobra still prints usage. Flags are
+// parsed before Args validation, so jsonout.Enabled() is reliable here for
+// every path this covers (unknown commands included — root's NoArgs check
+// is what reports them, after parsing).
+func applyJSONArgsContract(root *cobra.Command) {
+	if root.Args != nil {
+		root.Args = withJSONSilence(root.Args)
+	}
+	for _, c := range root.Commands() {
+		if c.Args != nil {
+			c.Args = withJSONSilence(c.Args)
+		}
+	}
+}
+
+// withJSONSilence wraps an Args validator so a validation failure under
+// --json silences cobra's usage and error output. ExecuteC consults the
+// silence flags after execute() returns, so setting them here (before the
+// error propagates) takes effect even though no RunE runs.
+func withJSONSilence(fn cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		err := fn(cmd, args)
+		if err != nil && jsonout.Enabled() {
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+		}
+		return err
+	}
 }
 
 // runRoot is the bare-command handler. It only runs when no subcommand
 // (and no help flag) was supplied.
 func runRoot(cmd *cobra.Command, _ []string) error {
+	// A malformed config or a failed TUI is not a misuse of the command, so
+	// neither the usage block nor cobra's own error line belongs in the
+	// output; main prints the error once. Root arg validation still shows
+	// usage because it runs before RunE.
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
 	_, loadErr := config.Load()
 	switch bareRouteDecision(isTerminal(), jsonout.Enabled(), loadErr) {
 	case bareRouteHelp:

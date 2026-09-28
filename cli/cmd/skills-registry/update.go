@@ -82,6 +82,12 @@ specific binary path. Set SKILLS_REGISTRY_AUTO_UPDATE=1 to opportunistically
 update right before opening the hub.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// A runtime failure is not a misuse of the command, so neither
+			// the usage block nor cobra's own error line belongs in the
+			// output; main prints the error once. Argument-count validation
+			// still shows usage because it runs before RunE.
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
 			return runUpdate(cmd.Context(), opts)
 		},
 	}
@@ -97,7 +103,7 @@ func runUpdate(ctx context.Context, opts updateOpts) error {
 	res, err := performUpdate(ctx, opts)
 	if err != nil {
 		if jsonout.Enabled() {
-			jsonout.PrintError(err)
+			return jsonout.PrintErrorHandled(err)
 		}
 		return err
 	}

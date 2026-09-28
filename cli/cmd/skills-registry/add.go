@@ -260,8 +260,7 @@ func (p addPlan) jsonSource() addJSONSource {
 func runAddJSON(ctx context.Context, source string, opts addOptions) error {
 	plan, cleanup, err := planAdd(ctx, source, opts)
 	if err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 	defer cleanup()
 
@@ -271,13 +270,11 @@ func runAddJSON(ctx context.Context, source string, opts addOptions) error {
 	// written and the caller is told what to pass to proceed.
 	if len(refused) > 0 {
 		err := blockedError(refused)
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 
 	if err := plan.stamp(allowed); err != nil {
-		jsonout.PrintError(err)
-		return err
+		return jsonout.PrintErrorHandled(err)
 	}
 
 	installTargets := jsonInstallTargets(untrusted, opts.install)
@@ -287,15 +284,13 @@ func runAddJSON(ctx context.Context, source string, opts addOptions) error {
 	for _, sk := range allowed {
 		files := map[string][]byte{}
 		if err := walkSkillIntoFiles(sk, files); err != nil {
-			jsonout.PrintError(err)
-			return err
+			return jsonout.PrintErrorHandled(err)
 		}
 		bySlug := rekeyBySlug(sk.Slug, files)
 		msg := fmt.Sprintf("add: %s (from %s)", sk.Slug, safeSource)
 		if _, err := plan.client.Publish(ctx, sk.Slug, bySlug, msg); err != nil {
 			err = fmt.Errorf("publish %s: %w", sk.Slug, err)
-			jsonout.PrintError(err)
-			return err
+			return jsonout.PrintErrorHandled(err)
 		}
 		pushed = append(pushed, sk.Slug)
 		if len(installTargets) == 0 {
@@ -304,8 +299,7 @@ func runAddJSON(ctx context.Context, source string, opts addOptions) error {
 		paths, err := installSkillIntoTargets(ctx, plan.client, sk.Slug, installTargets)
 		if err != nil {
 			err = fmt.Errorf("install %s locally: %w", sk.Slug, err)
-			jsonout.PrintError(err)
-			return err
+			return jsonout.PrintErrorHandled(err)
 		}
 		installed[sk.Slug] = paths
 	}
