@@ -120,6 +120,8 @@ move the OS pointer inside a window, so this is how a screenshot shows that
 treatment. It does nothing outside demo mode.
 Demo mode also injects install repos, so the Setup create/connect flow is
 reachable via **Switch registry…**.
+The signed-out card is drivable too: the real GitHub mark and the
+permission scope note render in demo without a device flow.
 
 ---
 

@@ -164,6 +164,9 @@ final class AppState: ObservableObject {
     // MARK: - auth
 
     func beginLogin() {
+        // A demo login screen is a visual fixture: never fire a real
+        // device flow (network + browser) from it.
+        guard !isDemo else { return }
         resetAuthError()
         authInProgress = true
         authTask?.cancel()

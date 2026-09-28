@@ -81,10 +81,16 @@ struct LoginView: View {
                         }
 
                         Divider().overlay(Brand.border)
-                        Text("Uses the GitHub App's secure device flow. The app only sees the repositories you grant it.")
-                            .font(Brand.monoSized(11))
-                            .foregroundStyle(Brand.meta)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Brand.success)
+                                .padding(.top, 1)
+                            Text("Only accesses repos where you install the app — you approve each one on GitHub.")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Brand.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 .frame(width: 360)
