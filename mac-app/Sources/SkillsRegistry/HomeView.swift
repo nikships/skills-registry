@@ -22,7 +22,10 @@ enum NavSection: String, CaseIterable, Identifiable {
 
 struct HomeView: View {
     @EnvironmentObject var state: AppState
-    @State private var section: NavSection = .browse
+    /// `--demo-scan-sheet` opens Discover so the held import confirmation is
+    /// on screen at launch. Production always starts on Browse.
+    @State private var section: NavSection = ProcessInfo.processInfo.arguments.contains("--demo-scan-sheet")
+        ? .discover : .browse
 
     var body: some View {
         HStack(spacing: 0) {

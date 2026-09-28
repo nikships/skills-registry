@@ -163,10 +163,26 @@ struct AddView: View {
         }
     }
 
+    /// Distinct hits across the gate's reviews. Identical lines (the demo
+    /// fixture stamps the same file onto every skill) are listed once; the
+    /// acknowledgement still covers every selected skill that matched.
+    private func scanRows(_ gate: AddGate) -> [(slug: String, finding: SkillFinding)] {
+        var seen = Set<String>()
+        var out: [(slug: String, finding: SkillFinding)] = []
+        for review in gate.reviews {
+            for finding in review.findings {
+                let key = "\(finding.rule)\u{0}\(finding.line)\u{0}\(finding.excerpt)"
+                guard seen.insert(key).inserted else { continue }
+                out.append((review.slug, finding))
+            }
+        }
+        return out
+    }
+
     /// The import-gate banner for an untrusted source: the origin, the
     /// index's grades (or the unscored disclaimer when the index has no row),
-    /// the registry-only default, and the Poor-safety acknowledgement when a
-    /// selected skill is blocked. Mirrors the CLI's `renderGate`.
+    /// the local scan, the registry-only default, and the acknowledgement
+    /// when a selected skill is blocked. Mirrors the CLI's `renderGate`.
     private func gateBanner(_ gate: AddGate) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -198,6 +214,8 @@ struct AddView: View {
             Text("Default: publish to your registry only. No agent folder is written unless you opt in, and nothing under scripts/ is ever run.")
                 .font(.system(size: 11)).foregroundStyle(Brand.meta)
                 .fixedSize(horizontal: false, vertical: true)
+            ScanFindingsList(rows: scanRows(gate))
+            .accessibilityIdentifier("addScanFindings")
             if let first = selectedBlocked.first {
                 GateBlockWarning(review: first, acknowledged: $acknowledgedBlock,
                                  toggleID: "addAllowUnsafe")

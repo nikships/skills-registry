@@ -122,6 +122,42 @@ struct GateBlockWarning: View {
     }
 }
 
+/// The local scan's hits, or the clean-scan line when there are none. Shared
+/// by the Add banner and the Discover confirmation so both surfaces quote the
+/// same lines and the same disclaimer. A slug prefix appears only when more
+/// than one skill contributed a hit.
+struct ScanFindingsList: View {
+    let rows: [(slug: String, finding: SkillFinding)]
+
+    var body: some View {
+        let total = rows.count
+        let slugs = Set(rows.map(\.slug))
+        VStack(alignment: .leading, spacing: 6) {
+            if total == 0 {
+                Text("Local scan: no suspicious patterns. \(ImportGate.scanDisclaimer)")
+                    .font(.system(size: 11)).foregroundStyle(Brand.meta)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Local scan: \(total) suspicious line\(total == 1 ? "" : "s") in \(Scan.mainFileName)")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    let prefix = slugs.count > 1 ? "\(row.slug): " : ""
+                    Text("· \(prefix)\(row.finding.description)")
+                        .font(Brand.monoSized(11)).foregroundStyle(Brand.fg2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Text(ImportGate.scanDisclaimer)
+                    .font(.system(size: 11)).foregroundStyle(Brand.meta)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("scanFindings")
+    }
+}
+
 /// An empty/placeholder state.
 struct EmptyState: View {
     let icon: String
