@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://skills-registry.web.app/sitemap.xml
