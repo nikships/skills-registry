@@ -15,7 +15,9 @@ enum Brand {
     static let fg = Color(hex: 0xF5F3EE)
     static let fg2 = Color(hex: 0xF5F3EE).opacity(0.86)
     static let muted = Color(hex: 0x8A8A85)
-    static let meta = Color(hex: 0xF5F3EE).opacity(0.40)
+    /// De-emphasized metadata text (10–12pt). 55% keeps it the dimmest text
+    /// token while passing WCAG AA on black (5.75:1; muted is 6.05:1).
+    static let meta = Color(hex: 0xF5F3EE).opacity(0.55)
     static let border = Color(hex: 0x1F1F1F)
     static let borderSoft = Color(hex: 0x141414)
     /// The accent threads through buttons, links, and highlights. It's the one
@@ -25,7 +27,9 @@ enum Brand {
     static var accentSoft: Color { AppTheme.current.accentSoft }
     static let success = Color(hex: 0x16A34A)
     static let warn = Color(hex: 0xEAB308)
-    static let danger = Color(hex: 0xDC2626)
+    /// Error text and accents. Passes WCAG AA on every dark surface
+    /// (5.37:1 on black, 4.97:1 on surface, 4.58:1 on surfaceRaised).
+    static let danger = Color(hex: 0xE5484D)
 
     static let mono = Font.system(.body, design: .monospaced)
     static func monoSized(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
