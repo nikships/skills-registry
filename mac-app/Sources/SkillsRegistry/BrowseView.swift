@@ -180,6 +180,7 @@ struct BrowseView: View {
             Task { await state.publishFolder(url) }
         }
     }
+
 }
 
 /// First-run card shown when the registry has no skills yet: names the

@@ -176,6 +176,14 @@ accent ring.
 | `Return` | Confirm: sign in, create/connect, sheet confirm buttons |
 | `Esc` | Cancel sheets |
 
+Append `--demo-select <slug>` (demo mode only) to open Browse with that
+fixture skill's detail pane preselected — a screenshot helper for states
+synthetic clicks can't reach, since browse rows use `onTapGesture`:
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-select brand_voice
+```
+
 ---
 
 ## Architecture
