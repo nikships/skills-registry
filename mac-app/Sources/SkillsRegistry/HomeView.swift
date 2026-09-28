@@ -150,7 +150,7 @@ struct HomeView: View {
             UpdateBanner()
             Group {
                 switch section {
-                case .browse: BrowseView()
+                case .browse: BrowseView(section: $section)
                 case .discover: DiscoverView()
                 case .add: AddView()
                 case .importLocal: ImportView()

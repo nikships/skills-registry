@@ -24,7 +24,8 @@ enum DemoSetup {
     case loading
 }
 
-/// Fixture data + entry for demo mode (`--demo` / `SKILLS_APP_DEMO=1`). Lets
+/// Fixture data + entry for demo mode (`--demo` / `SKILLS_APP_DEMO=1`, plus
+/// `--demo-empty` / `SKILLS_APP_DEMO_EMPTY=1` for an empty registry). Lets
 /// the full authed UI be exercised by cua-driver without GitHub credentials.
 extension AppState {
     func startDemo() {
@@ -38,7 +39,7 @@ extension AppState {
         identity = Identity(login: "octocat", name: "Mona Octocat")
         repo = RepoRef(owner: "octocat", name: "skills-registry")
         branch = "main"
-        skills = Self.demoSkills + Self.demoExtraSkills
+        skills = isDemoEmpty ? [] : Self.demoSkills + Self.demoExtraSkills
         cliInstalled = false
         // Fixture status so the Settings card renders its installed state
         // (and its button stays enabled) without reading real dot-folders.

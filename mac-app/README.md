@@ -66,7 +66,10 @@ fully side-effect free by construction:
   a demo session cannot open the fixture repository. Copy copies whichever
   file is on screen and names that file in the toast.
 
-Several demo-only drivers make otherwise-unreachable states reachable: a
+`--demo-empty` / `SKILLS_APP_DEMO_EMPTY=1` starts with an empty registry so
+the Browse welcome card a new user sees after create/connect is reachable.
+Several demo-only drivers make
+otherwise-unreachable states reachable: a
 Discover query starting with `!` fails the search the way an unreachable index
 would (error state, fallback hint, and retry, all offline); the Discover
 category field filters the fixtures the way the live index filters server-side;

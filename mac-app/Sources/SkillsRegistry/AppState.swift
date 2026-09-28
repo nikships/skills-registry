@@ -55,6 +55,9 @@ final class AppState: ObservableObject {
     @Published var dismissedKeys: Set<String> = []
 
     let isDemo: Bool
+    /// Demo-only: start with an empty registry (welcome-card state). Ignored
+    /// outside demo mode; see `startDemo`.
+    let isDemoEmpty: Bool
     /// Demo-only Setup fixture selector (`--demo-setup` /
     /// `--demo-setup-loading`). Always `.none` outside demo mode.
     let demoSetup: DemoSetup
@@ -103,12 +106,14 @@ final class AppState: ObservableObject {
     private let cliStatusTTL: TimeInterval = 5 * 60
 
     init(demo: Bool = false, authPreview: AuthPreview? = nil,
-         demoSetup: DemoSetup = .none, demoHoverPreview: Bool = false) {
+         demoSetup: DemoSetup = .none, demoHoverPreview: Bool = false,
+         demoEmpty: Bool = false) {
         self.isDemo = demo
         self.defaults = DemoDefaults.store(isDemo: demo)
         self.authPreview = authPreview
         self.demoSetup = demo ? demoSetup : .none
         self.demoHoverPreview = demo && demoHoverPreview
+        self.isDemoEmpty = demo && demoEmpty
         if demo {
             // Reroute every Keychain call to a process-local dictionary so a
             // demo Sign out can never delete the real saved token.
