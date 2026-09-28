@@ -349,6 +349,70 @@ final class DiscoverClientTests: XCTestCase {
         }
     }
 
+    // MARK: - bounded download
+
+    /// The shipped transport must enforce the size cap while streaming, not
+    /// after buffering the whole body. Responses are scripted through a
+    /// `URLProtocol` stub so these tests exercise the real `URLSession` path
+    /// with no network hop.
+    func testShippedTransportRejectsOversizedBodyWhileStreaming() async throws {
+        let transport = Self.stubbedTransport(
+            body: Data(repeating: 0x61, count: DiscoverClient.maxBodyBytes + 1))
+        let request = try Self.stubRequest()
+        do {
+            _ = try await transport.get(request)
+            XCTFail("expected bodyTooLarge")
+        } catch let e as DiscoverError {
+            XCTAssertEqual(e, .bodyTooLarge(DiscoverClient.maxBodyBytes))
+        }
+    }
+
+    /// A body exactly at the cap is accepted: the guard trips on the byte
+    /// past the limit, not on reaching it.
+    func testShippedTransportAcceptsBodyAtTheCap() async throws {
+        let transport = Self.stubbedTransport(
+            body: Data(repeating: 0x61, count: DiscoverClient.maxBodyBytes))
+        let (data, response) = try await transport.get(try Self.stubRequest())
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(data.count, DiscoverClient.maxBodyBytes)
+    }
+
+    func testShippedTransportStreamsASmallBody() async throws {
+        let transport = Self.stubbedTransport(body: Data(Self.payload.utf8))
+        let (data, response) = try await transport.get(try Self.stubRequest())
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(data, Data(Self.payload.utf8))
+    }
+
+    /// End to end: an oversized index response fails the search closed with
+    /// the same error the client-side guard raises.
+    func testSearchFailsClosedOnOversizedIndexBody() async throws {
+        let transport = Self.stubbedTransport(
+            body: Data(repeating: 0x61, count: DiscoverClient.maxBodyBytes + 1))
+        do {
+            _ = try await DiscoverClient(baseURL: Self.base, transport: transport)
+                .search(DiscoverQuery(text: "pdf"))
+            XCTFail("expected bodyTooLarge")
+        } catch let e as DiscoverError {
+            XCTAssertEqual(e, .bodyTooLarge(DiscoverClient.maxBodyBytes))
+        }
+    }
+
+    private static func stubbedTransport(body: Data, status: Int = 200) -> URLSessionDiscoverTransport {
+        StubDiscoverBody.lock.lock()
+        StubDiscoverBody.body = body
+        StubDiscoverBody.status = status
+        StubDiscoverBody.lock.unlock()
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [StubDiscoverBodyProtocol.self]
+        return URLSessionDiscoverTransport(session: URLSession(configuration: cfg))
+    }
+
+    private static func stubRequest() throws -> URLRequest {
+        try DiscoverClient.searchRequest(
+            base: Self.base, query: DiscoverQuery(text: "pdf").normalized())
+    }
+
     /// Every failure names the offline path, so an unreachable index never
     /// reads as "you cannot import this skill".
     func testFallbackHintNamesTheAddPane() {
@@ -400,4 +464,38 @@ final class DiscoverClientTests: XCTestCase {
         XCTAssertEqual(target.fullName, "openclaw/openclaw")
         XCTAssertEqual(target.path, "skills/summarize")
     }
+}
+
+/// Serves one scripted body to every request. The body is delivered in small
+/// chunks so the tests exercise the transport's streaming path, not a single
+/// buffered handoff.
+private final class StubDiscoverBody {
+    static let lock = NSLock()
+    static var body = Data()
+    static var status = 200
+}
+
+private final class StubDiscoverBodyProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        StubDiscoverBody.lock.lock()
+        let body = StubDiscoverBody.body
+        let status = StubDiscoverBody.status
+        StubDiscoverBody.lock.unlock()
+        let response = HTTPURLResponse(url: request.url!, statusCode: status,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        var offset = body.startIndex
+        while offset < body.endIndex {
+            let end = body.index(offset, offsetBy: 64 * 1024, limitedBy: body.endIndex) ?? body.endIndex
+            client?.urlProtocol(self, didLoad: body[offset..<end])
+            offset = end
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

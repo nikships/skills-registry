@@ -351,9 +351,25 @@ struct URLSessionDiscoverTransport: DiscoverTransporting {
     }
 
     func get(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw DiscoverError.unreachable(request.url?.absoluteString ?? "", "no HTTP response")
+        }
+        // Stream the body with a running count, mirroring Go's
+        // `io.LimitReader`: the cap throws the moment it is exceeded, so a
+        // hostile or broken index cannot exhaust memory before the guard
+        // runs. Dropping `bytes` here cancels the underlying task, which
+        // stops the download as well as the buffering.
+        let limit = DiscoverClient.maxBodyBytes
+        var data = Data()
+        if response.expectedContentLength > 0 {
+            data.reserveCapacity(Int(min(response.expectedContentLength, Int64(limit) + 1)))
+        }
+        for try await byte in bytes {
+            if data.count >= limit {
+                throw DiscoverError.bodyTooLarge(limit)
+            }
+            data.append(byte)
         }
         return (data, http)
     }
