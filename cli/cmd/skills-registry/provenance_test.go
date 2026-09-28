@@ -153,6 +153,24 @@ func TestMergeFrontmatterNoKeysIsNoOp(t *testing.T) {
 	}
 }
 
+// TestMergeFrontmatterCRLFLineEndings pins parity with the Swift merger: the
+// closing fence still matches under CRLF line endings, upstream lines keep
+// their carriage returns, and the inserted key parses back.
+func TestMergeFrontmatterCRLFLineEndings(t *testing.T) {
+	text := "---\r\nname: summarize\r\ndescription: Summarize URLs and PDFs.\r\n---\r\nBody text.\r\n"
+	got, changed := mergeFrontmatter(text, []frontmatterKey{
+		{key: provenanceCategoryKey, value: "AIGC"},
+	})
+	if !changed {
+		t.Fatalf("changed = false; the key was missing:\n%s", got)
+	}
+	want := "---\r\nname: summarize\r\ndescription: Summarize URLs and PDFs.\r\n" +
+		"category: AIGC\n---\r\nBody text.\r\n"
+	if got != want {
+		t.Fatalf("merged document:\n%q\nwant:\n%q", got, want)
+	}
+}
+
 // TestYAMLScalarQuotesOnlyWhenNeeded pins the formatting convention: a URL and
 // an ordinary category stay plain, and a value that would break the document
 // (or smuggle a second line into it) is quoted.

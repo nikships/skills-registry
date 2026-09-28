@@ -41,7 +41,7 @@ public enum Frontmatter {
             var end = -1
             var i = 1
             while i < lines.count {
-                if lines[i].trimmingCharacters(in: .whitespaces) == "---" { end = i; break }
+                if lines[i].trimmingCharacters(in: .whitespacesAndNewlines) == "---" { end = i; break }
                 i += 1
             }
             if end > 0 {
@@ -75,7 +75,7 @@ public enum Frontmatter {
         var end = -1
         var i = 1
         while i < lines.count {
-            if lines[i].trimmingCharacters(in: .whitespaces) == "---" { end = i; break }
+            if lines[i].trimmingCharacters(in: .whitespacesAndNewlines) == "---" { end = i; break }
             i += 1
         }
         guard end > 0, end + 1 <= lines.count else { return text }
@@ -130,7 +130,7 @@ public enum Frontmatter {
     private static func closingFenceIndex(_ lines: [String]) -> Int? {
         var i = 1
         while i < lines.count {
-            if lines[i].trimmingCharacters(in: .whitespaces) == "---" { return i }
+            if lines[i].trimmingCharacters(in: .whitespacesAndNewlines) == "---" { return i }
             i += 1
         }
         return nil
@@ -143,7 +143,7 @@ public enum Frontmatter {
         for (i, raw) in block.enumerated() {
             if raw.isEmpty || raw.hasPrefix(" ") || raw.hasPrefix("\t") { continue }
             guard let colon = raw.firstIndex(of: ":") else { continue }
-            if String(raw[..<colon]).trimmingCharacters(in: .whitespaces) == key { return i }
+            if String(raw[..<colon]).trimmingCharacters(in: .whitespacesAndNewlines) == key { return i }
         }
         return nil
     }
@@ -152,8 +152,8 @@ public enum Frontmatter {
     /// counts as empty and gets filled.
     private static func frontmatterValue(_ line: String) -> String {
         guard let colon = line.firstIndex(of: ":") else { return "" }
-        let raw = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-        return trimQuotes(raw).trimmingCharacters(in: .whitespaces)
+        let raw = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimQuotes(raw).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Characters YAML gives special meaning at the start of a plain scalar.
@@ -193,14 +193,14 @@ public enum Frontmatter {
         var i = 0
         while i < body.count {
             let raw = body[i]
-            let stripped = raw.trimmingCharacters(in: .whitespaces)
+            let stripped = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if stripped.isEmpty || stripped.hasPrefix("#") || !raw.contains(":") {
                 i += 1
                 continue
             }
             guard let colon = raw.firstIndex(of: ":") else { i += 1; continue }
-            let key = String(raw[..<colon]).trimmingCharacters(in: .whitespaces)
-            let val = String(raw[raw.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            let key = String(raw[..<colon]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let val = String(raw[raw.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
 
             let head = val.split(separator: " ").first.map(String.init) ?? val
             if blockScalarMarkers.contains(head) {
@@ -238,7 +238,7 @@ public enum Frontmatter {
         var i = start
         while i < body.count {
             let peek = body[i]
-            let stripped = peek.trimmingCharacters(in: .whitespaces)
+            let stripped = peek.trimmingCharacters(in: .whitespacesAndNewlines)
             if stripped.isEmpty || stripped.hasPrefix("#") { break }
             if !peek.hasPrefix(" ") && !peek.hasPrefix("\t") { break }
             cont.append(stripped)
@@ -252,13 +252,13 @@ public enum Frontmatter {
         var i = start
         while i < body.count {
             let peek = body[i]
-            if peek.trimmingCharacters(in: .whitespaces).isEmpty {
+            if peek.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 block.append("")
                 i += 1
                 continue
             }
             if !peek.hasPrefix(" ") && !peek.hasPrefix("\t") { break }
-            block.append(peek.trimmingCharacters(in: .whitespaces))
+            block.append(peek.trimmingCharacters(in: .whitespacesAndNewlines))
             i += 1
         }
         return (block, i)

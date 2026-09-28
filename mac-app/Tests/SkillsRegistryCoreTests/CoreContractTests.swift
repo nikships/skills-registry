@@ -324,6 +324,34 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertNil(Frontmatter.merging("---\nname: x\n---\nBody\n", keys: []))
     }
 
+    /// CRLF line endings (a Windows-edited SKILL.md) parse identically to LF:
+    /// the closing fence still matches, values lose their trailing `\r`, the
+    /// body strips, and provenance keys merge and round-trip. Mirrors the Go
+    /// CRLF cases in `registry_test.go` / `provenance_test.go`.
+    func testCRLFFrontmatterParsesLikeLF() throws {
+        let md = "---\r\nname: My Skill\r\ndescription: A short description here.\r\n---\r\n# Heading\r\n\r\nBody text.\r\n"
+        let (name, desc) = Frontmatter.parseSummary(md, slug: "my_skill")
+        XCTAssertEqual(name, "My Skill")
+        XCTAssertEqual(desc, "A short description here.")
+        XCTAssertEqual(Frontmatter.body(md), "# Heading\r\n\r\nBody text.\r\n")
+
+        let merged = try XCTUnwrap(Frontmatter.merging(md, keys: [
+            Frontmatter.Key(name: Frontmatter.categoryKey, value: "AIGC"),
+        ]))
+        XCTAssertTrue(merged.contains("category: AIGC\n---\r\n"), merged)
+        let lines = merged.components(separatedBy: "\n")
+        let end = try XCTUnwrap(lines.dropFirst().firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) == "---"
+        }))
+        let meta = Frontmatter.parseFlatYAML(Array(lines[1..<end]))
+        XCTAssertEqual(meta[Frontmatter.categoryKey], "AIGC")
+        XCTAssertEqual(meta["name"], "My Skill")
+        XCTAssertEqual(meta["description"], "A short description here.")
+        let (rname, rdesc) = Frontmatter.parseSummary(merged, slug: "x")
+        XCTAssertEqual(rname, "My Skill")
+        XCTAssertEqual(rdesc, "A short description here.")
+    }
+
     /// Matches Go `yamlScalar`: a URL stays plain, and a value that would break
     /// the document (or smuggle a second key into it) is quoted and escaped.
     func testYAMLScalarQuotesOnlyWhenNeeded() {
