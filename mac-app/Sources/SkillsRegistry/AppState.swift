@@ -277,6 +277,25 @@ final class AppState: ObservableObject {
 
     // MARK: - setup
 
+    /// Return to the Setup create/connect flow without signing out. The token
+    /// and identity stay put, and the saved config is left alone until the
+    /// user connects (or creates) a registry — at which point `connect` /
+    /// `createRegistry` overwrite the config and return to `.ready` with
+    /// skills refreshed.
+    func switchRegistry() {
+        guard phase == .ready else { return }
+        if isDemo {
+            // No API client in demo, so seed the connect list with fixtures
+            // instead of hitting the network. Demo `connect` below completes
+            // the loop back to `.ready` without writing any config.
+            installRepos = Self.demoInstallRepos
+            phase = .setup
+            return
+        }
+        phase = .setup
+        Task { await loadInstallations() }
+    }
+
     func loadInstallations() async {
         guard let api else { return }
         isListingRepos = true
@@ -294,6 +313,16 @@ final class AppState: ObservableObject {
     }
 
     func connect(_ repoRef: RepoRef, branch defaultBranch: String) async {
+        if isDemo {
+            // Demo-only: complete the switch loop in-memory — no network, no
+            // registry.toml write.
+            repo = repoRef
+            branch = defaultBranch
+            skills = Self.demoSkills
+            phase = .ready
+            showToast("Connected \(repoRef.fullName)", .ok)
+            return
+        }
         guard let api else { return }
         setupError = nil
         do {
@@ -319,6 +348,19 @@ final class AppState: ObservableObject {
     }
 
     func createRegistry(name: String, isPrivate: Bool) async {
+        if isDemo {
+            // Demo-only: complete the switch loop in-memory — no network, no
+            // registry.toml write (`isPrivate` is ignored).
+            let trimmed = name.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return }
+            let ref = RepoRef(owner: identity?.login ?? "octocat", name: trimmed)
+            repo = ref
+            branch = "main"
+            skills = Self.demoSkills
+            phase = .ready
+            showToast("Created \(ref.fullName)", .ok)
+            return
+        }
         guard let api else { return }
         isCreatingRepo = true
         setupError = nil

@@ -12,7 +12,10 @@ skills from an external source (local path, `owner/repo`, a git URL, or a
 GitHub `/tree/<ref>/<path>` link) and publish + install them in one pass,
 **remove** one end-to-end (registry + local downloads + agent folders),
 bulk-import the skills already sitting in your local AI-tool folders, and
-install or update the CLI from Settings.
+install or update the CLI from Settings. To point the app at a different
+registry, use **Switch registry…** in the Settings Registry card or the
+sidebar account menu — it returns to the create/connect flow without signing
+you out, and connecting writes the new `registry.toml` and refreshes skills.
 
 It complements the Go CLI with the same registry format, slug derivation,
 fuzzy scorer, and frontmatter parsing.
@@ -115,6 +118,8 @@ Demo-only failure drivers (for exercising error states without a network):
 mode) paints the first Browse row in the hover state. The UI driver cannot
 move the OS pointer inside a window, so this is how a screenshot shows that
 treatment. It does nothing outside demo mode.
+Demo mode also injects install repos, so the Setup create/connect flow is
+reachable via **Switch registry…**.
 
 ---
 
@@ -393,7 +398,7 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `copySkillFile`, `openOnGitHub`,
 `skillRow-<slug>` / `discoverRow-<name>`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`,
-`updaterFailureHint`, `simulateUpdateFailure`)
+`updaterFailureHint`, `simulateUpdateFailure`, `switchRegistry`)
 so an automated driver can find them deterministically. Two demo-only launch
 arguments reach states the driver cannot: `--demo-select <slug>` opens that
 skill directly, and `--demo-publish <path>` runs the publish flow for one
