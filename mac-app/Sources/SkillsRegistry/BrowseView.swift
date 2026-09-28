@@ -30,19 +30,13 @@ struct BrowseView: View {
                 selected = nil
             }
         }
-        .onAppear { applyDemoSelectHook() }
-    }
-
-    /// Demo-only: `--demo-select <slug>` opens that skill on launch. Skill rows
-    /// are not AX-pressable, so this is how a driver reaches the detail pane
-    /// without a mouse. Ignored outside demo mode.
-    private func applyDemoSelectHook() {
-        guard state.isDemo else { return }
-        let args = ProcessInfo.processInfo.arguments
-        guard let i = args.firstIndex(of: "--demo-select"), i + 1 < args.count else { return }
-        let slug = args[i + 1]
-        if state.skills.contains(where: { $0.slug == slug }) {
-            selected = slug
+        .task {
+            // Demo-only screenshot hook: preselect a skill so the detail pane
+            // (including its compact layout) can be captured without clicks.
+            if selected == nil, let slug = DemoHooks.preselectedSkill,
+               state.skills.contains(where: { $0.slug == slug }) {
+                selected = slug
+            }
         }
     }
 
@@ -58,6 +52,7 @@ struct BrowseView: View {
                     if !query.isEmpty {
                         Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundStyle(Brand.meta)
+                            .help("Clear search")
                             .accessibilityLabel("Clear search")
                     }
                 }
@@ -88,6 +83,7 @@ struct BrowseView: View {
                     .disabled(state.skillsLoading)
                     .accessibilityIdentifier("refreshButton")
                     .accessibilityLabel("Refresh skills")
+                    .help("Refresh skill list")
                     Button { publish() } label: {
                         Label("Publish", systemImage: "plus").font(.system(size: 11, weight: .medium))
                     }

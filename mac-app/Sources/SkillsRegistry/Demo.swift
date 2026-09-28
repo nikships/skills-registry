@@ -375,3 +375,16 @@ extension AppState {
         """
     }
 }
+
+/// Demo-only launch-arg hooks for UI verification. Inert unless `--demo` is
+/// active: every accessor returns nil in real mode.
+enum DemoHooks {
+    /// `--demo-select <slug>`: preselect a skill in Browse on launch so the
+    /// detail pane can be screenshotted without driving row clicks.
+    static var preselectedSkill: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("--demo") else { return nil }
+        guard let i = args.firstIndex(of: "--demo-select"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+}

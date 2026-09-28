@@ -147,6 +147,11 @@ open "build/Skills Registry.app" --args --demo --demo-refresh-fail  # every refr
 open "build/Skills Registry.app" --args --demo --demo-refresh-slow  # every refresh takes ~3s: spinning refresh button
 ```
 
+```bash
+# Preselect a skill in Browse on launch (screenshot hook; ignored in real mode)
+open "build/Skills Registry.app" --args --demo --demo-select react_review
+```
+
 ---
 
 ## Architecture
