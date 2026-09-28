@@ -2,7 +2,10 @@
 
 A native, Apple-Silicon SwiftUI app for managing your skills registry end to
 end: sign in with GitHub, create or connect a registry repo, browse skills with
-rich markdown rendering and fuzzy search, publish a skill from a folder,
+rich markdown rendering and fuzzy search, edit a skill's `SKILL.md` in
+place (the editor takes focus on open; Escape or Cancel asks before
+discarding unsaved text; switching skills or sections keeps the draft and
+restores it on return), publish a skill from a folder,
 **install** a registry skill into your agent folders, **discover** third-party
 skills in the public index and import one behind the import gate, **add**
 skills from an external source (local path, `owner/repo`, a git URL, or a
@@ -356,6 +359,7 @@ expected scores); keep them verbatim.
 ```bash
 swift test                       # Core contract + cross-language corpus + updates/meta-skill
                                  # + install/remove/source-resolver + discover/import-gate
+                                 # + editor draft store and demo-mode save path
 ```
 
 UI is verified by launching in demo mode and driving it with cua-driver
@@ -363,7 +367,7 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `accessibilityIdentifier`s on the key controls (`signInWithGitHub`,
 `searchField`, `publishButton`, `importSelected`, `installCLI`,
 `removeSkill`, `installSkill`, `editSkill`, `skillEditor`, `saveSkillEdit`,
-`cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
+`cancelSkillEdit`, `discardSkillEdit`, `keepEditingSkill`, `addSourceField`, `addFetch`, `addSelected`,
 `addGateBanner`, `addAllowUnsafe`,
 `agentPickerConfirm`, `agentPickerFilter`, `discoverQueryField`,
 `discoverCategoryField`, `discoverSearch`, `discoverLimit-10/25/50`,

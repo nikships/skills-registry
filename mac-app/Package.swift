@@ -22,7 +22,10 @@ let package = Package(
             name: "SkillsRegistryCore"
         ),
         // SwiftUI app: depends on Core + MarkdownUI. Holds @main, theme, and
-        // every view. Not unit-tested (exercised via cua-driver in demo mode).
+        // every view. Editor draft/save behavior is covered by
+        // SkillsRegistryTests (demo mode, no network). The rpath lets that
+        // xctest bundle load Sparkle.framework, which SwiftPM links into the
+        // app but does not stage beside the test runner.
         .executableTarget(
             name: "SkillsRegistry",
             dependencies: [
@@ -34,6 +37,15 @@ let package = Package(
         .testTarget(
             name: "SkillsRegistryCoreTests",
             dependencies: ["SkillsRegistryCore"]
+        ),
+        .testTarget(
+            name: "SkillsRegistryTests",
+            dependencies: ["SkillsRegistry"],
+            linkerSettings: [
+                // swiftc, not ld, sees these flags. Point the xctest bundle at
+                // Products/Debug, where SwiftPM drops Sparkle.framework.
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../../"]),
+            ]
         ),
     ],
     swiftLanguageModes: [.v5]

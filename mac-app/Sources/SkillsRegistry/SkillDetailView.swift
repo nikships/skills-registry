@@ -15,6 +15,8 @@ struct SkillDetailView: View {
     @State private var isEditing = false
     @State private var draft = ""
     @State private var saving = false
+    @State private var confirmDiscard = false
+    @FocusState private var editorFocused: Bool
 
     // Multi-file browsing. SKILL.md renders from `detail.markdown`; other files
     // are fetched lazily into `auxText`.
@@ -39,6 +41,18 @@ struct SkillDetailView: View {
         } message: {
             Text("This deletes the \(slug)/ folder from \(state.repo?.fullName ?? "the repo"), clears its local download, and removes it from your agent folders. It can't be undone from here.")
         }
+        .confirmationDialog("Discard unsaved changes to \(slug)?",
+                            isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("Discard Changes", role: .destructive) { discardEditing() }
+                .accessibilityIdentifier("discardSkillEdit")
+            Button("Keep Editing", role: .cancel) { refocusEditor() }
+                .accessibilityIdentifier("keepEditingSkill")
+        } message: {
+            Text("Your edits to SKILL.md haven't been saved.")
+        }
+        // Esc cancels the edit (and asks first when dirty). Nil while the
+        // discard sheet is up so that sheet keeps Escape for Keep Editing.
+        .onExitCommand(perform: (isEditing && !confirmDiscard) ? { cancelEditing() } : nil)
         .sheet(isPresented: $showInstall) {
             AgentPickerSheet(
                 title: "Install \(detail?.name ?? slug)",
@@ -74,7 +88,10 @@ struct SkillDetailView: View {
             if isEditing {
                 Button("Cancel") { cancelEditing() }
                     .buttonStyle(GhostButtonStyle())
-                    .disabled(saving)
+                    // Disabled while the discard sheet is up so this button's
+                    // Escape shortcut doesn't fight the sheet's own cancel.
+                    .disabled(saving || confirmDiscard)
+                    .keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("cancelSkillEdit")
                 Button { Task { await saveEditing() } } label: {
                     HStack(spacing: 6) {
@@ -148,6 +165,10 @@ struct SkillDetailView: View {
                     .background(Brand.bg)
                     .accessibilityLabel("SKILL.md editor")
                     .accessibilityIdentifier("skillEditor")
+                    .focused($editorFocused)
+                    .onAppear { refocusEditor() }
+                    .onChange(of: draft) { _, new in persistDraft(new) }
+                    .onDisappear { persistDraft(draft) }
             } else {
                 ScrollView {
                     // Render the body only — the frontmatter's name/description
@@ -253,13 +274,50 @@ struct SkillDetailView: View {
         selectedFile = "SKILL.md"
         auxText = nil
         auxError = nil
-        draft = detail.markdown
+        // Restore a draft preserved across navigation when one exists;
+        // otherwise start from the saved markdown. Focus lands in onAppear,
+        // once the TextEditor is actually in the window.
+        draft = state.draft(for: slug) ?? detail.markdown
         isEditing = true
     }
 
+    /// Whether the editor holds edits that differ from the saved file.
+    private var isDirty: Bool {
+        guard isEditing, let saved = detail?.markdown else { return false }
+        return draft != saved
+    }
+
     private func cancelEditing() {
-        draft = detail?.markdown ?? ""
+        // A clean cancel just exits; a dirty one asks first so a misclick
+        // or Escape can't silently destroy the edit.
+        guard isDirty else {
+            discardEditing()
+            return
+        }
+        confirmDiscard = true
+    }
+
+    private func discardEditing() {
+        // Leave edit mode before touching the text so the editor's
+        // onDisappear / onChange don't write the discarded draft back.
+        // Clear last in case a callback still fires synchronously.
         isEditing = false
+        draft = detail?.markdown ?? ""
+        state.clearDraft(for: slug)
+    }
+
+    /// Keep an in-progress edit alive across skill and section switches.
+    /// No-op once editing has ended, so a discard can't be undone by the
+    /// view disappearing.
+    private func persistDraft(_ text: String) {
+        guard isEditing else { return }
+        state.saveDraft(text, for: slug)
+    }
+
+    private func refocusEditor() {
+        // The field is inserted in the same turn isEditing flips; defer so
+        // it is in the window before we move first responder.
+        DispatchQueue.main.async { editorFocused = true }
     }
 
     private func saveEditing() async {
@@ -275,6 +333,9 @@ struct SkillDetailView: View {
                 markdown: draft,
                 files: current.files)
             isEditing = false
+            // saveSkillMarkdown already dropped the draft; clear again in
+            // case the editor's disappear callback raced and wrote it back.
+            state.clearDraft(for: slug)
         } catch {
             state.showToast("Save failed: \(error.localizedDescription)", .error)
         }
@@ -283,7 +344,19 @@ struct SkillDetailView: View {
     private func load() async {
         loading = true; error = nil; isEditing = false; saving = false
         do {
-            detail = try await state.fetchDetail(slug)
+            let fetched = try await state.fetchDetail(slug)
+            detail = fetched
+            // Resume a draft preserved across navigation (switching skill or
+            // sidebar section recreates this view from scratch).
+            if let saved = state.draft(for: slug), saved != fetched.markdown {
+                draft = saved
+                selectedFile = "SKILL.md"
+                isEditing = true
+            } else {
+                // No divergence from the saved file — drop any stale copy so
+                // a later Edit starts clean.
+                state.clearDraft(for: slug)
+            }
         } catch {
             self.error = error.localizedDescription
         }
