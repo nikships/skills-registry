@@ -123,9 +123,15 @@ func scoreSkill(_ query: String, _ s: SkillSummary) -> Int {
     return score
 }
 
-/// Top-N summaries ranked by `scoreSkill`. An empty / whitespace-only query
-/// returns []. Ties break on slug ascending, identical to the Go sort.
-public func scoreAndSort(_ summaries: [SkillSummary], query: String) -> [SkillSummary] {
+/// Summaries ranked by `scoreSkill`, best first. An empty / whitespace-only
+/// query returns []. Ties break on slug ascending, identical to the Go sort.
+///
+/// The default `limit` (nil) keeps the cross-language top-N contract pinned
+/// (the CLI `search` caps at the same N); callers that must show every match
+/// — like Browse, the analog of the CLI `list` TUI — pass a larger limit.
+public func scoreAndSort(
+    _ summaries: [SkillSummary], query: String, limit: Int? = nil
+) -> [SkillSummary] {
     let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if q.isEmpty { return [] }
     var scored: [(score: Int, summary: SkillSummary)] = []
@@ -137,6 +143,7 @@ public func scoreAndSort(_ summaries: [SkillSummary], query: String) -> [SkillSu
         if a.score != b.score { return a.score > b.score }
         return a.summary.slug < b.summary.slug
     }
-    let limit = min(FuzzyConst.searchTopN, scored.count)
-    return Array(scored.prefix(limit).map { $0.summary })
+    let effective = limit ?? FuzzyConst.searchTopN
+    let capped = min(max(0, effective), scored.count)
+    return Array(scored.prefix(capped).map { $0.summary })
 }
