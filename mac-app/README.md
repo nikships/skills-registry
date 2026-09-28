@@ -135,6 +135,15 @@ open "build/Skills Registry.app" --args --demo --demo-extra-skills 15 --demo-que
   Browse can be shown with more matches than the headless top-10 search cap.
 - `--demo-query TEXT` presets the Browse search field without keystrokes.
 
+Two extra demo-only launch arguments simulate Browse refresh states (no-ops
+outside demo mode), so the loading and failure feedback can be exercised and
+screenshotted without a network:
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-refresh-fail  # every refresh fails: stale list + retry banner + error toast
+open "build/Skills Registry.app" --args --demo --demo-refresh-slow  # every refresh takes ~3s: spinning refresh button
+```
+
 ---
 
 ## Architecture

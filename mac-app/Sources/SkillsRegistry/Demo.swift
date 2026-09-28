@@ -121,6 +121,28 @@ extension AppState {
         return args[i + 1]
     }
 
+    /// Demo-only refresh simulator, driven by launch arguments so the refresh
+    /// loading/failure states can be screenshotted without a network:
+    /// `--demo-refresh-fail` fails every refresh (stale list + retry banner +
+    /// error toast), `--demo-refresh-slow` stretches it to ~3s so the spinning
+    /// refresh button can be seen. Returns whether a simulation ran; with
+    /// neither flag present the refresh stays a no-op as before.
+    func demoRefresh() async -> Bool {
+        let args = ProcessInfo.processInfo.arguments
+        let fail = args.contains("--demo-refresh-fail")
+        let slow = args.contains("--demo-refresh-slow")
+        guard fail || slow else { return false }
+        skillsLoading = true
+        skillsError = nil
+        defer { skillsLoading = false }
+        try? await Task.sleep(nanoseconds: slow ? 3_000_000_000 : 600_000_000)
+        if fail {
+            skillsError = "Couldn't reach the registry (demo simulation)."
+            showToast("Refresh failed: couldn't reach the registry (demo simulation).", .error)
+        }
+        return true
+    }
+
     static let demoSkills: [SkillSummary] = [
         SkillSummary(slug: "pdf_tools", name: "PDF Tools",
                      description: "Extract text, split, merge, and fill PDF forms. Use when the user works with PDF files or needs document automation.", treeSHA: "a1"),
