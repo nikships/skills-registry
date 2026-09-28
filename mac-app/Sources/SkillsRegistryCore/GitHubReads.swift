@@ -30,6 +30,24 @@ public enum ReadError: Error, LocalizedError {
 }
 
 extension GitHubAPI {
+    /// Percent-encode a branch name for use as a single URL path segment
+    /// (trees calls) or a `ref` query value (contents calls). Deliberately
+    /// strict (alphanumerics only, same rule `GitHubSubtree.contentsEndpoint`
+    /// uses for refs) so slashes, spaces, and `#`/`&`/`?` can never split or
+    /// truncate the URL: `feature/x` → `feature%2Fx`.
+    static func encodedBranch(_ branch: String) -> String {
+        branch.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? branch
+    }
+
+    /// Encode a branch for a `git/ref/heads/<branch>` path, where slashes are
+    /// ref separators and must survive: each segment is encoded alone, so
+    /// `feature/x` stays `feature/x` while spaces and `#`/`&`/`?` are escaped.
+    static func encodedBranchRef(_ branch: String) -> String {
+        branch.split(separator: "/", omittingEmptySubsequences: false)
+            .map { encodedBranch(String($0)) }
+            .joined(separator: "/")
+    }
+
     /// The authenticated user (GET /user).
     public func currentUser() async throws -> Identity {
         let u = try await getDecoded("user", as: GHUser.self)
@@ -91,16 +109,21 @@ extension GitHubAPI {
 
     /// Enumerate registry skills with summaries. One recursive tree call to map
     /// slug→treeSHA and slug→SKILL.md blob SHA, then bounded-concurrency blob
-    /// fetches. Empty/absent repo → []. Sorted by slug. When GitHub truncates
+    /// fetches. A genuinely empty repo (default branch with no commits yet) →
+    /// []; anything else that fails the tree read (bad `@branch`, deleted
+    /// repo, …) rethrows so the UI shows a load error. When GitHub truncates
     /// the tree the partial list still returns, flagged, so the UI can warn
-    /// instead of silently omitting skills.
+    /// instead of silently omitting skills. Sorted by slug.
     public func listSkills(_ repo: RepoRef, branch: String) async throws -> Truncated<[SkillSummary]> {
         let tree: GHTreeResp
         do {
-            tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
+            tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(Self.encodedBranch(branch))?recursive=1",
                                         as: GHTreeResp.self)
         } catch let e as GitHubError where e.isNotFound || e.isConflict {
-            return Truncated([], truncated: false)  // brand-new / empty repo
+            if try await isEmptyRegistry(repo, branch: branch) {
+                return Truncated([], truncated: false)  // brand-new / empty repo
+            }
+            throw e
         }
         let truncated = tree.truncated == true
 
@@ -130,13 +153,35 @@ extension GitHubAPI {
         return Truncated(summaries.compactMap { $0 }.sorted { $0.slug < $1.slug }, truncated: truncated)
     }
 
+    /// True when `repo` exists and `branch` is its default branch with no
+    /// commits yet (brand-new repo): the only case where `listSkills` may
+    /// truthfully return []. A missing/inaccessible repo, an explicit
+    /// `@branch` that doesn't exist, or a default branch whose ref exists but
+    /// whose tree read failed all answer false so the caller rethrows.
+    func isEmptyRegistry(_ repo: RepoRef, branch: String) async throws -> Bool {
+        let info: GHRepo
+        do {
+            info = try await getDecoded("repos/\(repo.fullName)", as: GHRepo.self)
+        } catch {
+            return false  // repo missing/inaccessible: surface the tree error
+        }
+        guard branch == (info.default_branch ?? "main") else { return false }
+        do {
+            _ = try await getDecoded("repos/\(repo.fullName)/git/ref/heads/\(Self.encodedBranchRef(branch))",
+                                     as: GHRefResp.self)
+            return false  // ref exists: the tree failure is a real error
+        } catch let e as GitHubError where e.isNotFound || e.isConflict {
+            return true  // default branch has no commits yet
+        }
+    }
+
     /// Fetch a single skill: its SKILL.md body + the relative paths of every
     /// file under `<slug>/`. When the tree is truncated the detail still
     /// returns, flagged, so the UI can warn the file list may be shortened;
     /// when the skill is absent from a truncated listing that is
     /// `.treeTruncated`, not a false "has no SKILL.md".
     public func getSkill(_ repo: RepoRef, slug: String, branch: String) async throws -> SkillDetail {
-        let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
+        let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(Self.encodedBranch(branch))?recursive=1",
                                         as: GHTreeResp.self)
         let truncated = tree.truncated == true
         let prefix = "\(slug)/"
@@ -163,7 +208,7 @@ extension GitHubAPI {
         let encoded = path.split(separator: "/", omittingEmptySubsequences: false)
             .map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }
             .joined(separator: "/")
-        let resp = try await getDecoded("repos/\(repo.fullName)/contents/\(encoded)?ref=\(branch)",
+        let resp = try await getDecoded("repos/\(repo.fullName)/contents/\(encoded)?ref=\(Self.encodedBranch(branch))",
                                         as: GHBlobResp.self)
         guard resp.encoding == "base64" else { return "" }
         let cleaned = resp.content.replacingOccurrences(of: "\n", with: "")
@@ -180,7 +225,7 @@ extension GitHubAPI {
     /// or `.treeTruncated` when a truncated listing is the reason nothing
     /// was found.
     public func skillFileData(_ repo: RepoRef, slug: String, branch: String) async throws -> Truncated<[String: Data]> {
-        let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
+        let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(Self.encodedBranch(branch))?recursive=1",
                                         as: GHTreeResp.self)
         let truncated = tree.truncated == true
         let prefix = "\(slug)/"
