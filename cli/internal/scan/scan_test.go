@@ -155,6 +155,41 @@ func TestDiscoverReadsProvenanceKeys(t *testing.T) {
 	}
 }
 
+func TestDiscoverUsesFlatFrontmatterContract(t *testing.T) {
+	// Local scan reads frontmatter with the same flat parser as registry
+	// listing: values keep their literal text instead of YAML-typed
+	// interpretation, so `sync` and `list` report the same name and
+	// description for one skill.
+	root := t.TempDir()
+	writeSkill(t, root, "numeric",
+		"---\nname: 123\ndescription: [a, b]\n---\nBody.\n")
+	writeSkill(t, root, "quoted",
+		"---\nname: \"Quoted Name\"\ndescription: 'it''s'\n---\nBody.\n")
+
+	out, err := Discover([]Source{{Path: root, Label: "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySlug := map[string]Skill{}
+	for _, s := range out {
+		bySlug[s.Slug] = s
+	}
+	numeric, ok := bySlug["123"]
+	if !ok {
+		t.Fatalf("missing numeric skill; got %v", bySlug)
+	}
+	if numeric.Name != "123" || numeric.Description != "[a, b]" {
+		t.Errorf("numeric skill parsed as %+v, want literal 123 / [a, b]", numeric)
+	}
+	quoted, ok := bySlug["quoted_name"]
+	if !ok {
+		t.Fatalf("missing quoted skill; got %v", bySlug)
+	}
+	if quoted.Name != "Quoted Name" || quoted.Description != "it''s" {
+		t.Errorf("quoted skill parsed as %+v, want stripped quotes without escape handling", quoted)
+	}
+}
+
 func TestDiscoverSourcesScansDotDirs(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()

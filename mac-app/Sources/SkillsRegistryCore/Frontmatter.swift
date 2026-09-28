@@ -1,7 +1,7 @@
 import Foundation
 
 /// SKILL.md frontmatter parsing and provenance stamping. Mirrors
-/// `parseSummary` / `parseFlatYAML` in `cli/internal/registry/registry.go` and
+/// `frontmatter.Parse` in `cli/internal/frontmatter/frontmatter.go` and
 /// `mergeFrontmatter` in `cli/cmd/skills-registry/provenance.go`: handles flat
 /// `key: value` lines plus YAML folded/literal block scalars (`>`, `>-`, `|`,
 /// `|-`), and tolerates keys it does not know. Keep in sync with the Go
@@ -238,7 +238,7 @@ public enum Frontmatter {
                 continue
             }
 
-            var value = trimQuotes(val)
+            var value = stripAllQuotes(val)
             if !value.isEmpty {
                 let (cont, nextI) = collectPlainContinuationLines(body, i + 1)
                 if !cont.isEmpty {
@@ -300,6 +300,19 @@ public enum Frontmatter {
         return paragraphs.map { $0.joined(separator: " ") }.joined(separator: "\n\n")
     }
 
+    /// Strip every leading and trailing `'`/`"` character. Mirrors Go
+    /// `strings.Trim(val, "'\"")` in the flat parser: the quotes need not
+    /// match or pair up, and escapes are not interpreted.
+    private static func stripAllQuotes(_ s: String) -> String {
+        var r = s[...]
+        while let f = r.first, f == "'" || f == "\"" { r.removeFirst() }
+        while let l = r.last, l == "'" || l == "\"" { r.removeLast() }
+        return String(r)
+    }
+
+    /// Strip one matched surrounding quote pair. Used only for the merge
+    /// emptiness check, mirroring Go `frontmatterValue` in `provenance.go` —
+    /// the parse path above uses `stripAllQuotes` instead.
     private static func trimQuotes(_ s: String) -> String {
         var r = s
         if r.count >= 2, let f = r.first, let l = r.last, f == l, f == "'" || f == "\"" {
