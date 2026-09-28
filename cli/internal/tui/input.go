@@ -22,6 +22,11 @@ type InputModel struct {
 func NewInput(title, prompt, placeholder, initial string) InputModel {
 	ti := textinput.New()
 	ti.Placeholder = placeholder
+	// Width must be set: bubbles sizes the placeholder buffer as Width+1
+	// runes, so a zero Width renders only its first character. Size to the
+	// placeholder with a floor for short hints; longer values scroll, so
+	// this only affects the display window.
+	ti.Width = max(len([]rune(placeholder)), 24)
 	ti.SetValue(initial)
 	ti.Focus()
 	ti.Prompt = "> "

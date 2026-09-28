@@ -122,6 +122,30 @@ func TestSettingsEnterStartsEditingFocusedField(t *testing.T) {
 	}
 }
 
+// TestSettingsEditShowsFullPlaceholder is the cli-tui-3 regression test
+// for the settings tile: with empty values, editing each field must render
+// its whole placeholder ("owner/repo", "main"), not just the first rune.
+// Bubbles sizes the placeholder buffer as Width+1 runes, so an unset Width
+// clipped every hint to one character.
+func TestSettingsEditShowsFullPlaceholder(t *testing.T) {
+	m := NewSettings("", "", "/tmp/sr-cache", nil)
+	m.width, m.height = 100, 24
+	// Edit the repo field (focused by default).
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	v := stripANSI(nm.(SettingsModel).View())
+	if !strings.Contains(v, "› owner/repo") {
+		t.Errorf("repo edit view clips the placeholder, want %q:\n%s", "› owner/repo", v)
+	}
+	// Commit, move down to branch, and edit it.
+	nm, _ = nm.(SettingsModel).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	nm, _ = nm.(SettingsModel).Update(tea.KeyMsg{Type: tea.KeyDown})
+	nm, _ = nm.(SettingsModel).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	v = stripANSI(nm.(SettingsModel).View())
+	if !strings.Contains(v, "› main") {
+		t.Errorf("branch edit view clips the placeholder, want %q:\n%s", "› main", v)
+	}
+}
+
 // TestSettingsEditingForwardsKeysToInput verifies the typing path:
 // runes typed while editing reach the focused textinput and update the
 // value the model returns via Repo().

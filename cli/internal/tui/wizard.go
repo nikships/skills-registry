@@ -301,6 +301,10 @@ func NewWizard(ctx context.Context) WizardModel {
 	sp.Style = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
 	ti := textinput.New()
 	ti.Placeholder = "skills-registry"
+	// Width must be set: bubbles sizes the placeholder buffer as Width+1
+	// runes, so a zero Width renders only its first character ("› s").
+	// 40 covers the hint plus typical repo names; longer values scroll.
+	ti.Width = 40
 	ti.Prompt = "› "
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(ColPink).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(ColInk)
