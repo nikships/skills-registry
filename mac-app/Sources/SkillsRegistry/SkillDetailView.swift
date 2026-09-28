@@ -122,10 +122,27 @@ struct SkillDetailView: View {
             if !isEditing {
                 Button { openOnGitHub() } label: {
                     Label("GitHub", systemImage: "arrow.up.right.square").font(.system(size: 12))
-                }.buttonStyle(GhostButtonStyle())
-                Button { if let d = detail { Clipboard.copy(d.markdown) ; state.showToast("Copied SKILL.md", .ok) } } label: {
+                }
+                .buttonStyle(GhostButtonStyle())
+                .disabled(state.isDemo)
+                .opacity(state.isDemo ? 0.45 : 1)
+                .accessibilityIdentifier("openOnGitHub")
+                .accessibilityHint(state.isDemo ? "Unavailable in demo mode" : "Opens this skill on GitHub")
+                .hoverHelp(state.isDemo ? "Unavailable in demo mode" : "Open \(slug) on GitHub",
+                           disabled: state.isDemo)
+                Button {
+                    if let target = copyTarget {
+                        Clipboard.copy(target.text)
+                        state.showToast("Copied \(target.name)", .ok)
+                    }
+                } label: {
                     Image(systemName: "doc.on.doc").font(.system(size: 12))
-                }.buttonStyle(GhostButtonStyle())
+                }
+                .buttonStyle(GhostButtonStyle())
+                .disabled(copyTarget == nil)
+                .accessibilityIdentifier("copySkillFile")
+                .accessibilityLabel(copyTarget.map { "Copy \($0.name)" } ?? "Copy")
+                .hoverHelp(copyHelp, disabled: copyTarget == nil)
             }
             if !isEditing && !state.isDemo {
                 Button { confirmRemove = true } label: {
@@ -264,9 +281,28 @@ struct SkillDetailView: View {
     }
 
     private func openOnGitHub() {
+        // Demo points at the fixture repo. The button is disabled; this guard
+        // is the backstop so a click can never open that URL.
+        guard !state.isDemo else { return }
         guard let repo = state.repo else { return }
         let url = URL(string: "https://github.com/\(repo.fullName)/tree/\(state.branch)/\(slug)")
         if let url { NSWorkspace.shared.open(url) }
+    }
+
+    /// The file Copy acts on: SKILL.md normally, or the visible support file
+    /// once loaded. Nil while the detail or a support file is still loading
+    /// (or failed), which disables Copy.
+    private var copyTarget: (name: String, text: String)? {
+        guard let d = detail else { return nil }
+        return SkillDetail.copyTarget(selectedFile: selectedFile, auxText: auxText, markdown: d.markdown)
+    }
+
+    /// Tooltip for Copy: the file it will copy, or why the button is disabled.
+    private var copyHelp: String {
+        if let name = copyTarget?.name { return "Copy \(name)" }
+        if auxLoading { return "File still loading" }
+        if auxError != nil { return "Couldn't load this file" }
+        return "Nothing to copy yet"
     }
 
     private func beginEditing() {
@@ -361,5 +397,24 @@ struct SkillDetailView: View {
             self.error = error.localizedDescription
         }
         loading = false
+    }
+}
+
+private extension View {
+    /// Disabled controls do not receive hover, so a reason tooltip has to
+    /// live on a clear overlay that does. The overlay stays enabled even when
+    /// the button's disabled environment would otherwise swallow it.
+    @ViewBuilder func hoverHelp(_ text: String, disabled: Bool) -> some View {
+        if disabled {
+            overlay {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .environment(\.isEnabled, true)
+                    .help(text)
+                    .accessibilityHidden(true)
+            }
+        } else {
+            help(text)
+        }
     }
 }

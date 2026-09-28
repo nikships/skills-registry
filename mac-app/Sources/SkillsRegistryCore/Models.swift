@@ -36,6 +36,16 @@ public struct SkillDetail: Sendable {
         self.markdown = markdown
         self.files = files
     }
+
+    /// Copy target for the detail pane: follows the visible file. `SKILL.md`
+    /// copies the full markdown (frontmatter included); a support file copies
+    /// its loaded text. Nil while a support file is still loading or failed,
+    /// in which case Copy stays disabled.
+    public static func copyTarget(selectedFile: String, auxText: String?, markdown: String) -> (name: String, text: String)? {
+        if selectedFile == "SKILL.md" { return (selectedFile, markdown) }
+        guard let auxText else { return nil }
+        return (selectedFile, auxText)
+    }
 }
 
 /// A repository reference, "owner/repo".

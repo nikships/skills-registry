@@ -59,6 +59,9 @@ fully side-effect free by construction:
 - Every other write path (Import, Add publish, Discover import, publish,
   install, remove) shows an honest `Demo mode: would …` info toast instead of
   silently doing nothing.
+- The detail pane's GitHub button is disabled with a tooltip saying why, so
+  a demo session cannot open the fixture repository. Copy copies whichever
+  file is on screen and names that file in the toast.
 
 Several demo-only drivers make otherwise-unreachable states reachable: a
 Discover query starting with `!` fails the search the way an unreachable index
@@ -373,9 +376,14 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `discoverCategoryField`, `discoverSearch`, `discoverLimit-10/25/50`,
 `discoverRefreshStale`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
+`copySkillFile`, `openOnGitHub`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`,
 `updaterFailureHint`, `simulateUpdateFailure`)
-so an automated driver can find them deterministically.
+so an automated driver can find them deterministically. Two demo-only launch
+arguments reach states the driver cannot: `--demo-select <slug>` opens that
+skill directly, and `--demo-publish <path>` runs the publish flow for one
+folder shortly after launch, so the demo publish toast is reachable without
+driving the folder picker, which isn't scriptable.
 
 ---
 

@@ -44,6 +44,21 @@ extension AppState {
         // (and its button stays enabled) without reading real dot-folders.
         metaSkill = MetaSkill.demoStatus()
         phase = .ready
+        runDemoPublishHookIfPresent()
+    }
+
+    /// Demo-only automation hook: `--demo-publish <path>` runs the publish
+    /// flow for one folder shortly after launch, so the demo publish toast
+    /// is reachable without driving the folder picker (NSOpenPanel isn't
+    /// scriptable). Fires once; the beat lets the window render first.
+    private func runDemoPublishHookIfPresent() {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "--demo-publish"), i + 1 < args.count else { return }
+        let url = URL(fileURLWithPath: args[i + 1])
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await publishFolder(url)
+        }
     }
 
     /// Demo-only: render a login error state with no Keychain or network
