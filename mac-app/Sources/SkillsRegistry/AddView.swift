@@ -14,7 +14,7 @@ struct AddView: View {
     @State private var discovered: [LocalSkill] = []
     @State private var selected: Set<String> = []
     @State private var didFetch = false
-    @State private var fetchFailed = false
+    @State private var fetchError: String?
     @State private var showPicker = false
     @State private var publishing = false
     @State private var progress: (Int, Int) = (0, 0)
@@ -136,10 +136,10 @@ struct AddView: View {
             EmptyState(icon: "square.and.arrow.down",
                        title: "Fetching…",
                        subtitle: "Resolving the source and scanning it for skills.")
-        } else if fetchFailed {
+        } else if let fetchError {
             EmptyState(icon: "exclamationmark.triangle",
                        title: "Fetch failed",
-                       subtitle: "Couldn't resolve or scan that source — check the path or URL and try again.")
+                       subtitle: "Couldn't resolve or scan that source — check the path or URL and try again. \(fetchError)")
         } else if discovered.isEmpty {
             EmptyState(icon: didFetch ? "tray" : "square.and.arrow.down",
                        title: didFetch ? "Nothing new to add" : "Fetch a source to begin",
@@ -261,16 +261,19 @@ struct AddView: View {
         let src = source.trimmingCharacters(in: .whitespaces)
         guard !src.isEmpty else { return }
         fetching = true
-        fetchFailed = false
+        fetchError = nil
         acknowledgedBlock = false
         Task {
-            if let found = await state.resolveAndScan(src, trustedLocalDir: trusted) {
+            do {
+                let found = try await state.resolveAndScan(src, trustedLocalDir: trusted)
                 discovered = found
                 selected = Set(found.map(\.slug))
-            } else {
+            } catch {
+                // Fail closed: no stale list survives a failed fetch, and the
+                // reason outlives the 3.5s toast in the empty state below.
                 discovered = []
                 selected = []
-                fetchFailed = true
+                fetchError = error.localizedDescription
             }
             didFetch = true
             fetching = false

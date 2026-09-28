@@ -99,6 +99,12 @@ failures can't be produced offline, so **Settings → App** also shows a
 demo-only "Simulate check failure" button that seeds the failure hint + toast
 exactly as a real failed check would.
 
+Demo-only failure drivers (for exercising error states without a network):
+
+- **Add:** a source starting with `!` fails the fetch with a canned
+  "repository not found" reason (e.g. `!owner/repo`), so the Fetch-failed
+  empty state renders its detail line.
+
 ---
 
 ## Architecture

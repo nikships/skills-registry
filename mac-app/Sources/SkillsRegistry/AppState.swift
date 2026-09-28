@@ -473,12 +473,22 @@ final class AppState: ObservableObject {
     /// repository. The resolved temp dir is kept alive until the next
     /// `resolveAndScan` or a `publishAndInstall` call so the discovered
     /// `folder` paths stay readable for upload.
-    /// Returns the discovered (dup-filtered) skills, or `nil` if the source
-    /// couldn't be resolved/scanned — letting the caller distinguish a fetch
-    /// failure from a genuinely empty result. `trustedLocalDir` relaxes the
-    /// relative-only path guard for directories chosen via the native picker.
-    func resolveAndScan(_ source: String, trustedLocalDir: Bool = false) async -> [LocalSkill]? {
-        if isDemo { return demoResolveAndScan(source) }
+    /// Throws the failure reason so the caller can render it inline (the toast
+    /// alone expires after 3.5s) — an empty return means "resolved, nothing
+    /// new", never a failure. `trustedLocalDir` relaxes the relative-only path
+    /// guard for directories chosen via the native picker.
+    /// Demo mode short-circuits to fixtures, except a source starting with
+    /// `!`, which throws a canned failure so the fetch-error state is
+    /// drivable offline (see mac-app/README.md).
+    func resolveAndScan(_ source: String, trustedLocalDir: Bool = false) async throws -> [LocalSkill] {
+        if isDemo {
+            if source.hasPrefix("!") {
+                let reason = "couldn't clone \(source.dropFirst()): repository not found"
+                showToast("Couldn't fetch source: \(reason)", .error)
+                throw DemoAddError.fetchFailed(reason)
+            }
+            return demoResolveAndScan(source)
+        }
         addCleanup?()
         addCleanup = nil
         addGate = nil
@@ -511,9 +521,13 @@ final class AppState: ObservableObject {
             addGate = nil
             addSource = ""
             addResolveDir = ""
-            if redirectIfUnauthorized(error) { return nil }
-            showToast("Couldn't fetch source: \(error.localizedDescription)", .error)
-            return nil
+            // An expired session routes back to login, which supersedes the
+            // fetch error; anything else is reported here and rethrown so the
+            // caller can keep the reason visible past the toast.
+            if !redirectIfUnauthorized(error) {
+                showToast("Couldn't fetch source: \(error.localizedDescription)", .error)
+            }
+            throw error
         }
     }
 
@@ -1098,6 +1112,16 @@ enum AuthPreview: String {
     case expired
     /// `--demo-auth-offline`: a retryable offline bootstrap failure.
     case offline
+}
+
+/// Demo-only Add failure, thrown when the source starts with `!` so the
+/// fetch-error state is reachable offline. Never constructed in real mode.
+enum DemoAddError: Error, LocalizedError {
+    case fetchFailed(String)
+    var errorDescription: String? {
+        if case .fetchFailed(let reason) = self { return reason }
+        return nil
+    }
 }
 
 enum Clipboard {
