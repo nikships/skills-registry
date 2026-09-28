@@ -20,6 +20,16 @@ export default function Home() {
           <div className="nav-right">
             <a className="btn btn-ghost btn-sm" href={repo}>★ Star</a>
             <a className="btn btn-primary btn-sm" href="#install">Install</a>
+            <details className="nav-menu">
+              <summary aria-label="Menu"><span className="nav-burger" aria-hidden="true" /></summary>
+              <nav aria-label="Mobile navigation">
+                <a href="#how-it-works">How it works</a>
+                <a href="#cli">CLI</a>
+                <a href="#gateway">Gateway skill</a>
+                <a href="#mac-app">macOS</a>
+                <a href={repo}>GitHub</a>
+              </nav>
+            </details>
           </div>
         </div>
       </header>
@@ -181,6 +191,7 @@ skills-registry get code-review --json
               <tr><td className="cmd">skills-registry update</td><td className="desc">Update the installed CLI binary.</td></tr>
               <tr><td className="cmd">skills-registry bootstrap</td><td className="desc">Re-run non-interactive setup; ends with the registry URL.</td></tr>
             </tbody></table>
+            <p className="scroll-hint" aria-hidden="true">Swipe sideways to see more →</p>
           </div>
         </section>
 
@@ -202,6 +213,7 @@ skills-registry get code-review --json
               <tr><td className="feature-label">Interactive TUI and native app</td><td className="cell no">no</td><td className="cell no">no</td><td className="cell yes col-us-cell">yes</td></tr>
               <tr><td className="feature-label">Structured automation output</td><td className="cell no">no</td><td className="cell no">no</td><td className="cell yes col-us-cell">--json</td></tr>
             </tbody></table>
+            <p className="scroll-hint" aria-hidden="true">Swipe sideways to see more →</p>
           </div>
         </section>
 
