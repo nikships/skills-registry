@@ -50,18 +50,106 @@ final class FuzzyScoreTests: XCTestCase {
                              fuzzyScore("git", "legitimate"))
     }
 
-    // Mirrors TestScoreAndSortCrossLanguageCorpus (Go) and
-    // test_search_skills_cross_language_corpus (Python). Same summaries,
-    // same queries, same expected ordering. Divergence here means the three
-    // scorers drifted.
+    // Mirrors TestScoreAndSortCrossLanguageCorpus (Go). Same case names,
+    // inputs, and expected scores. Both scorers normalize to NFC before
+    // matching, so a precomposed accent and a combining mark score the same.
     func testCrossLanguageCorpus() {
+        // Exact scores pin each bonus and the gap penalty. Changing a
+        // constant without updating both suites fails here.
+        let scoreCases: [(name: String, query: String, text: String, want: Int)] = [
+            ("boundary-word-start", "git", "git tools", 69),
+            ("buried-midword", "git", "legitimate", 61),
+            ("camel-bonus", "ab", "aB", 53),
+            ("camel-absent", "ab", "ab", 47),
+            ("consecutive-run", "bc", "abc", 39),
+            ("consecutive-broken", "bc", "abxc", 32),
+            ("exact-case", "Git", "Git Tools", 69),
+            ("folded-case", "Git", "git tools", 68),
+            ("gap-one", "git", "gXit", 62),
+            ("gap-two", "git", "gXXit", 60),
+            // Thirty gaps between a and b drive the penalty below zero,
+            // which both scorers clamp to a non-match.
+            ("gap-floor", "ab", "a" + String(repeating: "x", count: 30) + "b", 0),
+        ]
+        for tc in scoreCases {
+            XCTAssertEqual(
+                fuzzyScore(tc.query, tc.text), tc.want,
+                "\(tc.name): fuzzyScore(\(tc.query), \(tc.text))"
+            )
+        }
+
+        // U+00E9 is the precomposed é. U+0301 is the combining acute.
+        let nfdCafe = "cafe\u{0301}"
+        let nfcCafe = "caf\u{00E9}"
+        let nfcText = "Caf\u{00E9} Tools"
+        let nfdText = "Cafe\u{0301} Tools"
+        for pair in [(nfdCafe, nfcText), (nfcCafe, nfcText), (nfcCafe, nfdText), (nfdCafe, nfdText)] {
+            XCTAssertEqual(
+                fuzzyScore(pair.0, pair.1), 90,
+                "nfc-equals-nfd: fuzzyScore(\(pair.0), \(pair.1))"
+            )
+        }
+        let cafeSummaries = [
+            SkillSummary(slug: "cafe", name: "Caf\u{00E9} Helper", description: "drinks"),
+            SkillSummary(slug: "other", name: "Other", description: "unrelated"),
+        ]
+        for q in [nfdCafe, nfcCafe] {
+            XCTAssertEqual(
+                scoreAndSort(cafeSummaries, query: q).map(\.slug), ["cafe"],
+                "nfc-equals-nfd query \(q)"
+            )
+        }
+
+        // Input order is the reverse of the expected rank, so a scorer
+        // that forgets field weights cannot pass by preserving input order.
+        let weighted = [
+            SkillSummary(slug: "desc_hit", name: "unrelated", description: "git"),
+            SkillSummary(slug: "name_hit", name: "git", description: "unrelated"),
+        ]
+        XCTAssertEqual(
+            scoreAndSort(weighted, query: "git").map(\.slug),
+            ["name_hit", "desc_hit"],
+            "name-outranks-description"
+        )
+
+        let ties = [
+            SkillSummary(slug: "zeta", name: "Tool", description: "x"),
+            SkillSummary(slug: "alpha", name: "Tool", description: "x"),
+        ]
+        XCTAssertEqual(
+            scoreAndSort(ties, query: "tool").map(\.slug),
+            ["alpha", "zeta"],
+            "slug-tiebreak"
+        )
+
+        // Inserted high slug first. Equal scores sort by slug, then the
+        // eleventh result (s11) is dropped.
+        var many: [SkillSummary] = []
+        for i in stride(from: 11, through: 1, by: -1) {
+            many.append(SkillSummary(slug: String(format: "s%02d", i), name: "Match", description: "x"))
+        }
+        XCTAssertEqual(
+            scoreAndSort(many, query: "match").map(\.slug),
+            ["s01", "s02", "s03", "s04", "s05", "s06", "s07", "s08", "s09", "s10"],
+            "top-10-cutoff"
+        )
+
+        let one = [SkillSummary(slug: "alpha", name: "Alpha", description: "x")]
+        for q in ["", "   ", " \t\n"] {
+            XCTAssertTrue(scoreAndSort(one, query: q).isEmpty, "empty-query \(q.debugDescription)")
+        }
+
         let summaries = [
             SkillSummary(slug: "alpha_git", name: "Alpha Git", description: "Git helpers"),
             SkillSummary(slug: "beta_python", name: "Beta Python", description: "Python tooling"),
             SkillSummary(slug: "gamma_js", name: "Gamma JS", description: "JavaScript tooling"),
         ]
-        XCTAssertEqual(scoreAndSort(summaries, query: "git").map(\.slug), ["alpha_git"])
-        XCTAssertEqual(scoreAndSort(summaries, query: "tool").map(\.slug), ["beta_python", "gamma_js"])
+        XCTAssertEqual(scoreAndSort(summaries, query: "git").map(\.slug), ["alpha_git"], "sample-registry git")
+        XCTAssertEqual(
+            scoreAndSort(summaries, query: "tool").map(\.slug),
+            ["beta_python", "gamma_js"],
+            "sample-registry tool"
+        )
     }
 
     func testRanksByScoreAndSlug() {

@@ -75,15 +75,23 @@ private func scoreCharMatch(
 }
 
 /// Score a (query, text) pair. Returns 0 when no alignment exists.
+///
+/// Both strings are normalized to NFC before scoring so that precomposed
+/// and decomposed spellings of the same text (e.g. "é" vs "e"+U+0301)
+/// score identically. The Go scorer applies the same normalization;
+/// the cross-language corpus pins this.
 public func fuzzyScore(_ query: String, _ text: String) -> Int {
     if query.isEmpty || text.isEmpty { return 0 }
+    let query = query.precomposedStringWithCanonicalMapping
+    let text = text.precomposedStringWithCanonicalMapping
     let queryRunes = Array(query)
     let textRunes = Array(text)
     if queryRunes.count > textRunes.count { return 0 }
     let qLower = Array(query.lowercased())
     let tLower = Array(text.lowercased())
-    // Lowercasing can in theory change length for exotic scripts; guard so
-    // the index math below stays sound (the contract corpus is ASCII).
+    // Lowercasing can change length for exotic scripts. Bail out so the
+    // index math below stays sound. NFC Latin accents in the corpus do not
+    // change length.
     guard qLower.count == queryRunes.count, tLower.count == textRunes.count else { return 0 }
     guard let matches = findAlignment(qLower, tLower) else { return 0 }
     var score = 0

@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/nikships/skills-registry/cli/internal/config"
 	"github.com/nikships/skills-registry/cli/internal/jsonout"
@@ -187,12 +188,19 @@ func scoreCharMatch(
 // fuzzyScore returns an fzf V1-style match score for query against
 // text (0 if any query rune doesn't appear in order).
 //
+// Both strings are normalized to NFC before scoring so that precomposed
+// and decomposed spellings of the same text (e.g. "é" vs "e"+U+0301)
+// score identically. The Swift scorer applies the same normalization;
+// the cross-language corpus pins this.
+//
 // See “findAlignment“ for the alignment logic and “scoreCharMatch“
 // for the per-rune weighting.
 func fuzzyScore(query, text string) int {
 	if query == "" || text == "" {
 		return 0
 	}
+	query = norm.NFC.String(query)
+	text = norm.NFC.String(text)
 	queryRunes := []rune(query)
 	textRunes := []rune(text)
 	if len(queryRunes) > len(textRunes) {

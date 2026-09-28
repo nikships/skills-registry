@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -72,24 +73,142 @@ func TestScoreAndSortRanksByScoreAndSlug(t *testing.T) {
 	}
 }
 
-// TestScoreAndSortCorpus verifies stable rankings across representative
-// summaries and queries.
-func TestScoreAndSortCorpus(t *testing.T) {
-	summaries := []registry.Summary{
-		{Slug: "alpha_git", Name: "Alpha Git", Description: "Git helpers"},
-		{Slug: "beta_python", Name: "Beta Python", Description: "Python tooling"},
-		{Slug: "gamma_js", Name: "Gamma JS", Description: "JavaScript tooling"},
+// TestScoreAndSortCrossLanguageCorpus is the shared scorer contract.
+// Swift testCrossLanguageCorpus runs these cases verbatim: same names,
+// inputs, and expected scores. Both scorers normalize to NFC before
+// matching, so a precomposed accent and a combining mark score the same.
+func TestScoreAndSortCrossLanguageCorpus(t *testing.T) {
+	// Exact scores pin each bonus and the gap penalty. Changing a constant
+	// without updating both suites fails here.
+	scoreCases := []struct {
+		name  string
+		query string
+		text  string
+		want  int
+	}{
+		{"boundary-word-start", "git", "git tools", 69},
+		{"buried-midword", "git", "legitimate", 61},
+		{"camel-bonus", "ab", "aB", 53},
+		{"camel-absent", "ab", "ab", 47},
+		{"consecutive-run", "bc", "abc", 39},
+		{"consecutive-broken", "bc", "abxc", 32},
+		{"exact-case", "Git", "Git Tools", 69},
+		{"folded-case", "Git", "git tools", 68},
+		{"gap-one", "git", "gXit", 62},
+		{"gap-two", "git", "gXXit", 60},
+		// Thirty gaps between a and b drive the penalty below zero, which
+		// both scorers clamp to a non-match.
+		{"gap-floor", "ab", "a" + strings.Repeat("x", 30) + "b", 0},
+	}
+	for _, tc := range scoreCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fuzzyScore(tc.query, tc.text); got != tc.want {
+				t.Fatalf("fuzzyScore(%q, %q) = %d, want %d", tc.query, tc.text, got, tc.want)
+			}
+		})
 	}
 
-	gitSlugs := slugsOf(scoreAndSort(summaries, "git"))
-	if !slicesEqual(gitSlugs, []string{"alpha_git"}) {
-		t.Fatalf("query=git: want [alpha_git], got %v", gitSlugs)
-	}
+	// U+00E9 is the precomposed é. U+0301 is the combining acute.
+	const (
+		nfdCafe = "cafe\u0301"
+		nfcCafe = "caf\u00e9"
+		nfcText = "Caf\u00e9 Tools"
+		nfdText = "Cafe\u0301 Tools"
+	)
+	t.Run("nfc-equals-nfd", func(t *testing.T) {
+		const want = 90
+		for _, pair := range [][2]string{
+			{nfdCafe, nfcText},
+			{nfcCafe, nfcText},
+			{nfcCafe, nfdText},
+			{nfdCafe, nfdText},
+		} {
+			if got := fuzzyScore(pair[0], pair[1]); got != want {
+				t.Fatalf("fuzzyScore(%q, %q) = %d, want %d", pair[0], pair[1], got, want)
+			}
+		}
+		summaries := []registry.Summary{
+			{Slug: "cafe", Name: "Caf\u00e9 Helper", Description: "drinks"},
+			{Slug: "other", Name: "Other", Description: "unrelated"},
+		}
+		for _, q := range []string{nfdCafe, nfcCafe} {
+			got := slugsOf(scoreAndSort(summaries, q))
+			if !slicesEqual(got, []string{"cafe"}) {
+				t.Fatalf("query %q: want [cafe], got %v", q, got)
+			}
+		}
+	})
 
-	toolSlugs := slugsOf(scoreAndSort(summaries, "tool"))
-	if !slicesEqual(toolSlugs, []string{"beta_python", "gamma_js"}) {
-		t.Fatalf("query=tool: want [beta_python gamma_js], got %v", toolSlugs)
-	}
+	t.Run("name-outranks-description", func(t *testing.T) {
+		// Input order is the reverse of the expected rank, so a scorer
+		// that forgets field weights cannot pass by preserving input order.
+		summaries := []registry.Summary{
+			{Slug: "desc_hit", Name: "unrelated", Description: "git"},
+			{Slug: "name_hit", Name: "git", Description: "unrelated"},
+		}
+		got := slugsOf(scoreAndSort(summaries, "git"))
+		want := []string{"name_hit", "desc_hit"}
+		if !slicesEqual(got, want) {
+			t.Fatalf("query=git: want %v, got %v", want, got)
+		}
+	})
+
+	t.Run("slug-tiebreak", func(t *testing.T) {
+		summaries := []registry.Summary{
+			{Slug: "zeta", Name: "Tool", Description: "x"},
+			{Slug: "alpha", Name: "Tool", Description: "x"},
+		}
+		got := slugsOf(scoreAndSort(summaries, "tool"))
+		want := []string{"alpha", "zeta"}
+		if !slicesEqual(got, want) {
+			t.Fatalf("query=tool: want %v, got %v", want, got)
+		}
+	})
+
+	t.Run("top-10-cutoff", func(t *testing.T) {
+		// Inserted high slug first. Equal scores sort by slug, then the
+		// eleventh result (s11) is dropped.
+		summaries := make([]registry.Summary, 0, 11)
+		for i := 11; i >= 1; i-- {
+			summaries = append(summaries, registry.Summary{
+				Slug:        fmt.Sprintf("s%02d", i),
+				Name:        "Match",
+				Description: "x",
+			})
+		}
+		got := slugsOf(scoreAndSort(summaries, "match"))
+		want := []string{"s01", "s02", "s03", "s04", "s05", "s06", "s07", "s08", "s09", "s10"}
+		if !slicesEqual(got, want) {
+			t.Fatalf("top-10: want %v, got %v", want, got)
+		}
+	})
+
+	t.Run("empty-query", func(t *testing.T) {
+		summaries := []registry.Summary{
+			{Slug: "alpha", Name: "Alpha", Description: "x"},
+		}
+		for _, q := range []string{"", "   ", " \t\n"} {
+			if got := scoreAndSort(summaries, q); len(got) != 0 {
+				t.Fatalf("query %q should return no results, got %d", q, len(got))
+			}
+		}
+	})
+
+	t.Run("sample-registry", func(t *testing.T) {
+		summaries := []registry.Summary{
+			{Slug: "alpha_git", Name: "Alpha Git", Description: "Git helpers"},
+			{Slug: "beta_python", Name: "Beta Python", Description: "Python tooling"},
+			{Slug: "gamma_js", Name: "Gamma JS", Description: "JavaScript tooling"},
+		}
+		gitSlugs := slugsOf(scoreAndSort(summaries, "git"))
+		if !slicesEqual(gitSlugs, []string{"alpha_git"}) {
+			t.Fatalf("query=git: want [alpha_git], got %v", gitSlugs)
+		}
+		toolSlugs := slugsOf(scoreAndSort(summaries, "tool"))
+		if !slicesEqual(toolSlugs, []string{"beta_python", "gamma_js"}) {
+			t.Fatalf("query=tool: want [beta_python gamma_js], got %v", toolSlugs)
+		}
+	})
 }
 
 func slugsOf(summaries []registry.Summary) []string {
