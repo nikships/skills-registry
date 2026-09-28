@@ -72,6 +72,13 @@ the findings are the scanner's). Any other source typed into Add classifies
 through the real `AddGate.build`, degrading to unscored when no fixture row
 matches, and scans clean.
 
+Two more demo-only launch arguments render the login error states with no
+Keychain or network touch (for review screenshots): `--demo-auth-expired`
+shows the "session expired, sign in again" re-auth prompt, and
+`--demo-auth-offline` shows the retryable offline failure with its Retry
+button. An expired or revoked token anywhere else in the app routes back to
+that same login prompt automatically.
+
 ---
 
 ## Architecture

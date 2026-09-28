@@ -28,6 +28,22 @@ extension AppState {
         phase = .ready
     }
 
+    /// Demo-only: render a login error state with no Keychain or network
+    /// touch. Mirrors exactly what `bootstrap`/`handleUnauthorized` present
+    /// for the real failures, so screenshots show production copy.
+    func showAuthPreview(_ preview: AuthPreview) {
+        phase = .signedOut
+        switch preview {
+        case .expired:
+            presentAuthError(AuthPresentation.expired(detail: "HTTP 401: Bad credentials"))
+        case .offline:
+            presentAuthError(AuthPresentation(
+                message: "You're offline. Check your connection and try again.",
+                detail: "The Internet connection appears to be offline.",
+                retryable: true))
+        }
+    }
+
     static let demoSkills: [SkillSummary] = [
         SkillSummary(slug: "pdf_tools", name: "PDF Tools",
                      description: "Extract text, split, merge, and fill PDF forms. Use when the user works with PDF files or needs document automation.", treeSHA: "a1"),

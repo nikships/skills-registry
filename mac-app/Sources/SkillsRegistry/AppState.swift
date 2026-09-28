@@ -22,6 +22,11 @@ final class AppState: ObservableObject {
     @Published var deviceCode: DeviceCode?
     @Published var authInProgress = false
     @Published var authError: String?
+    /// Raw underlying failure kept as secondary login copy (nil when the
+    /// friendly message already says everything).
+    @Published var authDetail: String?
+    /// Whether the login screen offers a Retry button that re-runs bootstrap.
+    @Published var authRetryable = false
 
     @Published var toast: ToastItem?
     @Published var cliInstalled = false
@@ -40,6 +45,11 @@ final class AppState: ObservableObject {
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
     private let flow = DeviceFlow()
+
+    /// Demo-only launch-argument fixture: renders a login error state without
+    /// touching the Keychain or the network (set from `--demo-auth-expired` /
+    /// `--demo-auth-offline`; nil in production).
+    private let authPreview: AuthPreview?
 
     /// Best-effort cleanup for the temp clone created by `resolveAndScan`. Held
     /// until `publishAndInstall` finishes (the discovered skill folders point
@@ -68,9 +78,10 @@ final class AppState: ObservableObject {
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
 
-    init(demo: Bool = false) {
+    init(demo: Bool = false, authPreview: AuthPreview? = nil) {
         self.isDemo = demo
         self.defaults = DemoDefaults.store(isDemo: demo)
+        self.authPreview = authPreview
         if demo {
             // Reroute every Keychain call to a process-local dictionary so a
             // demo Sign out can never delete the real saved token.
@@ -82,7 +93,9 @@ final class AppState: ObservableObject {
     // MARK: - lifecycle
 
     func bootstrap() async {
+        if let preview = authPreview { showAuthPreview(preview); return }
         if isDemo { startDemo(); return }
+        resetAuthError()
         cliInstalled = CLIInstaller.isInstalled()
         guard let saved = Keychain.get() else { phase = .signedOut; return }
         token = saved
@@ -93,13 +106,11 @@ final class AppState: ObservableObject {
             identity = me
             await resolveAfterAuth()
         } catch let e as GitHubError where e.isUnauthorized {
-            Keychain.delete()
-            token = nil
-            phase = .signedOut
+            handleUnauthorized(detail: e.message)
         } catch {
             // Network hiccup — let them retry from signed-out rather than wedge.
             phase = .signedOut
-            authError = error.localizedDescription
+            presentAuthError(AuthPresentation.resolve(error))
         }
     }
 
@@ -114,6 +125,9 @@ final class AppState: ObservableObject {
                     await refreshSkills()
                     return
                 }
+            } catch let e as GitHubError where e.isUnauthorized {
+                handleUnauthorized(detail: e.message)
+                return
             } catch { /* fall through to setup */ }
         }
         phase = .setup
@@ -123,7 +137,7 @@ final class AppState: ObservableObject {
     // MARK: - auth
 
     func beginLogin() {
-        authError = nil
+        resetAuthError()
         authInProgress = true
         authTask?.cancel()
         authTask = Task { await self.runDeviceFlow() }
@@ -149,7 +163,7 @@ final class AppState: ObservableObject {
         } catch is CancellationError {
             // user cancelled — already reset
         } catch {
-            authError = error.localizedDescription
+            presentAuthError(AuthPresentation.resolve(error))
             authInProgress = false
             deviceCode = nil
         }
@@ -166,11 +180,59 @@ final class AppState: ObservableObject {
             authInProgress = false
             deviceCode = nil
             await resolveAfterAuth()
+        } catch let e as GitHubError where e.isUnauthorized {
+            handleUnauthorized(detail: e.message)
+            authInProgress = false
+            deviceCode = nil
         } catch {
-            authError = "Signed in, but couldn't read your GitHub profile: \(error.localizedDescription)"
+            let presented = AuthPresentation.resolve(error)
+            authError = "Signed in, but couldn't read your GitHub profile: \(presented.message)"
+            authDetail = presented.detail
+            authRetryable = presented.retryable
             authInProgress = false
             deviceCode = nil
         }
+    }
+
+    /// Single 401 exit: an expired or revoked token anywhere in the app
+    /// clears the session and returns to login with a friendly re-auth
+    /// prompt instead of stranding the user on Setup or a stale error.
+    func handleUnauthorized(detail: String? = nil) {
+        Keychain.delete()
+        token = nil
+        api = nil
+        identity = nil
+        repo = nil
+        branch = "main"
+        skills = []
+        skillsError = nil
+        installRepos = []
+        authInProgress = false
+        deviceCode = nil
+        presentAuthError(AuthPresentation.expired(detail: detail))
+        phase = .signedOut
+    }
+
+    /// Route a 401 to login; returns whether it did (so call sites whose
+    /// write failed for any other reason can fall through to their toast).
+    @discardableResult
+    func redirectIfUnauthorized(_ error: Error) -> Bool {
+        guard let e = error as? GitHubError, e.isUnauthorized else { return false }
+        handleUnauthorized(detail: e.message)
+        return true
+    }
+
+    /// Shared by the demo-only auth preview (Demo.swift).
+    func presentAuthError(_ presented: AuthPresentation) {
+        authError = presented.message
+        authDetail = presented.detail
+        authRetryable = presented.retryable
+    }
+
+    private func resetAuthError() {
+        authError = nil
+        authDetail = nil
+        authRetryable = false
     }
 
     func logout() {
@@ -195,6 +257,7 @@ final class AppState: ObservableObject {
         do {
             installRepos = try await api.skillsRegistryRepos().sorted { $0.fullName < $1.fullName }
         } catch {
+            if redirectIfUnauthorized(error) { return }
             installRepos = []
             showToast("Couldn't list installed repos: \(error.localizedDescription)", .error)
         }
@@ -215,6 +278,7 @@ final class AppState: ObservableObject {
             phase = .ready
             await refreshSkills()
         } catch {
+            if redirectIfUnauthorized(error) { return }
             showToast("Connect failed: \(error.localizedDescription)", .error)
         }
     }
@@ -237,6 +301,7 @@ final class AppState: ObservableObject {
             showToast("App can't create repos. Create it on github.com, then connect it here.", .info)
             NSWorkspace.shared.open(URL(string: "https://github.com/new")!)
         } catch {
+            if redirectIfUnauthorized(error) { return }
             showToast("Create failed: \(error.localizedDescription)", .error)
         }
     }
@@ -251,6 +316,7 @@ final class AppState: ObservableObject {
         do {
             skills = try await api.listSkills(repo, branch: branch)
         } catch {
+            if redirectIfUnauthorized(error) { return }
             skillsError = error.localizedDescription
         }
     }
@@ -258,14 +324,24 @@ final class AppState: ObservableObject {
     func fetchDetail(_ slug: String) async throws -> SkillDetail {
         if isDemo { return Self.demoDetail(slug) }
         guard let api, let repo else { throw GitHubError(status: 0, message: "Not ready", endpoint: "") }
-        return try await api.getSkill(repo, slug: slug, branch: branch)
+        do {
+            return try await api.getSkill(repo, slug: slug, branch: branch)
+        } catch {
+            redirectIfUnauthorized(error)
+            throw error
+        }
     }
 
     /// Contents of a single supporting file (path relative to `<slug>/`).
     func fetchFile(slug: String, path: String) async throws -> String {
         if isDemo { return Self.demoFile(slug: slug, path: path) }
         guard let api, let repo else { throw GitHubError(status: 0, message: "Not ready", endpoint: "") }
-        return try await api.fileContent(repo, path: "\(slug)/\(path)", branch: branch)
+        do {
+            return try await api.fileContent(repo, path: "\(slug)/\(path)", branch: branch)
+        } catch {
+            redirectIfUnauthorized(error)
+            throw error
+        }
     }
 
     /// Commit an edited SKILL.md without replacing the skill's supporting
@@ -277,9 +353,14 @@ final class AppState: ObservableObject {
             guard let api, let repo else {
                 throw GitHubError(status: 0, message: "Not ready", endpoint: "")
             }
-            _ = try await api.updateSkillMarkdown(
-                repo, slug: slug, markdown: markdown,
-                message: "edit: \(slug)", branch: branch)
+            do {
+                _ = try await api.updateSkillMarkdown(
+                    repo, slug: slug, markdown: markdown,
+                    message: "edit: \(slug)", branch: branch)
+            } catch {
+                redirectIfUnauthorized(error)
+                throw error
+            }
         }
         upsertSkill(summary)
         showToast("Saved \(slug)", .ok)
@@ -315,6 +396,7 @@ final class AppState: ObservableObject {
         } catch {
             // Roll back: the registry still has it, so the UI must too.
             skills = (skills + removed).sorted { $0.slug < $1.slug }
+            if redirectIfUnauthorized(error) { return }
             showToast("Remove failed: \(error.localizedDescription)", .error)
         }
     }
@@ -349,6 +431,7 @@ final class AppState: ObservableObject {
             showToast("Installed \(slug) into \(written.count) agent\(written.count == 1 ? "" : "s")", .ok)
             refreshMetaSkillStatus()
         } catch {
+            if redirectIfUnauthorized(error) { return }
             showToast("Install failed: \(error.localizedDescription)", .error)
         }
     }
@@ -400,6 +483,7 @@ final class AppState: ObservableObject {
             addGate = nil
             addSource = ""
             addResolveDir = ""
+            if redirectIfUnauthorized(error) { return nil }
             showToast("Couldn't fetch source: \(error.localizedDescription)", .error)
             return nil
         }
@@ -526,6 +610,7 @@ final class AppState: ObservableObject {
             showToast(notes.isEmpty ? base : "\(base); " + notes.joined(separator: "; "), .ok)
             refreshMetaSkillStatus()
         } catch {
+            if redirectIfUnauthorized(error) { return }
             showToast("Add failed: \(error.localizedDescription)", .error)
         }
     }
@@ -629,6 +714,7 @@ final class AppState: ObservableObject {
             refreshMetaSkillStatus()
             return true
         } catch {
+            if redirectIfUnauthorized(error) { return false }
             showToast("Import failed: \(error.localizedDescription)", .error)
             return false
         }
@@ -725,6 +811,7 @@ final class AppState: ObservableObject {
             upsertSkill(SkillSummary(slug: slug, name: name.isEmpty ? slug : name, description: desc))
             showToast("Published \(slug)", .ok)
         } catch {
+            if redirectIfUnauthorized(error) { return }
             showToast("Publish failed: \(error.localizedDescription)", .error)
         }
     }
@@ -793,6 +880,7 @@ final class AppState: ObservableObject {
             let base = "Imported \(fresh.count) skill(s)"
             showToast(skipped > 0 ? "\(base); skipped \(skipped) already in registry" : base, .ok)
         } catch {
+            if redirectIfUnauthorized(error) { return }
             showToast("Import failed: \(error.localizedDescription)", .error)
         }
     }
@@ -927,7 +1015,7 @@ final class AppState: ObservableObject {
 
     /// Honest feedback for a demo-mode write: names what the action would
     /// have done instead of silently doing nothing.
-    private func demoToast(_ what: String) {
+    func demoToast(_ what: String) {
         showToast("Demo mode: \(what)", .info)
     }
 
@@ -956,6 +1044,16 @@ struct ScanBlockedImport: Identifiable, Equatable {
     let result: DiscoverResult
     let targets: [AgentTarget]
     let refusal: ImportReview
+}
+
+/// Demo-only login error fixture, selected by launch argument (see
+/// `SkillsRegistryApp.init`). Renders the auth-failure states for review
+/// without credentials, Keychain access, or network.
+enum AuthPreview: String {
+    /// `--demo-auth-expired`: the re-auth prompt after a 401 anywhere.
+    case expired
+    /// `--demo-auth-offline`: a retryable offline bootstrap failure.
+    case offline
 }
 
 enum Clipboard {
