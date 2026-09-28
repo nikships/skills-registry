@@ -6,6 +6,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Card description geometry. Every tile reserves exactly cardDescLines
+// lines for its description so all cards in a row share a baseline
+// regardless of copy length; overflow is truncated with an ellipsis.
+// cardContentHeight is the fixed body height: head + blank + desc +
+// blank + chip.
+const (
+	cardDescLines     = 2
+	cardContentHeight = 1 + 1 + cardDescLines + 1 + 1
+)
+
 // HubCard is one tile in the dashboard's card grid.
 //
 // ID is an opaque identifier consumed by the launcher (HubModel.Selection
@@ -191,6 +201,10 @@ func joinWithGap(cards []string, gap string) string {
 // renderCard renders a single tile. Focused cards use PanelFocused for the
 // brighter ColBorderHi border and lift the description colour from
 // ColMuted to ColInk so the focused tile reads at a glance.
+//
+// Every tile renders the same height: the description is clamped to
+// cardDescLines (padded when short, ellipsized when long) and the panel
+// pins a fixed content height, so no card can poke below its row.
 func (g CardGrid) renderCard(c HubCard, focused bool, width int) string {
 	panel := PanelStyle
 	titleStyle := lipgloss.NewStyle().Foreground(ColPrimary).Bold(true)
@@ -210,7 +224,11 @@ func (g CardGrid) renderCard(c HubCard, focused bool, width int) string {
 	if descWidth < 8 {
 		descWidth = 8
 	}
-	desc := descStyle.Width(descWidth).Render(c.Description)
+	// Height pads short descriptions so the chip below always lands on the
+	// same row; MaxHeight is a backstop in case lipgloss re-wraps a line
+	// our own wrapper measured as fitting.
+	desc := descStyle.Width(descWidth).Height(cardDescLines).MaxHeight(cardDescLines).
+		Render(clampDesc(c.Description, descWidth, cardDescLines))
 	chip := ""
 	if focused {
 		chip = ChipPrimary.Render("◆ focused")
@@ -218,5 +236,24 @@ func (g CardGrid) renderCard(c HubCard, focused bool, width int) string {
 		chip = lipgloss.NewStyle().Foreground(ColFaint).Render("◇")
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, head, "", desc, "", chip)
-	return panel.Width(width).Render(body)
+	return panel.Width(width).Height(cardContentHeight).Render(body)
+}
+
+// clampDesc wraps text to width columns and clamps it to at most maxLines
+// lines, appending an ellipsis when copy overflows the budget. Short copy
+// passes through unchanged — the description style's fixed height pads
+// the difference so every card renders the same height.
+// clampDesc wraps description copy to width columns and clamps it to
+// maxLines, stamping an ellipsis on the last line when it overflows. It
+// reuses the preview pane's wrapToLines so the hub and the preview wrap
+// identically (lipgloss display-cell widths) instead of keeping a second
+// word-wrapping implementation.
+func clampDesc(text string, width, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	if width < 2 {
+		width = 2
+	}
+	return wrapToLines(text, width, maxLines)
 }
