@@ -9,10 +9,18 @@ import SkillsRegistryCore
 ///
 /// Locations are never preselected. Existing folders are shown as detected
 /// information only; the user explicitly chooses every install destination.
+///
+/// When `emptyConfirmLabel` is set, confirming with nothing selected is
+/// allowed and reads as a registry-only publish (the Add flow's default for
+/// untrusted sources): the button shows that label at zero selected and
+/// `confirmLabel` otherwise. Callers that must install somewhere (the skill
+/// Install flow) leave it nil and keep confirm disabled until a row is
+/// picked.
 struct AgentPickerSheet: View {
     let title: String
     let subtitle: String
     let confirmLabel: String
+    var emptyConfirmLabel: String?
     let onConfirm: ([AgentTarget]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -106,9 +114,9 @@ struct AgentPickerSheet: View {
             Button {
                 onConfirm(targets.filter { selected.contains($0.dotDir) })
                 dismiss()
-            } label: { Text(confirmLabel) }
+            } label: { Text(selected.isEmpty ? (emptyConfirmLabel ?? confirmLabel) : confirmLabel) }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(selected.isEmpty)
+            .disabled(selected.isEmpty && emptyConfirmLabel == nil)
             .accessibilityIdentifier("agentPickerConfirm")
         }
         .padding(16)

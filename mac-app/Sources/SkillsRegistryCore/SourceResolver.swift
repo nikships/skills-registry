@@ -160,8 +160,11 @@ public enum SourceResolver {
     // MARK: - source classification
 
     static func isLocalPath(_ source: String) -> Bool {
-        source.hasPrefix("./") || source.hasPrefix("/")
-            || source.hasPrefix("../") || source.hasPrefix("~")
+        // Go `trust.IsLocalPath` trims before matching, so pasted input with
+        // surrounding whitespace still classifies; match it exactly.
+        let s = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.hasPrefix("./") || s.hasPrefix("/")
+            || s.hasPrefix("../") || s.hasPrefix("~")
     }
 
     /// Relative-only local-path validation. Swift mirror of Go

@@ -172,6 +172,94 @@ public struct ImportDecision: Sendable, Equatable {
     public var installPermitted: Bool { permitted && installIntoAgents }
 }
 
+/// The verdict for one Add-from-source invocation: where the source came from
+/// and, for an untrusted source, the per-skill review. Swift mirror of Go's
+/// `add_gate.go` gate, minus the local injection scan (which no macOS surface
+/// runs yet): the reviews carry only the grade-based blocks.
+public struct AddGate: Sendable, Equatable {
+    /// The source as classified.
+    public var assessment: ImportAssessment
+    /// The public index's grades for the source folder. Zero when the index
+    /// has no row for it, which renders as unscored.
+    public var scores: ImportScores
+    /// Whether the index actually had a row, so the UI can say "not in the
+    /// index" rather than printing three unscored lines with no explanation.
+    public var indexed: Bool
+    /// The index's category for the source folder, empty when the index has
+    /// no row for it or graded it without one. Stamped onto an untrusted
+    /// import's copy; an absent category is left absent rather than guessed.
+    public var category: String
+    /// One entry per skill under review, in the order they were passed. Empty
+    /// for a trusted source: the gate does not second-guess a folder the user
+    /// already owns.
+    public var reviews: [ImportReview]
+
+    public init(assessment: ImportAssessment, scores: ImportScores = ImportScores(),
+                indexed: Bool = false, category: String = "",
+                reviews: [ImportReview] = []) {
+        self.assessment = assessment
+        self.scores = scores
+        self.indexed = indexed
+        self.category = category
+        self.reviews = reviews
+    }
+
+    /// Classify one Add source and review every discovered skill slug against
+    /// the index row (`nil` when the lookup missed or failed, which degrades
+    /// to unscored). A trusted source is returned unreviewed: it publishes
+    /// byte-for-byte and never consults the index.
+    public static func build(source: String, owners: [String],
+                             slugs: [String], indexed: DiscoverResult? = nil) -> AddGate {
+        let assessment = ImportTrust.assess(source, owners: owners)
+        guard assessment.untrusted else {
+            return AddGate(assessment: assessment)
+        }
+        var gate = AddGate(assessment: assessment)
+        if let row = indexed {
+            gate.scores = row.scores
+            gate.category = row.category
+            gate.indexed = true
+        }
+        // The grades belong to the folder the URL named, so they apply to
+        // every skill discovered inside it. For a folder URL that is one
+        // skill; for a folder of skills, a Poor grade on the parent holding
+        // them back is the safe direction.
+        gate.reviews = slugs.map { ImportReview.evaluate(slug: $0, scores: gate.scores) }
+        return gate
+    }
+
+    /// Whether the gate applies to this source.
+    public var untrusted: Bool { assessment.untrusted }
+
+    /// The reviews needing explicit consent.
+    public var blocked: [ImportReview] { reviews.filter(\.blocked) }
+
+    /// The review for one slug.
+    public func review(slug: String) -> ImportReview? {
+        reviews.first { $0.slug == slug }
+    }
+
+    /// Whether the selected skills may be published. A blocker needs
+    /// `allowUnsafe`; everything else is cleared by the ordinary
+    /// confirmation. Refused skills are returned alongside, so the caller can
+    /// name them instead of failing the whole run silently.
+    public func allowed(slugs: [String], allowUnsafe: Bool) -> (allowed: [String], refused: [ImportReview]) {
+        if !untrusted || allowUnsafe {
+            return (slugs, [])
+        }
+        var kept: [String] = []
+        var refused: [ImportReview] = []
+        for slug in slugs {
+            if let r = review(slug: slug), r.blocked {
+                refused.append(r)
+            } else {
+                kept.append(slug)
+            }
+        }
+        return (kept, refused)
+    }
+}
+
 /// Where an imported skill came from, so a caller can tell "a folder I already
 /// own" apart from "a stranger's SKILL.md". Swift mirror of Go
 /// `cli/internal/trust`.

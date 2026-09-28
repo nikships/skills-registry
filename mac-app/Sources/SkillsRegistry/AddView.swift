@@ -18,6 +18,16 @@ struct AddView: View {
     @State private var showPicker = false
     @State private var publishing = false
     @State private var progress: (Int, Int) = (0, 0)
+    @State private var acknowledgedBlock = false
+
+    /// Whether the fetched source is under the import gate.
+    private var untrusted: Bool { state.addGate?.untrusted ?? false }
+
+    /// The blocked reviews among the selected skills, if any.
+    private var selectedBlocked: [ImportReview] {
+        guard let gate = state.addGate else { return [] }
+        return selected.compactMap { gate.review(slug: $0) }.filter(\.blocked)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -30,12 +40,31 @@ struct AddView: View {
         .sheet(isPresented: $showPicker) {
             AgentPickerSheet(
                 title: "Install into which agents?",
-                subtitle: "\(selected.count) skill\(selected.count == 1 ? "" : "s") will be published to your registry, then installed into the agents you pick.",
-                confirmLabel: "Publish + install"
+                subtitle: pickerSubtitle,
+                confirmLabel: "Publish + install",
+                emptyConfirmLabel: "Publish"
             ) { targets in
                 runAdd(targets: targets)
             }
         }
+        // Demo mode drives the whole app offline, so the pane arrives with an
+        // untrusted source already fetched rather than requiring synthetic
+        // keystrokes — the same pattern as Discover's demo auto-search.
+        .onAppear {
+            guard state.isDemo, !didFetch, source.isEmpty else { return }
+            source = AppState.demoAddSource
+            fetch()
+        }
+    }
+
+    /// The picker subtitle states the registry-only default for untrusted
+    /// sources; confirming with zero agents publishes without installing.
+    private var pickerSubtitle: String {
+        let n = selected.count
+        if untrusted {
+            return "\(n) skill\(n == 1 ? "" : "s"). \(ImportGate.registryOnlyExplanation)"
+        }
+        return "\(n) skill\(n == 1 ? "" : "s") will be published to your registry, then installed into the agents you pick."
     }
 
     private var head: some View {
@@ -94,7 +123,8 @@ struct AddView: View {
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(selected.isEmpty || publishing || fetching)
+                .disabled(selected.isEmpty || publishing || fetching
+                    || (!selectedBlocked.isEmpty && !acknowledgedBlock))
                 .accessibilityIdentifier("addSelected")
             }
         }
@@ -119,6 +149,10 @@ struct AddView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if let gate = state.addGate, gate.untrusted {
+                        gateBanner(gate)
+                        Divider().overlay(Brand.border)
+                    }
                     ForEach(discovered) { sk in
                         row(sk)
                         Divider().overlay(Brand.border).padding(.leading, 48)
@@ -127,6 +161,52 @@ struct AddView: View {
                 .padding(.vertical, 4)
             }
         }
+    }
+
+    /// The import-gate banner for an untrusted source: the origin, the
+    /// index's grades (or the unscored disclaimer when the index has no row),
+    /// the registry-only default, and the Poor-safety acknowledgement when a
+    /// selected skill is blocked. Mirrors the CLI's `renderGate`.
+    private func gateBanner(_ gate: AddGate) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 13)).foregroundStyle(Brand.warn)
+                Text("Untrusted source — \(gate.assessment.reason)")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Brand.fg)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Public skill index grades:")
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg2)
+            ForEach(gate.scores.lines, id: \.name) { line in
+                HStack(spacing: 8) {
+                    Text(line.name).font(Brand.monoSized(11)).foregroundStyle(Brand.muted)
+                        .frame(width: 96, alignment: .leading)
+                    GradeBadge(level: line.level)
+                    Spacer()
+                }
+            }
+            if !gate.indexed {
+                Text("(the index has no row for this folder; unscored means unvetted, not safe)")
+                    .font(.system(size: 11)).foregroundStyle(Brand.meta)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(ImportGate.gradeDisclaimer)
+                    .font(.system(size: 11)).foregroundStyle(Brand.meta)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Default: publish to your registry only. No agent folder is written unless you opt in, and nothing under scripts/ is ever run.")
+                .font(.system(size: 11)).foregroundStyle(Brand.meta)
+                .fixedSize(horizontal: false, vertical: true)
+            if let first = selectedBlocked.first {
+                GateBlockWarning(review: first, acknowledged: $acknowledgedBlock,
+                                 toggleID: "addAllowUnsafe")
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.surfaceWarm)
+        .accessibilityIdentifier("addGateBanner")
     }
 
     private func row(_ sk: LocalSkill) -> some View {
@@ -164,6 +244,7 @@ struct AddView: View {
         guard !src.isEmpty else { return }
         fetching = true
         fetchFailed = false
+        acknowledgedBlock = false
         Task {
             if let found = await state.resolveAndScan(src, trustedLocalDir: trusted) {
                 discovered = found
@@ -194,13 +275,18 @@ struct AddView: View {
     private func runAdd(targets: [AgentTarget]) {
         let chosen = discovered.filter { selected.contains($0.slug) }
         guard !chosen.isEmpty else { return }
+        // Belt and braces: the Add button stays disabled until a blocker is
+        // acknowledged, and publishAndInstall refuses again on its own.
+        guard selectedBlocked.isEmpty || acknowledgedBlock else { return }
         publishing = true
         progress = (0, chosen.count)
         Task {
-            await state.publishAndInstall(chosen, targets: targets) { done, total in
+            await state.publishAndInstall(chosen, targets: targets,
+                                          allowUnsafe: acknowledgedBlock) { done, total in
                 Task { @MainActor in self.progress = (done, total) }
             }
             publishing = false
+            acknowledgedBlock = false
             // The temp clone is gone now; clear discovery so stale folder paths
             // aren't reused.
             discovered = []

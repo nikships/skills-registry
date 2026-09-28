@@ -502,26 +502,12 @@ struct DiscoverView: View {
     }
 
     private func blockWarning(_ review: ImportReview) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12)).foregroundStyle(Brand.danger)
-                Text(review.summary).font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Toggle(isOn: Binding(
+        GateBlockWarning(
+            review: review,
+            acknowledged: Binding(
                 get: { pending?.acknowledgedBlock ?? false },
-                set: { pending?.acknowledgedBlock = $0 })) {
-                Text("I have read the source and want to import it anyway")
-                    .font(.system(size: 12)).foregroundStyle(Brand.fg2)
-            }
-            .toggleStyle(.checkbox)
-            .accessibilityIdentifier("discoverAllowUnsafe")
-        }
-        .padding(12)
-        .background(Brand.surfaceWarm)
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.danger.opacity(0.45), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+                set: { pending?.acknowledgedBlock = $0 }),
+            toggleID: "discoverAllowUnsafe")
     }
 
     // MARK: - actions

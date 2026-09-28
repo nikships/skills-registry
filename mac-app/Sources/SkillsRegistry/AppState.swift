@@ -46,6 +46,18 @@ final class AppState: ObservableObject {
     /// into the clone) or a new resolve supersedes it.
     private var addCleanup: (@Sendable () -> Void)?
 
+    /// The import gate for the current Add fetch: the source's classification
+    /// plus the index row it degraded to when untrusted. Published so AddView
+    /// can render the origin banner, and read back by `publishAndInstall` to
+    /// enforce the verdict. Nil until the first fetch.
+    @Published var addGate: AddGate?
+    /// The trimmed source the current `addGate` was built from. Stamped onto
+    /// untrusted imports as their provenance.
+    private var addSource = ""
+    /// The resolved directory the current Add fetch scans, so
+    /// `publishAndInstall` can derive each skill's own `source_url`.
+    private var addResolveDir = ""
+
     private let defaults = UserDefaults.standard
     private let dismissKey = "dismissedUpdatePrompts"
     private let lastCLICheckKey = "lastCLIUpdateCheck"
@@ -336,41 +348,90 @@ final class AppState: ObservableObject {
     /// failure from a genuinely empty result. `trustedLocalDir` relaxes the
     /// relative-only path guard for directories chosen via the native picker.
     func resolveAndScan(_ source: String, trustedLocalDir: Bool = false) async -> [LocalSkill]? {
-        if isDemo { return Self.demoLocal }
+        if isDemo { return demoResolveAndScan(source) }
         addCleanup?()
         addCleanup = nil
+        addGate = nil
+        addSource = ""
+        addResolveDir = ""
+        let src = source.trimmingCharacters(in: .whitespacesAndNewlines)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let cwd = FileManager.default.currentDirectoryPath
         do {
             let resolved = try await SourceResolver.resolve(
-                source, home: home, cwd: cwd, folderFetcher: api,
+                src, home: home, cwd: cwd, folderFetcher: api,
                 allowAbsoluteLocal: trustedLocalDir)
             addCleanup = resolved.cleanup
-            let discovered = Scan.discover([Scan.Source(path: resolved.dir, label: source)])
+            let discovered = Scan.discover([Scan.Source(path: resolved.dir, label: src)])
             // Normalize both sides so a local "simplify_swarm" dedupes against a
             // registry "simplify-swarm" (mirrors Go scan.DedupeAgainst).
             let existing = Set(skills.map { normalizeForMatch($0.slug) })
             let fresh = discovered.filter {
                 !existing.contains(normalizeForMatch($0.slug)) && $0.slug != MetaSkill.slug
             }
+            addSource = src
+            addResolveDir = resolved.dir
+            addGate = await gateForAdd(source: src, slugs: fresh.map(\.slug))
             if discovered.isEmpty {
-                showToast("No SKILL.md files found under \(source).", .info)
+                showToast("No SKILL.md files found under \(src).", .info)
             }
             return fresh
         } catch {
             addCleanup = nil
+            addGate = nil
+            addSource = ""
+            addResolveDir = ""
             showToast("Couldn't fetch source: \(error.localizedDescription)", .error)
             return nil
         }
     }
 
+    /// Demo-mode seam: install the verdict `demoResolveAndScan` computed,
+    /// keeping the stored source/dir/gate trio consistent. Production fetches
+    /// set the same trio in `resolveAndScan`.
+    func setAddDemoState(source: String, gate: AddGate) {
+        addCleanup?()
+        addCleanup = nil
+        addSource = source
+        addResolveDir = ""
+        addGate = gate
+    }
+
+    /// Build the Add gate for one source: classify it against the registry
+    /// owner's login, and for an untrusted source look up the index row whose
+    /// grades the results banner shows. A lookup miss or failure degrades to
+    /// unscored rather than blocking the fetch — the index is a convenience,
+    /// and unscored already needs the user's confirmation.
+    private func gateForAdd(source: String, slugs: [String]) async -> AddGate {
+        let owners = repo.map { [$0.owner] } ?? []
+        var row: DiscoverResult?
+        if ImportTrust.assess(source, owners: owners).untrusted {
+            row = try? await DiscoverClient().lookup(source)
+        }
+        return AddGate.build(source: source, owners: owners, slugs: slugs, indexed: row)
+    }
+
     /// Publish each selected skill to the registry, then durably install it
     /// into the chosen agents. Dup-safe: slugs already in the registry are
     /// skipped. Cleans up the resolved temp clone when done.
+    ///
+    /// The Add gate is enforced, not just displayed: an untrusted source
+    /// stamps `source_url`/`category` provenance onto its copy, refused
+    /// (blocked and unacknowledged) skills are left unpublished, and an empty
+    /// target list publishes registry-only. `allowUnsafe` is the user's
+    /// acknowledgement of a blocker (the Poor-safety checkbox), never implied
+    /// by picking install targets.
     func publishAndInstall(_ locals: [LocalSkill], targets: [AgentTarget],
+                           allowUnsafe: Bool = false,
                            progress: @escaping @Sendable (Int, Int) -> Void) async {
         guard let api, let repo else { return }
-        defer { addCleanup?(); addCleanup = nil }
+        defer {
+            addCleanup?()
+            addCleanup = nil
+            addGate = nil
+            addSource = ""
+            addResolveDir = ""
+        }
         // Normalize both sides so separator/case-only variants dedupe against
         // an existing registry slug (mirrors Go scan.DedupeAgainst).
         let existing = Set(skills.map { normalizeForMatch($0.slug) })
@@ -380,11 +441,28 @@ final class AppState: ObservableObject {
             showToast(skipped > 0 ? "All selected skills already exist in the registry." : "Nothing to add.", .info)
             return
         }
+        let gate = addGate
+        let (gated, refused) = gate?.allowed(slugs: fresh.map(\.slug), allowUnsafe: allowUnsafe)
+            ?? (fresh.map(\.slug), [])
+        guard !gated.isEmpty else {
+            let why = refused.map { "\($0.slug): \($0.summary)" }.joined(separator: "; ")
+            showToast("Refused \(refused.count) skill\(refused.count == 1 ? "" : "s") — \(why).", .error)
+            return
+        }
+        let publishable = fresh.filter { gated.contains($0.slug) }
+        if gate?.untrusted == true {
+            do {
+                try stampAddProvenance(publishable, gate: gate)
+            } catch {
+                showToast("Couldn't stamp import provenance: \(error.localizedDescription)", .error)
+                return
+            }
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let total = fresh.count
+        let total = publishable.count
         var done = 0
         do {
-            for sk in fresh {
+            for sk in publishable {
                 let rel = stripSlugPrefix(try Scan.filesForUpload(slug: sk.slug, folder: sk.folder), slug: sk.slug)
                 _ = try await api.publish(repo, slug: sk.slug, files: rel,
                                           message: "add: \(sk.slug)", branch: branch)
@@ -397,12 +475,33 @@ final class AppState: ObservableObject {
                 progress(done, total)
             }
             let base = targets.isEmpty
-                ? "Added \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
-                : "Added + installed \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
-            showToast(skipped > 0 ? "\(base); skipped \(skipped) already in registry" : base, .ok)
+                ? "Added \(publishable.count) skill\(publishable.count == 1 ? "" : "s")"
+                : "Added + installed \(publishable.count) skill\(publishable.count == 1 ? "" : "s")"
+            var notes: [String] = []
+            if skipped > 0 { notes.append("skipped \(skipped) already in registry") }
+            if !refused.isEmpty {
+                notes.append("refused \(refused.count) blocked (acknowledge to import)")
+            }
+            showToast(notes.isEmpty ? base : "\(base); " + notes.joined(separator: "; "), .ok)
             refreshMetaSkillStatus()
         } catch {
             showToast("Add failed: \(error.localizedDescription)", .error)
+        }
+    }
+
+    /// Stamp `source_url`/`category` provenance onto each skill fetched from
+    /// an untrusted Add source, before the first write. Each skill gets its
+    /// own subfolder URL via the shared `relativeFolder(_:under:)` helper,
+    /// exactly like the Discover import path.
+    private func stampAddProvenance(_ skills: [LocalSkill], gate: AddGate?) throws {
+        guard let gate, !addSource.isEmpty else { return }
+        for sk in skills {
+            try ImportProvenance.stamp(
+                folder: sk.folder,
+                sourceURL: ImportProvenance.sourceURL(
+                    for: addSource,
+                    relativeFolder: Self.relativeFolder(sk.folder, under: addResolveDir)),
+                category: gate.category)
         }
     }
 

@@ -481,6 +481,78 @@ final class DiscoverClientTests: XCTestCase {
         }
     }
 
+    // MARK: - lookup by folder URL (mirror of Go lookup_test.go)
+
+    /// The index links a skill at whatever commit it last saw, so two URLs for
+    /// the same folder at different revisions must reduce to the same key.
+    func testSkillKeyIgnoresTheRevision() {
+        let a = DiscoverClient.skillKey("https://github.com/openclaw/openclaw/blob/1300b22/skills/summarize")
+        let b = DiscoverClient.skillKey("https://github.com/OpenClaw/OpenClaw/tree/main/skills/summarize")
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(a, "openclaw/openclaw/skills/summarize")
+    }
+
+    func testSkillKeyRejectsNonFolderURLs() {
+        for input in ["https://github.com/openclaw/openclaw",
+                      "https://github.com/openclaw/openclaw/tree/main",
+                      "https://gitlab.com/o/r/tree/main/skills/x",
+                      "owner/repo",
+                      ""] {
+            XCTAssertNil(DiscoverClient.skillKey(input), "skillKey(\(input)) should reject")
+        }
+    }
+
+    /// A URL the user pasted resolves to the index's row for the same folder
+    /// even when the revisions differ.
+    func testLookupFindsTheMatchingRow() async throws {
+        let transport = FakeTransport(body: Self.payload)
+        let got = try await client(transport).lookup(
+            "https://github.com/openclaw/openclaw/tree/main/skills/summarize")
+        let row = try XCTUnwrap(got, "lookup found nothing for an indexed folder")
+        XCTAssertEqual(row.safety, "Good")
+        XCTAssertEqual(row.executability, "Good")
+        XCTAssertEqual(row.category, "AIGC")
+        let url = try XCTUnwrap(transport.requests.first?.url)
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(items.first { $0.name == "q" }?.value, "summarize",
+                       "lookup searches for the folder name")
+        XCTAssertEqual(items.first { $0.name == "limit" }?.value, String(DiscoverClient.maxLimit))
+    }
+
+    /// The unscored path: the index simply has no row, which the caller
+    /// renders as unscored rather than as a failure.
+    func testLookupMissIsNotAnError() async throws {
+        let got = try await client(FakeTransport(body: Self.payload)).lookup(
+            "https://github.com/someone/else/tree/main/skills/other")
+        XCTAssertNil(got, "lookup matched a folder the index does not carry")
+    }
+
+    /// A same-named skill in another repository is not this skill.
+    func testLookupIgnoresANearMissWithADifferentPath() async throws {
+        let got = try await client(FakeTransport(body: Self.payload)).lookup(
+            "https://github.com/openclaw/openclaw/tree/main/other/summarize")
+        XCTAssertNil(got, "lookup matched on the name alone, ignoring the folder path")
+    }
+
+    func testLookupSkipsNonFolderURLsWithoutASearch() async throws {
+        let transport = FakeTransport(body: Self.payload)
+        let got = try await client(transport).lookup("https://github.com/openclaw/openclaw")
+        XCTAssertNil(got)
+        XCTAssertTrue(transport.requests.isEmpty, "lookup issued a search for a URL it cannot key")
+    }
+
+    func testLookupPropagatesSearchFailure() async {
+        do {
+            _ = try await client(FakeTransport(status: 500, body: "boom")).lookup(
+                "https://github.com/openclaw/openclaw/tree/main/skills/summarize")
+            XCTFail("lookup swallowed a transport failure")
+        } catch let e as DiscoverError {
+            guard case .status(500, _) = e else { return XCTFail("got \(e)") }
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
+
     /// A result row feeds straight into the import path with no rewriting:
     /// `skill_url` is exactly the shape `GitHubTarget` accepts.
     func testResultURLsParseAsFolderTargets() async throws {

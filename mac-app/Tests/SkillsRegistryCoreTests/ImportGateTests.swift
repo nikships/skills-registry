@@ -157,6 +157,108 @@ final class ImportGateTests: XCTestCase {
         }
     }
 
+    // MARK: - Add gate (mirror of Go add_gate.go, minus the scan)
+
+    /// A trusted source is returned unreviewed: it publishes byte-for-byte
+    /// and never consults the index, so even a passed-in row is ignored.
+    func testTrustedSourceIsUnreviewed() {
+        for source in ["./skills", "me/repo"] {
+            let gate = AddGate.build(
+                source: source, owners: ["me"], slugs: ["a", "b"],
+                indexed: DiscoverResult(name: "x", category: "AIGC", safety: "Poor"))
+            XCTAssertFalse(gate.untrusted, source)
+            XCTAssertTrue(gate.reviews.isEmpty, source)
+            XCTAssertFalse(gate.indexed, source)
+            XCTAssertEqual(gate.category, "", source)
+            let (allowed, refused) = gate.allowed(slugs: ["a", "b"], allowUnsafe: false)
+            XCTAssertEqual(allowed, ["a", "b"], source)
+            XCTAssertTrue(refused.isEmpty, source)
+        }
+    }
+
+    /// An untrusted source with an index row carries its grades, category, and
+    /// one review per skill.
+    func testUntrustedSourceCarriesTheIndexRow() {
+        let row = DiscoverResult(name: "pdf", category: "AIGC",
+                                 safety: "Good", completeness: "Average", executability: "Good")
+        let gate = AddGate.build(
+            source: "https://github.com/stranger/repo/blob/main/skills/pdf",
+            owners: ["me"], slugs: ["pdf"], indexed: row)
+        XCTAssertTrue(gate.untrusted)
+        XCTAssertTrue(gate.indexed)
+        XCTAssertEqual(gate.scores, ImportScores(safety: "Good", completeness: "Average", executability: "Good"))
+        XCTAssertEqual(gate.category, "AIGC")
+        XCTAssertEqual(gate.reviews.map(\.slug), ["pdf"])
+        XCTAssertTrue(gate.blocked.isEmpty)
+        XCTAssertEqual(gate.review(slug: "pdf")?.scores.safety, "Good")
+        XCTAssertNil(gate.review(slug: "other"))
+    }
+
+    /// A lookup miss or failure degrades to unscored rather than blocking the
+    /// import: the skills are still reviewed (and still need the user's
+    /// confirmation), just with empty grades.
+    func testUnscoredSourceIsReviewedNotBlocked() {
+        let gate = AddGate.build(
+            source: "https://github.com/stranger/repo/blob/main/skills/pdf",
+            owners: ["me"], slugs: ["pdf", "other"], indexed: nil)
+        XCTAssertTrue(gate.untrusted)
+        XCTAssertFalse(gate.indexed)
+        XCTAssertFalse(gate.scores.any)
+        XCTAssertEqual(gate.scores.lines.map(\.level),
+                       [ImportGate.unscoredLabel, ImportGate.unscoredLabel, ImportGate.unscoredLabel])
+        XCTAssertEqual(gate.category, "")
+        XCTAssertEqual(gate.reviews.map(\.slug), ["pdf", "other"])
+        XCTAssertTrue(gate.blocked.isEmpty)
+        let (allowed, refused) = gate.allowed(slugs: ["pdf", "other"], allowUnsafe: false)
+        XCTAssertEqual(allowed, ["pdf", "other"])
+        XCTAssertTrue(refused.isEmpty)
+    }
+
+    /// A Poor safety grade holds the import back until explicitly allowed, and
+    /// the refusal names the skill rather than failing the run silently.
+    func testPoorSafetyBlocksUntilAllowed() {
+        let row = DiscoverResult(name: "pdf", category: "Data", safety: "Poor")
+        let gate = AddGate.build(
+            source: "https://github.com/stranger/repo/blob/main/skills/pdf",
+            owners: ["me"], slugs: ["pdf"], indexed: row)
+        XCTAssertEqual(gate.blocked.map(\.slug), ["pdf"])
+
+        let (kept, refused) = gate.allowed(slugs: ["pdf"], allowUnsafe: false)
+        XCTAssertTrue(kept.isEmpty)
+        XCTAssertEqual(refused.map(\.slug), ["pdf"])
+
+        let (forced, none) = gate.allowed(slugs: ["pdf"], allowUnsafe: true)
+        XCTAssertEqual(forced, ["pdf"])
+        XCTAssertTrue(none.isEmpty)
+    }
+
+    /// The grades belong to the source folder, so every skill discovered
+    /// inside it is reviewed against them.
+    func testGradesApplyToEverySkillInTheFolder() {
+        let row = DiscoverResult(name: "parent", safety: "Poor")
+        let gate = AddGate.build(
+            source: "https://github.com/stranger/repo/tree/main/skills",
+            owners: ["me"], slugs: ["a", "b"], indexed: row)
+        XCTAssertEqual(gate.blocked.map(\.slug), ["a", "b"])
+    }
+
+    /// Classification trims the source first, so pasted input with
+    /// surrounding whitespace classifies like the CLI's.
+    func testClassificationTrimsTheSource() {
+        let local = ImportTrust.assess("  ./skills\n", owners: ["me"])
+        XCTAssertEqual(local.origin, .localPath)
+        XCTAssertFalse(local.untrusted)
+
+        let own = ImportTrust.assess("  me/repo  ", owners: ["me"])
+        XCTAssertEqual(own.origin, .ownRepo)
+        XCTAssertFalse(own.untrusted)
+
+        let pub = ImportTrust.assess("\nhttps://github.com/stranger/repo/blob/main/skills/pdf\t",
+                                     owners: ["me"])
+        XCTAssertEqual(pub.origin, .publicRepo)
+        XCTAssertTrue(pub.untrusted)
+    }
+
     // MARK: - provenance (mirror of Go provenance.go)
 
     func testProvenanceKeysCarryCategoryAndSourceURL() {

@@ -43,12 +43,16 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline. Two
+call is short-circuited, so you can drive the whole app offline. Several
 demo-only drivers make otherwise-unreachable states reachable: a Discover
 query starting with `!` fails the search the way an unreachable index would
-(error state, fallback hint, and retry, all offline), and the Discover
-category field filters the fixtures the way the live index filters
-server-side.
+(error state, fallback hint, and retry, all offline); the Discover category
+field filters the fixtures the way the live index filters server-side; the
+Discover pane arrives with a query already run; and the Add pane arrives with
+an untrusted fixture source (`AppState.demoAddSource`, resolving to the
+Poor-safety fixture row) already fetched, so the gated states are reachable
+without typing. Any other source typed into Add classifies through the real
+`AddGate.build`, degrading to unscored when no fixture row matches.
 
 ---
 
@@ -206,9 +210,16 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   the GitHub Contents API instead (`GitHubSubtree.swift`), so importing one
   skill out of a monorepo never clones the repository. Accepted URL shapes are
   parsed by `GitHubTarget`, kept in lockstep with the CLI's
-  `registry.ParseGitHubURL`. You multi-select discovered skills (dups already
-  in the registry are filtered out), then `publishAndInstall` publishes each
-  and installs it into the agents you pick.
+  `registry.ParseGitHubURL`. A third-party source goes through the same import
+  gate as the CLI's `add` (`AddGate` in `ImportGate.swift`, grades via
+  `DiscoverClient.lookup`): the results list carries an origin banner with the
+  index's three grades, publishing is registry-only unless you pick agent
+  folders in the picker (confirming with zero selected reads "Publish"), a
+  `Poor` safety grade needs the acknowledgement checkbox before Add proceeds,
+  and the published copy is stamped with `source_url` + `category` provenance.
+  You multi-select discovered skills (dups already in the registry are filtered
+  out), then `publishAndInstall` publishes each and installs it into the agents
+  you pick.
 - **Discover from the public index.** The **Discover** sidebar section searches
   the public SkillNet index through `DiscoverClient` (the Swift mirror of
   `cli/internal/discover`), so it reads the same JSON contract as
@@ -288,7 +299,10 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `searchField`, `publishButton`, `importSelected`, `installCLI`,
 `removeSkill`, `installSkill`, `editSkill`, `skillEditor`, `saveSkillEdit`,
 `cancelSkillEdit`, `addSourceField`, `addFetch`, `addSelected`,
-`agentPickerConfirm`, `discoverQueryField`, `discoverCategoryField`, `discoverSearch`, `discoverLimit-10/25/50`, `discoverRefreshStale`, `discoverImport`,
+`addGateBanner`, `addAllowUnsafe`,
+`agentPickerConfirm`, `discoverQueryField`, `discoverCategoryField`,
+`discoverSearch`, `discoverLimit-10/25/50`, `discoverRefreshStale`,
+`discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
 so an automated driver can find them deterministically.
