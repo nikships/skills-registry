@@ -105,7 +105,7 @@ struct GateBlockWarning: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 12)).foregroundStyle(Brand.danger)
-                Text(review.summary).font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
+                Text(review.displaySummary).font(.system(size: 12, weight: .medium)).foregroundStyle(Brand.fg)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Toggle(isOn: $acknowledged) {
@@ -114,6 +114,7 @@ struct GateBlockWarning: View {
             }
             .toggleStyle(.checkbox)
             .accessibilityIdentifier(toggleID)
+            .accessibilityLabel("I have read the source and want to import it anyway")
         }
         .padding(12)
         .background(Brand.surfaceWarm)

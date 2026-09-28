@@ -141,6 +141,15 @@ public struct ImportReview: Sendable, Hashable, Codable {
     /// The blocks rendered as one line.
     public var summary: String { reasons.joined(separator: "; ") }
 
+    /// The summary as a display sentence. The stored reasons stay lowercase
+    /// (matching Go `importgate.Evaluate`), and the CLI capitalizes only where
+    /// it prompts (`confirmUntrusted`), so the app does the same: capitalize
+    /// here, at the point of display.
+    public var displaySummary: String {
+        guard let first = summary.first else { return summary }
+        return String(first).uppercased() + summary.dropFirst()
+    }
+
     /// Produce the verdict for one skill. Both inputs are optional: no grades
     /// means the index never saw the skill, and no findings means the
     /// heuristic scan matched nothing (which is not a guarantee of safety).

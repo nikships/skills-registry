@@ -27,6 +27,9 @@ struct DiscoverView: View {
     @State private var searchError: String?
     @State private var importing = false
     @State private var pending: PendingImport?
+    @State private var pickerFor: PendingImport?
+    /// Destinations chosen in the picker. Nil means the picker has not run yet.
+    @State private var pickedTargets: [AgentTarget]?
     @State private var searchTask: Task<Void, Never>?
 
     /// The query demo mode arrives with.
@@ -481,18 +484,24 @@ struct DiscoverView: View {
                         Spacer()
                     }
                 }
+                // The sheet states the verdict; the disclaimer states what the
+                // verdict is worth. The detail pane already shows this line —
+                // the confirmation must not be the one place that omits it.
+                Text(ImportGate.gradeDisclaimer).font(.system(size: 11)).foregroundStyle(Brand.muted)
+                    .fixedSize(horizontal: false, vertical: true)
                 Toggle(isOn: Binding(
                     get: { pending?.installIntoAgents ?? false },
                     set: { pending?.installIntoAgents = $0 })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Also install into agents").font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Brand.fg)
-                        Text("Off by default. Every agent then loads this SKILL.md each session.")
+                        Text("Off by default. When on, Import asks which agents load this SKILL.md each session.")
                             .font(.system(size: 11)).foregroundStyle(Brand.meta)
                     }
                 }
                 .toggleStyle(.checkbox)
                 .accessibilityIdentifier("discoverInstallToggle")
+                .accessibilityLabel("Also install into agents")
 
                 if !findings.isEmpty {
                     ScanFindingsList(rows: findings.map { (item.result.name, $0) })
@@ -512,8 +521,12 @@ struct DiscoverView: View {
                 Button("Cancel") {
                     state.scanBlockedImport = nil
                     pending = nil
+                    pickedTargets = nil
                 }.buttonStyle(GhostButtonStyle())
                 Button {
+                    // `pending` is the live toggle state: the sheet's content
+                    // rebuilds as the toggles flip, and the bindings write back
+                    // into it, so reading it here is what the user just chose.
                     Task { await advanceImport() }
                 } label: {
                     HStack(spacing: 8) {
@@ -529,6 +542,22 @@ struct DiscoverView: View {
         }
         .frame(width: findings.isEmpty ? 480 : 540)
         .background(Brand.bg)
+        // Nested over the confirmation: cancelling the picker falls back to
+        // the confirmation rather than abandoning the import. Nothing is
+        // preselected, and confirming with none picked imports registry-only
+        // with a toast that says the install was skipped.
+        .sheet(item: $pickerFor) { pick in
+            AgentPickerSheet(
+                title: "Install into which agents?",
+                subtitle: "\(pick.result.name) will be imported into your registry, then installed into the agents you pick. Confirm with none selected for a registry-only import.",
+                confirmLabel: "Import + install",
+                emptyConfirmLabel: "Import registry-only"
+            ) { targets in
+                pickedTargets = targets
+                pickerFor = nil
+                Task { await advanceImport() }
+            }
+        }
     }
 
     private func blockWarning(_ review: ImportReview) -> some View {
@@ -573,10 +602,16 @@ struct DiscoverView: View {
         }
     }
 
-    /// Confirm, then fetch and scan, then write. The sheet stays up across the
-    /// scan: a hit is drawn into this same confirmation and the acknowledgement
-    /// is cleared, so the second click is the consent that was given with the
-    /// findings visible. A clean scan publishes on the first click.
+    /// Confirm, then pick install targets if the user opted in, then fetch and
+    /// scan, then write. The sheet stays up across the scan: a hit is drawn
+    /// into this same confirmation and the acknowledgement is cleared, so the
+    /// second click is the consent that was given with the findings visible. A
+    /// clean scan publishes on the first click.
+    ///
+    /// Opting into the durable agent install opens the picker first, so the
+    /// install goes only where the user chose instead of spraying every
+    /// detected folder. Confirming the picker with nothing selected is a
+    /// registry-only import, and the toast says the install was skipped.
     private func advanceImport() async {
         guard let item = pending else { return }
         let seenFindings = item.scanned != nil
@@ -588,12 +623,26 @@ struct DiscoverView: View {
         // A grade block still has to be acknowledged before we fetch. A scan
         // hit cannot be known yet, so it is not part of this check.
         if !seenFindings && !decision.permitted { return }
+        if decision.installPermitted && pickedTargets == nil {
+            // The opt-in chooses destinations rather than spraying every
+            // detected folder: the picker opens on confirm. Its picks survive
+            // a scan hold, so a held import is not asked twice.
+            pickerFor = item
+            return
+        }
+        await writeImport(item, seenFindings: seenFindings)
+    }
+
+    /// Write the confirmed import. `targets` are the agents the user picked (or
+    /// empty for registry-only); `pickedNoAgents` is true only when the picker
+    /// was shown and nothing was chosen, so the toast can say so.
+    private func writeImport(_ item: PendingImport, seenFindings: Bool) async {
+        let targets = pickedTargets ?? []
+        let pickedNoAgents = pickedTargets != nil && targets.isEmpty
         importing = true
-        let targets = decision.installPermitted
-            ? Agents.all().filter { $0.underHome || $0.universal }.filter(installTargetExists)
-            : []
         let published = await state.importDiscovered(
             item.result, targets: targets,
+            pickedNoAgents: pickedNoAgents,
             allowUnsafe: item.acknowledgedBlock,
             scanAcknowledged: seenFindings && item.acknowledgedBlock)
         importing = false
@@ -601,6 +650,7 @@ struct DiscoverView: View {
         if published {
             state.scanBlockedImport = nil
             pending = nil
+            pickedTargets = nil
             return
         }
         if let held = state.scanBlockedImport, held.result.id == item.result.id {
@@ -610,16 +660,6 @@ struct DiscoverView: View {
             pending = updated
             state.scanBlockedImport = nil
         }
-    }
-
-    /// The durable install writes into agent folders that already exist. A
-    /// user who opted in wants their agents to load the skill, not a new dot
-    /// folder per catalogue entry.
-    private func installTargetExists(_ target: AgentTarget) -> Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let base = (home as NSString).appendingPathComponent(target.dotDir)
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: base, isDirectory: &isDir) && isDir.boolValue
     }
 }
 

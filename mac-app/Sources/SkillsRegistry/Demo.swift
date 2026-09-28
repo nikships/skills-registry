@@ -126,6 +126,7 @@ extension AppState {
     /// either way: demo mode never touches a registry.
     @discardableResult
     func demoImportDiscovered(_ result: DiscoverResult, targets: [AgentTarget],
+                              pickedNoAgents: Bool = false,
                               allowUnsafe: Bool = false,
                               scanAcknowledged: Bool = false) -> Bool {
         if !scanAcknowledged, let held = Self.demoScanRefusal(result) {
@@ -138,10 +139,15 @@ extension AppState {
         }
         scanBlockedImport = nil
         let name = result.name.isEmpty ? result.skillURL : result.name
-        showToast(targets.isEmpty
-                  ? "Imported \(name) into your registry (demo)"
-                  : "Imported \(name) and installed it into \(targets.count) agent\(targets.count == 1 ? "" : "s") (demo)",
-                  .ok)
+        showToast({
+            if !targets.isEmpty {
+                return "Imported \(name) and installed it into \(targets.count) agent\(targets.count == 1 ? "" : "s") (demo)"
+            }
+            if pickedNoAgents {
+                return "Imported \(name) into your registry (demo); no agents picked, so the install was skipped"
+            }
+            return "Imported \(name) into your registry (demo)"
+        }(), .ok)
         return true
     }
 

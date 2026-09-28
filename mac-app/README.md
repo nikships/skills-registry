@@ -238,7 +238,9 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   Importing a row resolves its `skill_url` through the same `SourceResolver`
   fetch path (folder only, no clone), stamps `category` + `source_url` onto the
   copy, and publishes it. The confirmation keeps the durable agent install
-  **off by default**, and a `Poor` safety grade needs a second acknowledgement;
+  **off by default** (when on, confirming opens the agent picker so the
+  install goes only where chosen; picking nothing imports registry-only),
+  and a `Poor` safety grade needs a second acknowledgement;
   `ImportGate.swift` owns those rules, mirroring `importgate` + `trust`.
 - **Remove end-to-end.** `remove(_:)` deletes the `<slug>/` subtree from the
   registry, then `LocalRemove` clears the CLI download (`<slug>/` +

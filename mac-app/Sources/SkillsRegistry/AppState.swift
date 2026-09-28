@@ -534,8 +534,11 @@ final class AppState: ObservableObject {
     /// Contents API (never a clone), scanned for injection shapes, stamped
     /// with `category` + `source_url`, and published to the user's registry.
     /// `targets` is empty unless the user explicitly opted into the durable
-    /// agent-folder install, so the default really is registry-only.
-    /// `allowUnsafe` is the confirmation's acknowledgement of a blocker.
+    /// agent-folder install and picked destinations, so the default really is
+    /// registry-only. `pickedNoAgents` distinguishes "never asked" from "asked
+    /// and picked nothing", so the toast can say the install was skipped rather
+    /// than silently doing nothing. `allowUnsafe` is the confirmation's
+    /// acknowledgement of a blocker.
     ///
     /// The scan runs after the fetch because there is nothing to scan before
     /// it. A hit holds the import even when `allowUnsafe` already cleared a
@@ -545,10 +548,12 @@ final class AppState: ObservableObject {
     /// whether anything was published.
     @discardableResult
     func importDiscovered(_ result: DiscoverResult, targets: [AgentTarget],
+                          pickedNoAgents: Bool = false,
                           allowUnsafe: Bool = false,
                           scanAcknowledged: Bool = false) async -> Bool {
         if isDemo {
             return demoImportDiscovered(result, targets: targets,
+                                        pickedNoAgents: pickedNoAgents,
                                         allowUnsafe: allowUnsafe,
                                         scanAcknowledged: scanAcknowledged)
         }
@@ -591,7 +596,8 @@ final class AppState: ObservableObject {
                         relativeFolder: Self.relativeFolder(sk.folder, under: resolved.dir)),
                     category: result.category)
             }
-            try await publishDiscovered(fresh, api: api, repo: repo, targets: targets, home: home)
+            try await publishDiscovered(fresh, api: api, repo: repo, targets: targets, home: home,
+                                            pickedNoAgents: pickedNoAgents)
             refreshMetaSkillStatus()
             return true
         } catch {
@@ -628,7 +634,8 @@ final class AppState: ObservableObject {
     /// Publish every fetched skill and, only when `targets` is non-empty,
     /// durably install it. Split out so `importDiscovered` stays readable.
     private func publishDiscovered(_ fresh: [LocalSkill], api: GitHubAPI, repo: RepoRef,
-                                   targets: [AgentTarget], home: String) async throws {
+                                   targets: [AgentTarget], home: String,
+                                   pickedNoAgents: Bool = false) async throws {
         for sk in fresh {
             let rel = stripSlugPrefix(try Scan.filesForUpload(slug: sk.slug, folder: sk.folder),
                                       slug: sk.slug)
@@ -641,10 +648,15 @@ final class AppState: ObservableObject {
             }
         }
         let names = fresh.map(\.slug).joined(separator: ", ")
-        showToast(targets.isEmpty
-                  ? "Imported \(names) into your registry"
-                  : "Imported \(names) and installed it into \(targets.count) agent\(targets.count == 1 ? "" : "s")",
-                  .ok)
+        let message: String
+        if !targets.isEmpty {
+            message = "Imported \(names) and installed it into \(targets.count) agent\(targets.count == 1 ? "" : "s")"
+        } else if pickedNoAgents {
+            message = "Imported \(names) into your registry (no agents picked, install skipped)"
+        } else {
+            message = "Imported \(names) into your registry"
+        }
+        showToast(message, .ok)
     }
 
     /// A fetched skill folder's slash-separated path under the fetch root, so

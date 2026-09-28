@@ -57,6 +57,7 @@ struct SettingsView: View {
                         set: { updater.setAutomaticChecks($0) }))
                         .toggleStyle(.switch)
                         .font(.system(size: 12)).foregroundStyle(Brand.muted)
+                        .accessibilityLabel("Check automatically")
                 }
             }
         }

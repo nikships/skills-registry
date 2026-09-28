@@ -86,6 +86,15 @@ final class ImportGateTests: XCTestCase {
         }
     }
 
+    /// The stored reason stays lowercase (Go parity), and the display sentence
+    /// capitalizes it the way the CLI's confirmation prompt does.
+    func testDisplaySummaryCapitalizesTheStoredReason() {
+        let review = ImportReview.evaluate(slug: "pdf", scores: ImportScores(safety: "Poor"))
+        XCTAssertTrue(review.summary.hasPrefix("the public skill index"), review.summary)
+        XCTAssertTrue(review.displaySummary.hasPrefix("The public skill index"), review.displaySummary)
+        XCTAssertEqual(ImportReview(slug: "pdf", scores: ImportScores()).displaySummary, "")
+    }
+
     // MARK: - the decision an import acts on
 
     /// Registry-only is the default. An untrusted import must not durably
