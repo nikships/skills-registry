@@ -3,7 +3,9 @@ package scan
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func writeSkill(t *testing.T, root, name, body string) string {
@@ -369,6 +371,23 @@ func TestEntriesForCleanup_SkipsDotfiles(t *testing.T) {
 	entries := EntriesForCleanup(sources, map[string]struct{}{".DS_Store": {}})
 	if len(entries) != 0 {
 		t.Fatalf("dotfiles must be skipped, got %+v", entries)
+	}
+}
+
+// TestFirstParagraph_TruncatesByRunesNotBytes pins that the fallback
+// description cap clips on a rune boundary: the same bug class as the
+// registry's 300-wide cap, one package over.
+func TestFirstParagraph_TruncatesByRunesNotBytes(t *testing.T) {
+	in := strings.Repeat("a", 239) + "é" + strings.Repeat("b", 50)
+	got := firstParagraph(in, 240)
+	if !utf8.ValidString(got) {
+		t.Fatalf("firstParagraph clipped mid-UTF-8-sequence: %q", got)
+	}
+	if n := len([]rune(got)); n != 240 {
+		t.Fatalf("firstParagraph kept %d runes, want 240", n)
+	}
+	if !strings.HasSuffix(got, "é") {
+		t.Fatalf("firstParagraph should end on the é rune boundary: %q", got)
 	}
 }
 

@@ -1300,8 +1300,8 @@ func parseSummary(text, slug string) (string, string) {
 		description = firstParagraph(text)
 	}
 	description = strings.Join(strings.Fields(description), " ")
-	if len(description) > 300 {
-		description = description[:300]
+	if r := []rune(description); len(r) > 300 {
+		description = string(r[:300])
 	}
 	if description == "" {
 		description = "Skill: " + name

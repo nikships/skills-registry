@@ -173,6 +173,15 @@ final class ImportGateTests: XCTestCase {
         XCTAssertEqual(keys.map(\.name), [Frontmatter.sourceURLKey])
     }
 
+    /// Mirrors Go `TestBoundedCategoryClipsGraphemesByRunes`: the 64-wide clip
+    /// counts Unicode scalars (Go runes), not grapheme clusters, so a flag
+    /// counts as its two regional indicators.
+    func testCategoryClipsOnScalarsNotGraphemes() {
+        let long = String(repeating: "🇺🇸", count: 40) // 40 graphemes, 80 scalars
+        XCTAssertEqual(ImportProvenance.boundedCategory(long).unicodeScalars.count,
+                       ImportProvenance.maxCategoryLength)
+    }
+
     /// The category is third-party text written into a file agents load, so it
     /// is collapsed to one line and clipped.
     func testCategoryIsBoundedToOneShortLine() {

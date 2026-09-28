@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -292,6 +293,39 @@ func TestSourceURLEndsInTheSkillFolderName(t *testing.T) {
 		root, filepath.Join(root, "summarize"))
 	if !strings.HasSuffix(got, "/summarize") {
 		t.Fatalf("source_url = %q; it names the folder, so it must end in the skill directory", got)
+	}
+}
+
+// TestYAMLScalarEscapesControlCharacters pins the cross-language contract: a
+// value carrying a C0/C1 control or DEL is quoted, and escaped exactly the
+// way strconv.Quote escapes it, so the byte never reaches frontmatter raw.
+// Mirrors Swift FrontmatterTests testYAMLScalarEscapesControlCharacters.
+func TestYAMLScalarEscapesControlCharacters(t *testing.T) {
+	controls := []rune{0x00, 0x07, 0x08, 0x0b, 0x0c, 0x1b, 0x7f, 0x85}
+	for _, c := range controls {
+		in := "ab" + string(c) + "cd"
+		got := yamlScalar(in)
+		if got != strconv.Quote(in) {
+			t.Errorf("yamlScalar(%q) = %q, want strconv.Quote %q", in, got, strconv.Quote(in))
+		}
+		for _, r := range got {
+			if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+				t.Errorf("yamlScalar(%q) = %q, a raw control rune must not survive", in, got)
+				break
+			}
+		}
+	}
+}
+
+// TestBoundedCategoryClipsGraphemesByRunes pins that the 64-wide clip counts
+// Unicode scalars (runes), not grapheme clusters: a flag emoji counts as its
+// two regional indicators. Mirrors Swift ImportGateTests
+// testCategoryClipsOnScalarsNotGraphemes.
+func TestBoundedCategoryClipsGraphemesByRunes(t *testing.T) {
+	long := strings.Repeat("🇺🇸", 40) // 40 graphemes, 80 runes
+	got := boundedCategory(long)
+	if n := len([]rune(got)); n != maxCategoryLen {
+		t.Fatalf("boundedCategory kept %d runes, want %d", n, maxCategoryLen)
 	}
 }
 

@@ -294,12 +294,13 @@ public enum ImportProvenance {
         return out
     }
 
-    /// Normalize the index's category to a single short line.
+    /// Normalize the index's category to a single short line, clipped to
+    /// `maxCategoryLength` Unicode scalars (Go runes), matching Go's clip.
     public static func boundedCategory(_ category: String) -> String {
         let collapsed = category.split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .joined(separator: " ")
-        guard collapsed.count > maxCategoryLength else { return collapsed }
-        return String(collapsed.prefix(maxCategoryLength))
+        guard collapsed.unicodeScalars.count > maxCategoryLength else { return collapsed }
+        return String(collapsed.unicodeScalars.prefix(maxCategoryLength))
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
