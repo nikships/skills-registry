@@ -11,6 +11,7 @@ struct SkillsRegistryApp: App {
         let demo = ProcessInfo.processInfo.arguments.contains("--demo")
             || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
         _state = StateObject(wrappedValue: AppState(demo: demo))
+        _theme = StateObject(wrappedValue: ThemeManager(demo: demo))
     }
 
     var body: some Scene {

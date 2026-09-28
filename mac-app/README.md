@@ -43,13 +43,26 @@ SKILLS_APP_DEMO=1 open "build/Skills Registry.app"
 ```
 
 Demo mode injects fixture skills, identity, and detail markdown; every network
-call is short-circuited, so you can drive the whole app offline. Several
-demo-only drivers make otherwise-unreachable states reachable: a Discover
-query starting with `!` fails the search the way an unreachable index would
-(error state, fallback hint, and retry, all offline); the Discover category
-field filters the fixtures the way the live index filters server-side; the
-Discover pane arrives with a query already run; and the Add pane arrives with
-an untrusted fixture source (`AppState.demoAddSource`, resolving to the
+call is short-circuited, so you can drive the whole app offline. Demo is
+fully side-effect free by construction:
+
+- The Keychain is rerouted to a process-local in-memory dictionary, so Sign
+  out in demo can never delete your real saved token.
+- Demo uses its own `UserDefaults` suite (`dev.skills-registry.app.demo`), so
+  accent/theme, dismissal, and check-timestamp state never leaks between demo
+  and real instances.
+- CLI and agent-skill installs are simulated with fixture state — no network,
+  no `~/.local/bin` or dot-folder writes.
+- Every other write path (Import, Add publish, Discover import, publish,
+  install, remove) shows an honest `Demo mode: would …` info toast instead of
+  silently doing nothing.
+
+Several demo-only drivers make otherwise-unreachable states reachable: a
+Discover query starting with `!` fails the search the way an unreachable index
+would (error state, fallback hint, and retry, all offline); the Discover
+category field filters the fixtures the way the live index filters server-side;
+the Discover pane arrives with a query already run; and the Add pane arrives
+with an untrusted fixture source (`AppState.demoAddSource`, resolving to the
 Poor-safety fixture row) already fetched, so the gated states are reachable
 without typing. That same fixture's `SKILL.md` (`AppState.demoScanHitMarkdown`)
 is run through `SkillScan`, so the Add banner lists the hits and Discover's

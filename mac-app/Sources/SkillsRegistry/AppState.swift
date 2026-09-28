@@ -63,13 +63,19 @@ final class AppState: ObservableObject {
     /// and the confirmation did not already allow it.
     @Published var scanBlockedImport: ScanBlockedImport?
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let dismissKey = "dismissedUpdatePrompts"
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
 
     init(demo: Bool = false) {
         self.isDemo = demo
+        self.defaults = DemoDefaults.store(isDemo: demo)
+        if demo {
+            // Reroute every Keychain call to a process-local dictionary so a
+            // demo Sign out can never delete the real saved token.
+            Keychain.inMemoryOnly = true
+        }
         dismissedKeys = Set(defaults.stringArray(forKey: dismissKey) ?? [])
     }
 
@@ -168,7 +174,9 @@ final class AppState: ObservableObject {
     }
 
     func logout() {
-        Keychain.delete()
+        // Belt and suspenders with `Keychain.inMemoryOnly`: a demo Sign out
+        // must never touch persistent credentials at all.
+        if !isDemo { Keychain.delete() }
         token = nil
         api = nil
         identity = nil
@@ -288,6 +296,7 @@ final class AppState: ObservableObject {
     /// and GitHub's tree listing is eventually consistent right after a write
     /// anyway (a re-list could resurrect the slug).
     func remove(_ slug: String) async {
+        if isDemo { demoToast("would remove \(slug)"); return }
         guard let api, let repo else { return }
         let removed = skills.filter { $0.slug == slug }
         skills.removeAll { $0.slug == slug }
@@ -327,8 +336,12 @@ final class AppState: ObservableObject {
     /// `get`'s job) — this is the durable equivalent of the CLI's install
     /// picker.
     func installRegistrySkill(_ slug: String, targets: [AgentTarget]) async {
-        guard let api, let repo else { return }
         guard !targets.isEmpty else { showToast("Pick at least one agent to install into.", .info); return }
+        if isDemo {
+            demoToast("would install \(slug) into \(targets.count) agent\(targets.count == 1 ? "" : "s")")
+            return
+        }
+        guard let api, let repo else { return }
         do {
             let files = try await api.skillFileData(repo, slug: slug, branch: branch)
             let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -438,6 +451,22 @@ final class AppState: ObservableObject {
     func publishAndInstall(_ locals: [LocalSkill], targets: [AgentTarget],
                            allowUnsafe: Bool = false,
                            progress: @escaping @Sendable (Int, Int) -> Void) async {
+        // Demo has no API client, so the guard below would return silently —
+        // say what would have happened instead. Counts mirror the real path
+        // (dup-filtered, skipped reported).
+        let existing = Set(skills.map { normalizeForMatch($0.slug) })
+        let fresh = locals.filter { !existing.contains(normalizeForMatch($0.slug)) }
+        if isDemo {
+            let skipped = locals.count - fresh.count
+            var msg = "would publish \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
+            if !targets.isEmpty {
+                msg += " and install into \(targets.count) agent\(targets.count == 1 ? "" : "s")"
+            }
+            if skipped > 0 { msg += "; skipped \(skipped) already in registry" }
+            demoToast(msg)
+            progress(fresh.count, locals.count)
+            return
+        }
         guard let api, let repo else { return }
         defer {
             addCleanup?()
@@ -448,8 +477,6 @@ final class AppState: ObservableObject {
         }
         // Normalize both sides so separator/case-only variants dedupe against
         // an existing registry slug (mirrors Go scan.DedupeAgainst).
-        let existing = Set(skills.map { normalizeForMatch($0.slug) })
-        let fresh = locals.filter { !existing.contains(normalizeForMatch($0.slug)) }
         let skipped = locals.count - fresh.count
         guard !fresh.isEmpty else {
             showToast(skipped > 0 ? "All selected skills already exist in the registry." : "Nothing to add.", .info)
@@ -671,7 +698,6 @@ final class AppState: ObservableObject {
 
     /// Publish a skill from a local folder containing SKILL.md.
     func publishFolder(_ url: URL) async {
-        guard let api, let repo else { return }
         let folder = url.path
         let main = (folder as NSString).appendingPathComponent("SKILL.md")
         guard FileManager.default.fileExists(atPath: main) else {
@@ -682,6 +708,8 @@ final class AppState: ObservableObject {
         let folderName = (folder as NSString).lastPathComponent
         let (name, desc) = Frontmatter.parseSummary(text, slug: folderName)
         let slug = slugify(name.isEmpty ? folderName : name)
+        if isDemo { demoToast("would publish \(slug)"); return }
+        guard let api, let repo else { return }
         // Normalize both sides so a separator/case-only variant already in the
         // registry is detected (mirrors Go scan.DedupeAgainst).
         let want = normalizeForMatch(slug)
@@ -731,12 +759,19 @@ final class AppState: ObservableObject {
     }
 
     func importSkills(_ locals: [LocalSkill], progress: @escaping @Sendable (Int, Int) -> Void) async {
-        guard let api, let repo else { return }
         // Defensive: never overwrite a slug already in the registry. The Import
         // screen pre-filters these, but guard the write path directly too.
         // Normalized comparison (mirrors Go scan.DedupeAgainst).
         let fresh = Scan.dedupeAgainst(locals, remoteSlugs: skills.map(\.slug))
         let skipped = locals.count - fresh.count
+        if isDemo {
+            var msg = "would publish \(fresh.count) skill\(fresh.count == 1 ? "" : "s")"
+            if skipped > 0 { msg += "; skipped \(skipped) already in registry" }
+            demoToast(msg)
+            progress(fresh.count, locals.count)
+            return
+        }
+        guard let api, let repo else { return }
         guard !fresh.isEmpty else {
             showToast(skipped > 0 ? "All selected skills already exist in the registry." : "Nothing to import.", .info)
             return
@@ -765,6 +800,15 @@ final class AppState: ObservableObject {
     // MARK: - CLI
 
     func installCLI() async {
+        if isDemo {
+            // Simulate success with fixture state: no network, no disk write.
+            cliInstalled = true
+            cliVersion = "v0.0.0-demo"
+            cliInstallDirOnPath = true
+            cliUpdate = nil
+            demoToast("would install the CLI to ~/.local/bin")
+            return
+        }
         // Pin the resolved CLI tag so we never pull the CLI asset from a
         // `macapp-v*` release (the project ships both streams from one repo;
         // GitHub's `releases/latest` is ambiguous across them). Resolution
@@ -815,6 +859,8 @@ final class AppState: ObservableObject {
 
     /// Local-only: classify the meta-skill across detected agent dot-folders.
     func refreshMetaSkillStatus() {
+        // Demo never reads the real home directory; fixture state stands in.
+        if isDemo { return }
         guard let repo else { metaSkill = MetaSkill.Status(); return }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         metaSkill = MetaSkill.status(home: home, registryRepo: repo.fullName)
@@ -837,6 +883,12 @@ final class AppState: ObservableObject {
     /// agent (one click; only writes the missing/outdated ones).
     func installMetaSkill() async {
         guard let repo else { return }
+        if isDemo {
+            // Simulate success with fixture state: no dot-folder writes.
+            metaSkill = MetaSkill.demoStatus()
+            demoToast("would install the skills-registry skill in \(metaSkill.detectedCount) agents")
+            return
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         do {
             let n = try MetaSkill.install(home: home, registryRepo: repo.fullName)
@@ -872,6 +924,12 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - toast
+
+    /// Honest feedback for a demo-mode write: names what the action would
+    /// have done instead of silently doing nothing.
+    private func demoToast(_ what: String) {
+        showToast("Demo mode: \(what)", .info)
+    }
 
     func showToast(_ message: String, _ kind: ToastItem.Kind) {
         let item = ToastItem(message: message, kind: kind)
