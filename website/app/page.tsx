@@ -117,7 +117,7 @@ export default function Home() {
                 ["05", "Delegate", "The gateway skill teaches compatible agents to invoke the CLI only when a skill is needed."],
                 ["06", "Work anywhere", "Point another laptop, desktop, or remote machine at the same repository."],
               ].map(([number, title, body]) => (
-                <div className="feature-cell card" key={number}><span className="feature-num">{number}</span><h4 className="h4">{title}</h4><p>{body}</p></div>
+                <div className="feature-cell card" key={number}><span className="feature-num">{number}</span><h3 className="h4">{title}</h3><p>{body}</p></div>
               ))}
             </div>
           </div>
@@ -196,10 +196,10 @@ skills-registry get code-review --json
             <div>
               <div className="section-head"><p className="eyebrow"><span className="dot" /> Install</p><h2 className="h2">From zero to your own registry.</h2></div>
               <ol className="step-list">
-                <li><div><h4>Install the Go CLI</h4><p>Use the shell installer, PowerShell installer, or npm launcher.</p></div></li>
-                <li><div><h4>Run <code>skills-registry</code></h4><p>The wizard discovers local skills and asks where your registry should live.</p></div></li>
-                <li><div><h4>Create and populate the repo</h4><p>Authenticate with GitHub CLI, choose visibility, and push the initial tree.</p></div></li>
-                <li><div><h4>Select your agents</h4><p>Install the gateway skill into the agent folders you use.</p></div></li>
+                <li><div><h3>Install the Go CLI</h3><p>Use the shell installer, PowerShell installer, or npm launcher.</p></div></li>
+                <li><div><h3>Run <code>skills-registry</code></h3><p>The wizard discovers local skills and asks where your registry should live.</p></div></li>
+                <li><div><h3>Create and populate the repo</h3><p>Authenticate with GitHub CLI, choose visibility, and push the initial tree.</p></div></li>
+                <li><div><h3>Select your agents</h3><p>Install the gateway skill into the agent folders you use.</p></div></li>
               </ol>
             </div>
             <div>
@@ -221,9 +221,9 @@ irm https://raw.githubusercontent.com/nikships/skills-registry/main/install.ps1 
 
       <footer className="pagefoot"><div className="container"><div className="foot-grid">
         <div className="foot-col"><a href="#top" className="brand-mark foot"><img src="assets/logo.png" alt="Skills Registry" /></a><p className="foot-tag">A GitHub-backed home for agent skills, with a Go CLI/TUI, gateway skill, and native macOS app.</p></div>
-        <div className="foot-col"><h5>Project</h5><ul><li><a href={repo}>GitHub</a></li><li><a href={`${repo}/releases`}>Releases</a></li><li><a href={`${repo}/issues`}>Issues</a></li></ul></div>
-        <div className="foot-col"><h5>Documentation</h5><ul><li><a href={`${repo}#readme`}>Getting started</a></li><li><a href={`${repo}/blob/main/docs/registry.md`}>Architecture</a></li><li><a href={`${repo}/blob/main/CONTRIBUTING.md`}>Contributing</a></li><li><a href={`${repo}/blob/main/SECURITY.md`}>Security</a></li></ul></div>
-        <div className="foot-col"><h5>Tools</h5><ul><li><a href="https://cli.github.com/">GitHub CLI</a></li><li><a href="https://git-scm.com/">Git</a></li><li><a href={`${repo}/tree/main/mac-app`}>macOS app</a></li><li><a href="https://www.npmjs.com/package/skills-registry">npm package</a></li></ul></div>
+        <div className="foot-col"><h3 className="foot-head">Project</h3><ul><li><a href={repo}>GitHub</a></li><li><a href={`${repo}/releases`}>Releases</a></li><li><a href={`${repo}/issues`}>Issues</a></li></ul></div>
+        <div className="foot-col"><h3 className="foot-head">Documentation</h3><ul><li><a href={`${repo}#readme`}>Getting started</a></li><li><a href={`${repo}/blob/main/docs/registry.md`}>Architecture</a></li><li><a href={`${repo}/blob/main/CONTRIBUTING.md`}>Contributing</a></li><li><a href={`${repo}/blob/main/SECURITY.md`}>Security</a></li></ul></div>
+        <div className="foot-col"><h3 className="foot-head">Tools</h3><ul><li><a href="https://cli.github.com/">GitHub CLI</a></li><li><a href="https://git-scm.com/">Git</a></li><li><a href={`${repo}/tree/main/mac-app`}>macOS app</a></li><li><a href="https://www.npmjs.com/package/skills-registry">npm package</a></li></ul></div>
       </div><div className="foot-bottom"><span className="meta-text">© 2026 nikships · Apache-2.0</span><span className="meta-text">GitHub-backed · local-first · open source</span></div></div></footer>
     </>
   );
