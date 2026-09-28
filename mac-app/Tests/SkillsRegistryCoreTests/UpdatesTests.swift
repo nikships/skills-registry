@@ -86,3 +86,132 @@ final class UpdatesPickLatestTests: XCTestCase {
         XCTAssertTrue(Updates.isNewer(installed: nil, than: Semver("0.6.0")!))
     }
 }
+
+final class CheckThrottleTests: XCTestCase {
+    func testNeverCheckedAlwaysChecks() {
+        XCTAssertTrue(CheckThrottle.shouldCheck(lastCheck: 0, now: 1_000_000, interval: 300))
+    }
+
+    func testFreshCheckSkips() {
+        XCTAssertFalse(CheckThrottle.shouldCheck(lastCheck: 1_000_000, now: 1_000_100, interval: 300))
+    }
+
+    func testStaleCheckRuns() {
+        XCTAssertTrue(CheckThrottle.shouldCheck(lastCheck: 1_000_000, now: 1_000_301, interval: 300))
+    }
+
+    func testBoundaryChecks() {
+        XCTAssertTrue(CheckThrottle.shouldCheck(lastCheck: 1_000_000, now: 1_000_300, interval: 300))
+    }
+}
+
+/// `installTag` must never resolve the ambiguous `releases/latest` endpoint:
+/// a failed lookup surfaces the underlying error and an empty channel reports
+/// `noReleases`. Every response is scripted through a `URLProtocol` stub, so
+/// nothing here touches the network.
+final class InstallTagTests: XCTestCase {
+    override func tearDown() {
+        StubReleases.reset()
+        super.tearDown()
+    }
+
+    private func session() -> URLSession {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [StubReleasesProtocol.self]
+        return URLSession(configuration: cfg)
+    }
+
+    private func rel(_ tag: String) -> [String: Any] {
+        ["tag_name": tag, "draft": false, "prerelease": false]
+    }
+
+    func testResolvesHighestCLITagIgnoringMacApp() async throws {
+        StubReleases.outcome = .releases([rel("macapp-v9.9.9"), rel("v0.5.30"), rel("v0.6.0")])
+        let tag = try await Updates.installTag(repo: "o/r", session: session())
+        XCTAssertEqual(tag, "v0.6.0")
+        XCTAssertEqual(StubReleases.requests.count, 1)
+        XCTAssertTrue(StubReleases.requests[0].url?.path.hasSuffix("/releases") ?? false)
+    }
+
+    func testEmptyChannelThrowsNoReleases() async {
+        for releases in [[rel("macapp-v0.2.0")], []] {
+            StubReleases.outcome = .releases(releases)
+            do {
+                _ = try await Updates.installTag(repo: "o/r", session: session())
+                XCTFail("expected noReleases for \(releases)")
+            } catch let error as CLIResolveError {
+                XCTAssertEqual(error, .noReleases)
+            } catch {
+                XCTFail("wrong error: \(error)")
+            }
+        }
+    }
+
+    func testNetworkErrorPropagatesForTheToast() async {
+        StubReleases.outcome = .failure(URLError(.notConnectedToInternet))
+        do {
+            _ = try await Updates.installTag(repo: "o/r", session: session())
+            XCTFail("expected the network error")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .notConnectedToInternet)
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
+    func testNon200Throws() async {
+        StubReleases.outcome = .status(500)
+        do {
+            _ = try await Updates.installTag(repo: "o/r", session: session())
+            XCTFail("expected a GitHubError")
+        } catch let error as GitHubError {
+            XCTAssertEqual(error.status, 500)
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+}
+
+/// Process-global scripted `/releases` state (URLProtocol has no instance context).
+private enum StubReleases {
+    enum Outcome {
+        case releases([[String: Any]])
+        case status(Int)
+        case failure(Error)
+    }
+
+    static var outcome: Outcome = .releases([])
+    static var requests: [URLRequest] = []
+
+    static func reset() {
+        outcome = .releases([])
+        requests = []
+    }
+}
+
+private final class StubReleasesProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        StubReleases.requests.append(request)
+        switch StubReleases.outcome {
+        case .failure(let error):
+            client?.urlProtocol(self, didFailWithError: error)
+        case .status(let code):
+            let resp = HTTPURLResponse(url: request.url!, statusCode: code,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+            client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data())
+            client?.urlProtocolDidFinishLoading(self)
+        case .releases(let arr):
+            let payload = (try? JSONSerialization.data(withJSONObject: arr)) ?? Data()
+            let resp = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: payload)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+    override func stopLoading() {}
+}

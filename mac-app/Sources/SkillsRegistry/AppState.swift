@@ -36,6 +36,8 @@ final class AppState: ObservableObject {
 
     @Published var toast: ToastItem?
     @Published var cliInstalled = false
+    @Published var cliInstalling = false
+    @Published var metaSkillInstalling = false
     @Published var cliVersion: String?
     // Defaults to true until the async shell probe completes. A Finder-
     // launched app cannot know its shell PATH from ProcessInfo alone.
@@ -86,6 +88,11 @@ final class AppState: ObservableObject {
     private let dismissKey = "dismissedUpdatePrompts"
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
+    private let lastCLIStatusKey = "lastCLIStatusCheck"
+    /// Local probe cache (`--version` + login-shell PATH spawn). Deliberately
+    /// short: install state changes out-of-band (terminal installs), so a long
+    /// TTL would lie, while minutes still make repeat Settings visits free.
+    private let cliStatusTTL: TimeInterval = 5 * 60
 
     init(demo: Bool = false, authPreview: AuthPreview? = nil, demoSetup: DemoSetup = .none) {
         self.isDemo = demo
@@ -918,27 +925,29 @@ final class AppState: ObservableObject {
             demoToast("would install the CLI to ~/.local/bin")
             return
         }
+        // Reentrancy guard: the banner + Settings expose this action
+        // simultaneously, and overlapping installs race in CLIInstaller
+        // (removeItem + moveItem) into a bogus failure toast.
+        guard !cliInstalling else { return }
+        cliInstalling = true
+        defer { cliInstalling = false }
         // Pin the resolved CLI tag so we never pull the CLI asset from a
         // `macapp-v*` release (the project ships both streams from one repo;
-        // GitHub's `releases/latest` is ambiguous across them). Resolution
-        // failures surface as their own error — never a "latest" fallback,
-        // which would 404 whenever the newest release is an app release.
+        // GitHub's `releases/latest` is ambiguous across them). A failed
+        // lookup surfaces here instead of silently downloading `latest`.
         let tag: String
         do {
-            guard let resolved = try await Updates.latestRelease(repo: AppConfig.projectRepo, channel: .cli) else {
-                showToast("No published CLI release found — try again later", .error)
-                return
-            }
-            tag = resolved.tag
+            tag = try await Updates.installTag(repo: AppConfig.projectRepo)
+        } catch CLIResolveError.noReleases {
+            showToast("No CLI releases have been published yet — try again later.", .error)
+            return
         } catch {
-            showToast("Couldn't reach GitHub to resolve the latest CLI release", .error)
+            showToast("Couldn't reach GitHub to resolve the latest CLI release: \(error.localizedDescription)", .error)
             return
         }
         do {
             _ = try await CLIInstaller.install(version: tag)
-            cliInstalled = true
-            cliVersion = await CLIInstaller.installedVersion()
-            cliInstallDirOnPath = await CLIInstaller.shellInstallDirOnPath()
+            await refreshCLIStatus(force: true)
             cliUpdate = nil
             showToast("CLI installed to ~/.local/bin/skills-registry", .ok)
         } catch {
@@ -946,12 +955,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    func refreshCLIStatus() async {
+    /// Re-probe the local CLI state (`--version` + a login-shell PATH check).
+    /// Cached on a short TTL so repeat visits don't re-spawn; `installCLI`
+    /// force-refreshes after a successful install.
+    func refreshCLIStatus(force: Bool = false) async {
+        let now = Date().timeIntervalSince1970
+        if !force, !CheckThrottle.shouldCheck(
+            lastCheck: defaults.double(forKey: lastCLIStatusKey), now: now, interval: cliStatusTTL) {
+            return
+        }
         cliInstalled = CLIInstaller.isInstalled()
         cliVersion = await CLIInstaller.installedVersion()
         cliInstallDirOnPath = cliInstalled
             ? await CLIInstaller.shellInstallDirOnPath()
             : true
+        defaults.set(now, forKey: lastCLIStatusKey)
     }
 
     // MARK: - update / meta-skill prompts
@@ -979,7 +997,8 @@ final class AppState: ObservableObject {
         guard cliInstalled else { cliUpdate = nil; return }
         let now = Date().timeIntervalSince1970
         // Throttle the network call; keep showing an already-found update.
-        if cliUpdate == nil, now - defaults.double(forKey: lastCLICheckKey) < cliCheckInterval {
+        if cliUpdate == nil, !CheckThrottle.shouldCheck(
+            lastCheck: defaults.double(forKey: lastCLICheckKey), now: now, interval: cliCheckInterval) {
             return
         }
         guard let latest = (try? await Updates.latestRelease(
@@ -998,6 +1017,10 @@ final class AppState: ObservableObject {
             demoToast("would install the skills-registry skill in \(metaSkill.detectedCount) agents")
             return
         }
+        // Same reentrancy guard as installCLI: banner + Settings race here.
+        guard !metaSkillInstalling else { return }
+        metaSkillInstalling = true
+        defer { metaSkillInstalling = false }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         do {
             let n = try MetaSkill.install(home: home, registryRepo: repo.fullName)

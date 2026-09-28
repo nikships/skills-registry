@@ -94,6 +94,11 @@ with an empty list, so the loading state can be inspected. Both are
 offline-only fixtures for screenshots and cua-driver runs; production code
 never reads them.
 
+call is short-circuited, so you can drive the whole app offline. Sparkle
+failures can't be produced offline, so **Settings → App** also shows a
+demo-only "Simulate check failure" button that seeds the failure hint + toast
+exactly as a real failed check would.
+
 ---
 
 ## Architecture
@@ -164,13 +169,20 @@ Three things can fall out of date; the app keeps each one fresh:
   (`SUFeedURL` in `Info.plist`) is `mac-app/appcast.xml` on `main`, and every
   release is EdDSA-signed (`SUPublicEDKey`) before Sparkle will install it. A
   daily background check, a "Check for Updates…" menu item, and an "auto-check"
-  toggle in **Settings → App** are the whole surface.
+  toggle in **Settings → App** are the whole surface. When a check errors
+  (network down, bad feed — not "no update found" or a user-cancelled
+  install), the app shows an error toast and a "last check failed" hint in
+  **Settings → App** until the next successful check.
 - **The `skills-registry` CLI** is a separate release stream (`v*` tags vs the
   app's `macapp-v*` tags — same repo, so `releases/latest` is ambiguous; see
   `Updates.ReleaseChannel`). On a 6-hour throttle the app checks the CLI
   channel and, if a newer build exists, shows a dismissible Home banner +
   a "update → vX.Y.Z" pill in **Settings → Command-line tool**. One click
-  reinstalls the pinned tag.
+  reinstalls the pinned tag; if the tag lookup itself fails, the toast says
+  so instead of downloading ambiguous `latest`. The local CLI status probes
+  (`--version` + login-shell PATH check) are cached for 5 minutes so repeat
+  Settings visits don't re-spawn them, and concurrent installs are guarded
+  so the banner + Settings can't race each other into a bogus failure.
 - **The `skills-registry` meta-skill** (`SKILL.md`) is the gateway that teaches
   each agent how to reach your registry. `MetaSkill` scans every detected
   home-based agent dot-folder, classifies it `missing` / `outdated` / `current`
@@ -351,7 +363,8 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `discoverCategoryField`, `discoverSearch`, `discoverLimit-10/25/50`,
 `discoverRefreshStale`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
-`nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`)
+`nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`,
+`updaterFailureHint`, `simulateUpdateFailure`)
 so an automated driver can find them deterministically.
 
 ---

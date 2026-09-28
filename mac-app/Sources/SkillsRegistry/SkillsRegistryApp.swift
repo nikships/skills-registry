@@ -62,6 +62,7 @@ struct SkillsRegistryApp: App {
 struct RootView: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var theme: ThemeManager
+    @EnvironmentObject var updater: UpdaterManager
 
     var body: some View {
         ZStack {
@@ -72,6 +73,11 @@ struct RootView: View {
                 .id(theme.accent)
         }
         .toastOverlay(state.toast)
+        .onChange(of: updater.lastCheckFailure) { _, failure in
+            if let failure {
+                state.showToast("App update check failed: \(failure.message)", .error)
+            }
+        }
         .sheet(isPresented: Binding(
             get: { state.deviceCode != nil || state.authInProgress },
             set: { if !$0 { state.cancelLogin() } }

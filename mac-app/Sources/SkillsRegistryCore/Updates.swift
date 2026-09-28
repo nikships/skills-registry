@@ -82,6 +82,21 @@ public struct ReleaseInfo: Sendable, Equatable {
     }
 }
 
+/// Timestamp-TTL throttle for periodic checks (CLI status probes, CLI
+/// release lookups). Pure so the app's cached checks stay unit-testable.
+public enum CheckThrottle {
+    /// Whether enough time has passed since `lastCheck` (0 = never checked).
+    public static func shouldCheck(lastCheck: TimeInterval, now: TimeInterval, interval: TimeInterval) -> Bool {
+        now - lastCheck >= interval
+    }
+}
+
+/// Why resolving the CLI install tag failed.
+public enum CLIResolveError: Error, Sendable, Equatable {
+    /// The CLI channel exists but has no published releases yet.
+    case noReleases
+}
+
 /// GitHub release discovery, filtered by channel. Unauthenticated REST.
 public enum Updates {
     /// Highest-semver non-draft, non-prerelease release on `channel`, or nil if
@@ -101,6 +116,20 @@ public enum Updates {
         }
         let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
         return pickLatest(from: arr, channel: channel)
+    }
+
+    /// Which tag a CLI install should download. Never falls back to the
+    /// ambiguous `releases/latest` endpoint (the repo ships both `v*` CLI and
+    /// `macapp-v*` tags): a failed lookup throws the underlying error so the
+    /// UI can surface it, and an empty channel throws `noReleases`.
+    public static func installTag(
+        repo: String,
+        session: URLSession = .shared
+    ) async throws -> String {
+        guard let latest = try await latestRelease(repo: repo, channel: .cli, session: session) else {
+            throw CLIResolveError.noReleases
+        }
+        return latest.tag
     }
 
     /// Pure selection over a decoded `/releases` array — unit-testable.

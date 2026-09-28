@@ -6,8 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var updater: UpdaterManager
-    @State private var installing = false
-    @State private var installingSkill = false
 
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
@@ -44,6 +42,11 @@ struct SettingsView: View {
                 }
                 Text("Skills Registry updates itself in the background and verifies each release's signature before installing. You can also check now.")
                     .font(.system(size: 13)).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
+                if let failure = updater.lastCheckFailure {
+                    Text("Last check failed: \(failure.message)")
+                        .font(Brand.monoSized(11)).foregroundStyle(Brand.warn).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("updaterFailureHint")
+                }
                 HStack(spacing: 10) {
                     Button { updater.checkForUpdates() } label: {
                         Label("Check for updates", systemImage: "arrow.triangle.2.circlepath")
@@ -58,6 +61,15 @@ struct SettingsView: View {
                         .toggleStyle(.switch)
                         .font(.system(size: 12)).foregroundStyle(Brand.muted)
                         .accessibilityLabel("Check automatically")
+                }
+                // Demo-only: Sparkle failures can't be produced offline, so
+                // demo mode gets a trigger for the failure hint + toast.
+                if state.isDemo {
+                    Button("Simulate check failure (demo only)") {
+                        updater.simulateCheckFailure()
+                    }
+                    .buttonStyle(GhostButtonStyle())
+                    .accessibilityIdentifier("simulateUpdateFailure")
                 }
             }
         }
@@ -96,16 +108,15 @@ struct SettingsView: View {
                 }
 
                 Button {
-                    installingSkill = true
-                    Task { await state.installMetaSkill(); installingSkill = false }
+                    Task { await state.installMetaSkill() }
                 } label: {
                     HStack(spacing: 8) {
-                        if installingSkill { ProgressView().controlSize(.small) }
+                        if state.metaSkillInstalling { ProgressView().controlSize(.small) }
                         Text(state.metaSkill.anyMissing ? "Install in all agents" : "Reinstall / refresh")
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(installingSkill || state.metaSkill.detectedCount == 0)
+                .disabled(state.metaSkillInstalling || state.metaSkill.detectedCount == 0)
                 .accessibilityIdentifier("installMetaSkill")
             }
         }
@@ -185,16 +196,15 @@ struct SettingsView: View {
                     .font(.system(size: 13)).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
                     Button {
-                        installing = true
-                        Task { await state.installCLI(); installing = false }
+                        Task { await state.installCLI() }
                     } label: {
                         HStack(spacing: 8) {
-                            if installing { ProgressView().controlSize(.small) }
+                            if state.cliInstalling { ProgressView().controlSize(.small) }
                             Text(state.cliInstalled ? "Reinstall / update" : "Install CLI")
                         }
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(installing)
+                    .disabled(state.cliInstalling)
                     .accessibilityIdentifier("installCLI")
 
                     Button {
