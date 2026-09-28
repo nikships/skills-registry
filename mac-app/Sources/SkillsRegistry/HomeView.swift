@@ -23,15 +23,6 @@ enum NavSection: String, CaseIterable, Identifiable {
 struct HomeView: View {
     @EnvironmentObject var state: AppState
 
-    /// The selected sidebar section, owned by `AppState` so an accent change
-    /// (which rebuilds this whole tree via `RootView .id(theme.accent)`) does
-    /// not reset navigation to Browse.
-    private var section: Binding<NavSection> {
-        Binding(
-            get: { NavSection(rawValue: state.navSection) ?? .browse },
-            set: { state.navSection = $0.rawValue })
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             sidebar
@@ -42,7 +33,7 @@ struct HomeView: View {
         .task { await state.checkForUpdates() }
         // VoiceOver announcement: the content swaps with no focus move, so
         // without this a section switch is silent.
-        .onChange(of: state.navSection) { _, raw in AccessibilityAnnouncer.post(raw) }
+        .onChange(of: state.section) { _, new in AccessibilityAnnouncer.post(new.rawValue) }
     }
 
     private var sidebar: some View {
@@ -82,15 +73,15 @@ struct HomeView: View {
     }
 
     private func navButton(_ item: NavSection) -> some View {
-        Button { withAnimation(.easeInOut(duration: 0.22)) { section.wrappedValue = item } } label: {
+        Button { withAnimation(.easeInOut(duration: 0.22)) { state.section = item } } label: {
             HStack(spacing: 10) {
                 Image(systemName: item.icon).font(.system(size: 13)).frame(width: 18)
                 Text(item.rawValue).font(.system(size: 13, weight: .medium))
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .foregroundStyle(section.wrappedValue == item ? Brand.fg : Brand.muted)
-            .background(section.wrappedValue == item ? Brand.surfaceRaised : Color.clear)
+            .foregroundStyle(state.section == item ? Brand.fg : Brand.muted)
+            .background(state.section == item ? Brand.surfaceRaised : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
         }
@@ -154,15 +145,15 @@ struct HomeView: View {
         VStack(spacing: 0) {
             UpdateBanner()
             Group {
-                switch section.wrappedValue {
-                case .browse: BrowseView(section: section)
+                switch state.section {
+                case .browse: BrowseView(section: $state.section)
                 case .discover: DiscoverView()
                 case .add: AddView()
                 case .importLocal: ImportView()
                 case .settings: SettingsView()
                 }
             }
-            .id(section.wrappedValue)
+            .id(state.section)
             .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
     }

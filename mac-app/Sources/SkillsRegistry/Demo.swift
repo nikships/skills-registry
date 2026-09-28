@@ -32,7 +32,7 @@ extension AppState {
         // `--demo-scan-sheet` opens Discover so the held import confirmation is
         // on screen at launch. Production always starts on Browse.
         if ProcessInfo.processInfo.arguments.contains("--demo-scan-sheet") {
-            navSection = NavSection.discover.rawValue
+            section = .discover
         }
         switch demoSetup {
         case .loaded, .loading:

@@ -162,6 +162,20 @@ pane for screenshots:
 open "build/Skills Registry.app" --args --demo --demo-select=plain_notes
 ```
 
+### Keyboard shortcuts
+
+The **Navigate** menu mirrors every shortcut. Focused text fields show an
+accent ring.
+
+| Shortcut | Action |
+|---|---|
+| `⌘F` | Focus the current section's search / source field (Browse, Discover, Add) |
+| `⌘R` | Refresh: reload the Browse list, re-run the Discover search, rescan Import |
+| `⌘1`–`⌘5` | Switch to Browse · Discover · Add · Import · Settings |
+| `⌘,` | Open Settings |
+| `Return` | Confirm: sign in, create/connect, sheet confirm buttons |
+| `Esc` | Cancel sheets |
+
 ---
 
 ## Architecture

@@ -7,6 +7,10 @@ struct SetupView: View {
     @State private var newName = "skills-registry"
     @State private var isPrivate = true
     @State private var connectManual = ""
+    @FocusState private var focusedField: SetupField?
+
+    /// Tab order for the Setup inputs (onboarding-9): name, then connect.
+    private enum SetupField: Hashable { case name, connect }
 
     var body: some View {
         ScrollView {
@@ -81,10 +85,11 @@ struct SetupView: View {
                         TextField("repo name", text: $newName)
                             .textFieldStyle(.plain)
                             .font(Brand.monoSized(13))
+                            .focused($focusedField, equals: .name)
                             .padding(.horizontal, 12).padding(.vertical, 9)
                             .background(Brand.surfaceWarm)
                             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.border, lineWidth: 1))
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .inputContainer(focused: focusedField == .name, cornerRadius: 7)
                             .accessibilityIdentifier("newRepoName")
                         Picker("", selection: $isPrivate) {
                             Text("Private").tag(true)
@@ -109,6 +114,7 @@ struct SetupView: View {
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
                 .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty
                     || SetupValidation.repoNameHint(newName) != nil || state.isCreatingRepo)
                 .accessibilityIdentifier("createRegistry")
@@ -171,18 +177,14 @@ struct SetupView: View {
                     HStack(spacing: 8) {
                         TextField("owner/repo", text: $connectManual)
                             .textFieldStyle(.plain).font(Brand.monoSized(13))
+                            .focused($focusedField, equals: .connect)
+                            .onSubmit { connectManualSubmit() }
                             .padding(.horizontal, 12).padding(.vertical, 8)
                             .background(Brand.surfaceWarm)
                             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Brand.border, lineWidth: 1))
-                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .inputContainer(focused: focusedField == .connect, cornerRadius: 7)
                             .accessibilityIdentifier("connectManual")
-                        Button("Connect") {
-                            if let ref = RepoRef(fullName: connectManual.trimmingCharacters(in: .whitespaces)) {
-                                Task { await state.connect(ref, branch: "main") }
-                            } else {
-                                state.showToast("Enter owner/repo", .error)
-                            }
-                        }
+                        Button("Connect") { connectManualSubmit() }
                         .buttonStyle(GhostButtonStyle())
                         .disabled(connectManual.trimmingCharacters(in: .whitespaces).isEmpty
                             || SetupValidation.repoRefHint(connectManual) != nil)
@@ -196,6 +198,15 @@ struct SetupView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Manual connect, shared by the Connect button and Return in its field.
+    private func connectManualSubmit() {
+        if let ref = RepoRef(fullName: connectManual.trimmingCharacters(in: .whitespaces)) {
+            Task { await state.connect(ref, branch: "main") }
+        } else {
+            state.showToast("Enter owner/repo", .error)
         }
     }
 

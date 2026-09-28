@@ -54,6 +54,7 @@ struct LoginView: View {
                             .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(PrimaryButtonStyle())
+                        .keyboardShortcut(.defaultAction)
                         .accessibilityIdentifier("signInWithGitHub")
 
                         if let err = state.authError {
@@ -156,6 +157,7 @@ struct DeviceCodeSheet: View {
 
             Button("Cancel") { state.cancelLogin() }
                 .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
                 .font(.system(size: 12)).foregroundStyle(Brand.muted)
         }
         .padding(32)

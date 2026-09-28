@@ -14,6 +14,7 @@ struct AddView: View {
     @State private var showPicker = false
     @State private var publishing = false
     @State private var progress: (Int, Int) = (0, 0)
+    @FocusState private var sourceFocused: Bool
 
     /// Whether the fetched source is under the import gate.
     private var untrusted: Bool { state.addGate?.untrusted ?? false }
@@ -57,6 +58,8 @@ struct AddView: View {
             source.wrappedValue = AppState.demoAddSource
             fetch()
         }
+        // Add has a source field (Cmd-F) but nothing to refresh.
+        .onChange(of: state.focusSearchRequest) { sourceFocused = true }
     }
 
     /// The picker subtitle states the registry-only default for untrusted
@@ -77,22 +80,10 @@ struct AddView: View {
                 .font(.system(size: 13)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                Image(systemName: "link").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                TextField("owner/repo · https://github.com/… · ./local/path", text: source)
-                    .textFieldStyle(.plain).font(.system(size: 13))
-                    .onSubmit { fetch() }
-                    .accessibilityIdentifier("addSourceField")
-                if !state.addPane.source.isEmpty {
-                    Button { state.addPane.source = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(Brand.meta)
-                        .accessibilityLabel("Clear source")
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Brand.surfaceWarm)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            SearchField(icon: "link",
+                        placeholder: "owner/repo · https://github.com/… · ./local/path",
+                        text: source, focused: $sourceFocused,
+                        accessibilityID: "addSourceField") { fetch() }
 
             HStack(spacing: 10) {
                 Button { fetch() } label: {

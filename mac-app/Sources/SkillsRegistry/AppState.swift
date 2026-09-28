@@ -11,6 +11,14 @@ final class AppState: ObservableObject {
     @Published var repo: RepoRef?
     @Published var branch: String = "main"
 
+    /// Selected sidebar section. Lives here (rather than `HomeView` @State)
+    /// so the menu command layer can switch sections without focus tricks.
+    @Published var section: NavSection = .browse
+    /// Incremented by the Cmd-F / Cmd-R commands; the visible pane observes
+    /// these and focuses its search field / refreshes its content.
+    @Published var focusSearchRequest = 0
+    @Published var refreshRequest = 0
+
     @Published var skills: [SkillSummary] = []
     @Published var skillsLoading = false
     @Published var skillsError: String?
@@ -59,7 +67,6 @@ final class AppState: ObservableObject {
     // section switches (HomeView `.id(section)`). The pane snapshot is the
     // single source of truth; views bind to a field and keep only transient
     // UI state (spinners, sheets, in-flight tasks) locally.
-    @Published var navSection: String = "Browse"
     @Published var browsePane = PaneState.Browse()
     @Published var discoverPane = PaneState.Discover()
     @Published var addPane = PaneState.Add()

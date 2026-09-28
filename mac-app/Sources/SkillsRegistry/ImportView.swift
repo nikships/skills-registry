@@ -18,6 +18,8 @@ struct ImportView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Brand.bg)
+        // Import has no search field, so Cmd-R rescans the local folders.
+        .onChange(of: state.refreshRequest) { rescan() }
         .task { if !state.importPane.scanned { rescan() } }
     }
 

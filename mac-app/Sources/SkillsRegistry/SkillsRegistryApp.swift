@@ -65,6 +65,11 @@ struct SkillsRegistryApp: App {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesCommand(updater: updater)
             }
+            // App command layer (design-a11y-4): per-pane search + refresh and
+            // section switching, driven by AppState so it needs no focus.
+            CommandMenu("Navigate") {
+                AppCommands(state: state)
+            }
         }
     }
 }

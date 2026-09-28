@@ -25,6 +25,7 @@ struct DiscoverView: View {
     /// Destinations chosen in the picker. Nil means the picker has not run yet.
     @State private var pickedTargets: [AgentTarget]?
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var queryFocused: Bool
 
     /// Query, mode, results, selection, and search history live in `AppState`
     /// so switching sections or re-theming the accent keeps the search intact.
@@ -73,6 +74,9 @@ struct DiscoverView: View {
                 confirmSheet(item).id(item.scanned?.count ?? -1)
             }
         }
+        // Cmd-F focuses the query field, Cmd-R re-runs the search.
+        .onChange(of: state.focusSearchRequest) { queryFocused = true }
+        .onChange(of: state.refreshRequest) { search() }
         // Demo mode drives the whole app offline, so the pane arrives with a
         // query already run rather than requiring synthetic keystrokes. Only
         // for the very first appearance: once a search has run — by demo or by
@@ -103,22 +107,10 @@ struct DiscoverView: View {
                 .font(.system(size: 13)).foregroundStyle(Brand.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                Image(systemName: "sparkle.magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                TextField("pdf · summarize a youtube video · kubernetes", text: query)
-                    .textFieldStyle(.plain).font(.system(size: 13))
-                    .onSubmit { search() }
-                    .accessibilityIdentifier("discoverQueryField")
-                if !state.discoverPane.query.isEmpty {
-                    Button { state.discoverPane.query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                        .buttonStyle(.plain).foregroundStyle(Brand.meta)
-                        .accessibilityLabel("Clear search")
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Brand.surfaceWarm)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.border, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            SearchField(icon: "sparkle.magnifyingglass",
+                        placeholder: "pdf · summarize a youtube video · kubernetes",
+                        text: query, focused: $queryFocused,
+                        accessibilityID: "discoverQueryField") { search() }
 
             HStack(spacing: 10) {
                 categoryField
@@ -522,6 +514,7 @@ struct DiscoverView: View {
                     pending = nil
                     pickedTargets = nil
                 }.buttonStyle(GhostButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 Button {
                     // `pending` is the live toggle state: the sheet's content
                     // rebuilds as the toggles flip, and the bindings write back
@@ -534,6 +527,7 @@ struct DiscoverView: View {
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .keyboardShortcut(.defaultAction)
                 .disabled(importing || (review.blocked && !(pending?.acknowledgedBlock ?? false)))
                 .accessibilityIdentifier("discoverConfirmImport")
             }
