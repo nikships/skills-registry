@@ -260,9 +260,10 @@ func (c *Client) slugsViaMirror(ctx context.Context) (map[string]struct{}, error
 }
 
 // getViaMirror copies `<mirror>/<slug>/` recursively into `dest`. A
-// missing slug folder is treated as a no-op (matching the gh-api
-// `Get`'s silent-on-404 behavior — `downloadRecursive` falls through
-// when `contents` returns nil, nil for a 404).
+// missing slug folder yields ErrSlugNotFound (wrapped with the slug):
+// the mirror is fast-forwarded to the remote HEAD by ensureMirror, so
+// an absent folder means the registry truly has no such skill — the
+// gh-api path would 404 identically and must not be consulted.
 func (c *Client) getViaMirror(ctx context.Context, slug, dest string) error {
 	dir, err := c.ensureMirror(ctx)
 	if err != nil {
@@ -272,12 +273,12 @@ func (c *Client) getViaMirror(ctx context.Context, slug, dest string) error {
 	info, err := os.Stat(src)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return os.MkdirAll(dest, 0o755)
+			return fmt.Errorf("%w: %q", ErrSlugNotFound, slug)
 		}
 		return err
 	}
 	if !info.IsDir() {
-		return os.MkdirAll(dest, 0o755)
+		return fmt.Errorf("%w: %q", ErrSlugNotFound, slug)
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err

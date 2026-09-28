@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/nikships/skills-registry/cli/internal/cache"
+	"github.com/nikships/skills-registry/cli/internal/registry"
 )
 
 func TestResolveDest(t *testing.T) {
@@ -134,4 +138,134 @@ func TestResolveDest(t *testing.T) {
 			t.Fatalf("reused = %q, want %q", reused, existing)
 		}
 	})
+}
+
+// TestDownloadSkillUnknownSlugFails verifies the cli-tui-2 fix at the
+// DownloadSkill level: an unknown slug returns ErrSlugNotFound (naming
+// the slug, pointing at search/list) and leaves no directory behind —
+// instead of the old exit-0 fake success with an empty folder.
+func TestDownloadSkillUnknownSlugFails(t *testing.T) {
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	bin := stubGHForRemove(t, []map[string]any{
+		{
+			"key": "GET repos/x/y/contents/",
+			"body": []map[string]any{
+				{"name": "real-skill", "type": "dir", "sha": "tree-1"},
+			},
+		},
+	})
+	installGHEnv(t, bin)
+	client, err := registry.New("x/y", "main")
+	if err != nil {
+		t.Fatalf("registry.New: %v", err)
+	}
+
+	_, _, err = DownloadSkill(context.Background(), client, "no-such-skill", "")
+	if !errors.Is(err, registry.ErrSlugNotFound) {
+		t.Fatalf("DownloadSkill = %v, want ErrSlugNotFound", err)
+	}
+	for _, want := range []string{"no_such_skill", "search", "list"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(cache.CacheRoot(), "no_such_skill")); !os.IsNotExist(statErr) {
+		t.Fatalf("unknown-slug get must not create a cache dir, stat = %v", statErr)
+	}
+}
+
+// TestDownloadSkillKnownSlugSucceeds is the happy-path companion: a slug
+// the registry actually has still downloads through DownloadSkill, so
+// the new not-found check can't regress normal fetches.
+func TestDownloadSkillKnownSlugSucceeds(t *testing.T) {
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	bin := stubGHForRemove(t, []map[string]any{
+		{
+			"key": "GET repos/x/y/contents/",
+			"body": []map[string]any{
+				{"name": "real-skill", "type": "dir", "sha": "tree-1"},
+			},
+		},
+		{
+			"key": "GET repos/x/y/contents/real-skill",
+			"body": []map[string]any{
+				{"name": "SKILL.md", "type": "file"},
+			},
+		},
+		{
+			"key":  "GET repos/x/y/contents/real-skill/SKILL.md",
+			"body": map[string]any{"encoding": "base64", "content": "IyBSZWFs"},
+		},
+	})
+	installGHEnv(t, bin)
+	client, err := registry.New("x/y", "main")
+	if err != nil {
+		t.Fatalf("registry.New: %v", err)
+	}
+
+	finalDest, reused, err := DownloadSkill(context.Background(), client, "real-skill", "")
+	if err != nil {
+		t.Fatalf("DownloadSkill: %v", err)
+	}
+	if reused != "" {
+		t.Fatalf("reused = %q, want empty", reused)
+	}
+	got, err := os.ReadFile(filepath.Join(finalDest, "SKILL.md"))
+	if err != nil || string(got) != "# Real" {
+		t.Fatalf("SKILL.md missing or wrong content: %q %v", got, err)
+	}
+}
+
+// TestRunGetJSONUnknownSlugEmitsError pins the JSON half of the contract:
+// `get <unknown> --json` prints {"error": ...} to stdout and returns a
+// non-nil error (so the caller exits non-zero), with no dir created.
+func TestRunGetJSONUnknownSlugEmitsError(t *testing.T) {
+	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	writeRegistryConfig(t, "x/y")
+	bin := stubGHForRemove(t, []map[string]any{
+		{
+			"key": "GET repos/x/y/contents/",
+			"body": []map[string]any{
+				{"name": "real-skill", "type": "dir", "sha": "tree-1"},
+			},
+		},
+	})
+	installGHEnv(t, bin)
+
+	buf := captureJSONOut(t)
+	if err := runGetJSON(context.Background(), "no-such-skill", ""); err == nil {
+		t.Fatal("runGetJSON should return an error for an unknown slug")
+	}
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(buf.String())), &payload); err != nil {
+		t.Fatalf("invalid JSON %q: %v", buf.String(), err)
+	}
+	msg, ok := payload["error"]
+	if !ok || msg == "" {
+		t.Fatalf("expected {\"error\": ...}, got %v", payload)
+	}
+	if !strings.Contains(msg, "no_such_skill") {
+		t.Errorf("error %q should name the slug", msg)
+	}
+	if _, statErr := os.Stat(filepath.Join(cache.CacheRoot(), "no_such_skill")); !os.IsNotExist(statErr) {
+		t.Fatalf("unknown-slug get must not create a cache dir, stat = %v", statErr)
+	}
+}
+
+// TestSlugNotFoundErrorShape pins the message wording: it wraps the
+// registry sentinel (errors.Is keeps working) and suggests the
+// discovery commands.
+func TestSlugNotFoundErrorShape(t *testing.T) {
+	err := slugNotFoundError("x/y", "no_such_skill")
+	if !errors.Is(err, registry.ErrSlugNotFound) {
+		t.Fatalf("expected ErrSlugNotFound, got %v", err)
+	}
+	for _, want := range []string{`no_such_skill`, "x/y", "search", "list"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
+	}
 }

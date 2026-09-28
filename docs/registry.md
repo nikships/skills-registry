@@ -36,6 +36,8 @@ The bulk initial import uses `git push` over HTTPS with credentials configured b
 
 Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`. Runtime failures print no usage text and a single `Error:` line; usage appears only for actual misuse. Under `--json` every failure mode — including wrong arg counts and unknown commands — emits one `{"error": "..."}` object on stdout with exit 1, plus the single `Error:` line on stderr.
 
+`get <slug>` fails loudly when the registry has no such slug (exit 1, `{"error": ...}` under `--json`) and leaves no directory behind, so a scripted fetch can trust a zero exit to mean the skill actually downloaded. The registry client surfaces the same `ErrSlugNotFound` sentinel on a 404 contents listing or a missing mirror folder, so every `Get` caller (including the durable installer) benefits.
+
 ## Discover
 
 `search` ranks the user's own registry. `discover QUERY` is the outward-facing counterpart: it queries the public SkillNet index and returns importable GitHub URLs.

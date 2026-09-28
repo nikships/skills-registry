@@ -167,6 +167,14 @@ func TestRunGetJSONEmitsSlugAndPath(t *testing.T) {
 	content := base64.StdEncoding.EncodeToString([]byte("# Hello"))
 	entries := []map[string]any{
 		{
+			// DownloadSkill resolves the slug first (Resolve → Slugs),
+			// so the shim must answer the top-level listing too.
+			"key": "GET repos/x/y/contents/",
+			"body": []map[string]any{
+				{"name": "demo", "type": "dir", "sha": "tree-demo"},
+			},
+		},
+		{
 			"key": "GET repos/x/y/contents/demo",
 			"body": []map[string]any{
 				{"name": "SKILL.md", "type": "file"},
