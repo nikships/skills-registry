@@ -173,8 +173,10 @@ func TestHubViewSurfacesChrome(t *testing.T) {
 		"Discover",   // public-index card
 		"Settings",   // last card
 		"navigate",   // footer
+		"h/j/k/l",    // footer: vim bindings also work
 		"select",     // footer
 		"quit",       // footer
+		"esc",        // footer: esc also quits
 	}
 	for _, want := range wants {
 		if !strings.Contains(v, want) {

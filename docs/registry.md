@@ -34,11 +34,11 @@ The returning-user dashboard is a card grid of seven tiles: Manage skills, Sync,
 
 The bulk initial import uses `git push` over HTTPS with credentials configured by `gh auth setup-git`. Day-to-day `publish`, `add`, `sync`, and `remove` operations use the GitHub Git Data API through the authenticated `gh` CLI. Reads use a shallow local mirror when available and fall back to `gh api`.
 
-Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`. Runtime failures print no usage text and a single `Error:` line; usage appears only for actual misuse. Under `--json` every failure mode — including wrong arg counts and unknown commands — emits one `{"error": "..."}` object on stdout with exit 1, plus the single `Error:` line on stderr.
+Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`, `search`, `discover`, `get`, `sync`, `add`, `publish`, `remove`, and `update`. Shell completion comes from the generated `completion` subcommand (`skills-registry completion bash|zsh|fish|powershell`). Runtime failures print no usage text and a single `Error:` line; usage appears only for actual misuse. Under `--json` every failure mode — including wrong arg counts and unknown commands — emits one `{"error": "..."}` object on stdout with exit 1, plus the single `Error:` line on stderr.
 
 `get <slug>` fails loudly when the registry has no such slug (exit 1, `{"error": ...}` under `--json`) and leaves no directory behind, so a scripted fetch can trust a zero exit to mean the skill actually downloaded. The registry client surfaces the same `ErrSlugNotFound` sentinel on a 404 contents listing or a missing mirror folder, so every `Get` caller (including the durable installer) benefits.
 
-`list --query` seeds the TUI's `/` filter instead of pre-dropping rows, so the header shows a `filter: <q>` chip and esc clears back to the full list. While the filter input is open, enter accepts and blurs keeping the narrowed results, the footer says shortcut keys are captured, and a filter matching nothing renders an explicit "No skills match" state rather than a blank pane.
+`list --query` filters by case-insensitive substring over slug, name, and description everywhere it applies (`--json`, `--plain`, and the TUI). In the TUI it seeds the `/` filter instead of pre-dropping rows, so the header shows a `filter: <q>` chip and esc clears back to the full list. While the filter input is open, enter accepts and blurs keeping the narrowed results, the footer says shortcut keys are captured, and a filter matching nothing renders an explicit "No skills match" state rather than a blank pane.
 
 ## Discover
 

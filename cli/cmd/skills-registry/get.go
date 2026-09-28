@@ -30,7 +30,19 @@ func newGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <slug>",
 		Short: "Temporarily fetch a registry skill into the global cache (use `list` to durably install)",
-		Args:  cobra.ExactArgs(1),
+		Long: `Fetch one registry skill into the local cache for a one-shot read
+(find the slug with "search" first). The slug resolves case- and
+separator-insensitively, and the skill lands in
+~/.cache/skills-registry/skills/<slug>/ unless --dest overrides it; an
+existing on-disk folder for the slug is reused rather than
+re-downloaded.
+
+"get" never installs into agent dot-folders. Use "list" (enter on a
+row) for a durable install into the agents you pick.`,
+		Example: `  skills-registry get code-review
+  skills-registry get code-review --dest ./vendor/skills
+  skills-registry get code-review --json`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// A runtime failure is not a misuse of the command, so neither
 			// the usage block nor cobra's own error line belongs in the

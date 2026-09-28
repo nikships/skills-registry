@@ -1093,7 +1093,7 @@ func (m WizardModel) renderVisibilityBody() string {
 		Render("Who can see this registry?")
 	cards := m.renderVisibilityCards()
 	cta := lipgloss.NewStyle().Foreground(ColMuted).Render("  ") +
-		KeyStyle.Render("←/→") +
+		KeyStyle.Render("←/→ or h/l") +
 		lipgloss.NewStyle().Foreground(ColMuted).Render(" switch · ") +
 		DownloadChip.Render("⏎ enter") +
 		lipgloss.NewStyle().Foreground(ColMuted).Render(" confirm")
@@ -1316,7 +1316,7 @@ func (m WizardModel) footerKeys() []struct{ k, d string } {
 	switch m.step {
 	case WizardStepVisibility:
 		return []struct{ k, d string }{
-			{"←/→", "switch"},
+			{"←/→ or h/l", "switch"},
 			{"enter", "confirm"},
 			{"esc", "cancel"},
 		}

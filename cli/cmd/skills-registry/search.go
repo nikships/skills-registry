@@ -59,7 +59,16 @@ func newSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search QUERY",
 		Short: "Fuzzy-search your registry (top 10 matches). Use `list` to enumerate every skill.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Fuzzy-search your registry and print the top 10 matches, ranked by an
+fzf-style score over name (weighted highest), slug, and description.
+
+A query is required: an empty query matches nothing and prints []. To
+enumerate every skill instead, use "list". --json emits the same
+top-10 rows as a JSON array.`,
+		Example: `  skills-registry search pdf
+  skills-registry search "review pull requests"
+  skills-registry search pdf --json`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// A runtime failure is not a misuse of the command, so neither
 			// the usage block nor cobra's own error line belongs in the
@@ -287,5 +296,5 @@ func scoreAndSort(summaries []registry.Summary, query string) []registry.Summary
 }
 
 func printPlainSearch(repo string, summaries []registry.Summary) {
-	printPlainSummaryTable("Search Results", repo, summaries)
+	printPlainSummaryTable("Search Results (top 10)", repo, summaries)
 }

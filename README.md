@@ -112,6 +112,7 @@ Run `skills-registry` for the dashboard, or use subcommands directly:
 | Delete a skill from the registry + cache + agent dot-folders | `skills-registry remove <slug>` |
 | Update the installed binary to the latest release | `skills-registry update` |
 | Re-run the wizard / bootstrap (idempotent) | `skills-registry bootstrap` |
+| Generate a shell completion script | `skills-registry completion (bash\|zsh\|fish\|powershell)` |
 
 Most users only touch `list`, `get`, and `publish`. The TUI is substring-filterable (same rule as `list --query`, over slug, name, and description); press `/` to search, Enter on a row to pick which agent dot-folders should receive a durable install — `.agents/skills` is always-on; popular agents are pre-checked. `list --query` opens with the filter pre-seeded (esc clears back to the full list), Enter while typing keeps the narrowed results, and a filter matching nothing says so instead of showing a blank pane. `get` stays the cache-only fetch for one-shot agent reads.
 
