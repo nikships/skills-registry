@@ -548,16 +548,18 @@ final class AppState: ObservableObject {
         let cwd = FileManager.default.currentDirectoryPath
         let sources = Scan.discoverSources(home: home, cwd: cwd, dotDirs: Agents.dotDirs())
         let all = Scan.discover(sources)
-        let existing = Set(skills.map(\.slug))
-        return all.filter { !existing.contains($0.slug) && $0.slug != "skills-registry" }
+        // Normalized comparison (mirrors Go scan.DedupeAgainst): a local
+        // "simplify_swarm" dedupes against registry "simplify-swarm".
+        return Scan.dedupeAgainst(all, remoteSlugs: skills.map(\.slug))
+            .filter { $0.slug != "skills-registry" }
     }
 
     func importSkills(_ locals: [LocalSkill], progress: @escaping @Sendable (Int, Int) -> Void) async {
         guard let api, let repo else { return }
         // Defensive: never overwrite a slug already in the registry. The Import
         // screen pre-filters these, but guard the write path directly too.
-        let existing = Set(skills.map(\.slug))
-        let fresh = locals.filter { !existing.contains($0.slug) }
+        // Normalized comparison (mirrors Go scan.DedupeAgainst).
+        let fresh = Scan.dedupeAgainst(locals, remoteSlugs: skills.map(\.slug))
         let skipped = locals.count - fresh.count
         guard !fresh.isEmpty else {
             showToast(skipped > 0 ? "All selected skills already exist in the registry." : "Nothing to import.", .info)

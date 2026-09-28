@@ -55,6 +55,22 @@ public enum Scan {
         return out
     }
 
+    /// Return the locals whose slugs are NOT present in the registry slug set
+    /// (the "missing" set), preserving order.
+    ///
+    /// Both sides are compared via `normalizeForMatch`, so a local skill
+    /// slugged "simplify_swarm" dedupes against a registry folder stored as
+    /// "simplify-swarm" (and vice versa). Without this, a separator- or
+    /// case-only difference surfaces an already-published skill as missing
+    /// and it gets offered for import / bulk-pushed as a second folder.
+    ///
+    /// Mirrors Go `scan.DedupeAgainst`'s missing set; Swift call sites don't
+    /// surface the separator-mismatch list, so only the fresh skills return.
+    public static func dedupeAgainst(_ locals: [LocalSkill], remoteSlugs: [String]) -> [LocalSkill] {
+        let remote = Set(remoteSlugs.map(normalizeForMatch))
+        return locals.filter { !remote.contains(normalizeForMatch($0.slug)) }
+    }
+
     static func findMainFiles(_ root: String) -> [String] {
         var out: [String] = []
         let fm = FileManager.default
