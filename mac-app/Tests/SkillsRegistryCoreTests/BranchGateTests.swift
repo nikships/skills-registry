@@ -187,6 +187,9 @@ enum StubGitHub {
     static var commitParent: [String: String] = [:]  // commit SHA → parent SHA
     static var refReads = 0
     static var commitCount = 0
+    /// When true, tree listings answer with `"truncated": true` so tests can
+    /// exercise the truncated-registry paths. Off by default.
+    static var truncatedTrees = false
     private static var serial = 0
 
     static let lock = NSLock()
@@ -197,6 +200,7 @@ enum StubGitHub {
         commitTree = [:]; trees = [:]; commitParent = [:]
         blobContents = [:]
         refReads = 0; commitCount = 0; serial = 0
+        truncatedTrees = false
     }
 
     static func nextSHA(_ kind: String) -> String {
@@ -261,12 +265,29 @@ enum StubGitHub {
             guard let tree = commitTree[sha] else { return (404, ["message": "no commit"]) }
             return (200, ["sha": sha, "tree": ["sha": tree]])
         case ("GET", let r) where r.hasPrefix("trees/"):
-            let sha = String(r.dropFirst("trees/".count)).components(separatedBy: "?")[0]
+            // Branch-name reads (`trees/<branch>?recursive=1`) resolve against
+            // HEAD, mirroring GitHub; SHA reads resolve the tree directly.
+            // Reads by unknown SHA 404 like the real API (empty-repo probe).
+            let raw = String(r.dropFirst("trees/".count)).components(separatedBy: "?")[0]
+            let sha: String
+            if raw == branch {
+                guard let tree = commitTree[headCommit] else { return (404, ["message": "no tree"]) }
+                sha = tree
+            } else {
+                sha = raw
+            }
             guard let t = trees[sha] else { return (404, ["message": "no tree"]) }
             let entries: [[String: Any]] = t.files.map {
                 ["path": $0.key, "type": "blob", "sha": $0.value]
             }
-            return (200, ["sha": sha, "tree": entries])
+            var payload: [String: Any] = ["sha": sha, "tree": entries]
+            if truncatedTrees { payload["truncated"] = true }
+            return (200, payload)
+        case ("GET", let r) where r.hasPrefix("blobs/"):
+            let sha = String(r.dropFirst("blobs/".count))
+            guard let content = blobContents[sha] else { return (404, ["message": "no blob"]) }
+            return (200, ["encoding": "base64",
+                          "content": Data(content.utf8).base64EncodedString()])
         case ("POST", "blobs"):
             let sha = nextSHA("blob")
             if let content = body?["content"] as? String,

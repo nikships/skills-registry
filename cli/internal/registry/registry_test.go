@@ -179,6 +179,35 @@ func TestPublishRetriesOnConflict(t *testing.T) {
 	}
 }
 
+// TestPublishRefusesTruncatedTree verifies that a recursive tree listing
+// with truncated=true aborts the write: the stale-file enumeration is
+// incomplete, so committing would silently leave deleted files behind.
+// Nothing past the tree read is scripted, so any blob/tree/commit call
+// the code attempted would fail the test via the stub's exit-99 path.
+func TestPublishRefusesTruncatedTree(t *testing.T) {
+	bin, _ := stubGH(t, []map[string]any{
+		{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+		{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+		{
+			"key": "GET repos/x/y/git/trees/base?recursive=1",
+			"body": map[string]any{
+				"truncated": true,
+				"tree": []any{
+					map[string]any{"path": "code-review/SKILL.md", "type": "blob"},
+				},
+			},
+		},
+	})
+	c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+	_, err := c.Publish(context.Background(), "code-review", map[string][]byte{"SKILL.md": []byte("hi")}, "")
+	if err == nil {
+		t.Fatal("expected ErrTreeTruncated, got nil")
+	}
+	if !errors.Is(err, ErrTreeTruncated) {
+		t.Fatalf("expected ErrTreeTruncated, got %v", err)
+	}
+}
+
 func TestGetDownloadsRecursively(t *testing.T) {
 	// Force the gh-api path; the mirror path is exercised by mirror_test.go.
 	t.Setenv("SKILLS_MIRROR_DISABLE", "1")
@@ -868,6 +897,46 @@ func TestDeleteReturnsNotFoundOnMissingSlug(t *testing.T) {
 	}
 	if !errors.Is(err, ErrSlugNotFound) {
 		t.Fatalf("expected ErrSlugNotFound, got %v", err)
+	}
+}
+
+// TestDeleteRefusesTruncatedTree verifies that a truncated listing aborts
+// the delete even when the slug is present in the partial tree: entries
+// past the cutoff would survive the null-SHA sweep. The slug-absent case
+// must report truncation rather than the false ErrSlugNotFound a partial
+// listing would otherwise produce. As in the publish test, nothing past
+// the tree read is scripted, so any write call fails via exit 99.
+func TestDeleteRefusesTruncatedTree(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		slug string
+	}{
+		{"slug present in partial tree", "code-review"},
+		{"slug absent from partial tree", "missing-slug"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin, _ := stubGH(t, []map[string]any{
+				{"key": "GET repos/x/y/git/ref/heads/main", "body": map[string]any{"object": map[string]any{"sha": "parent"}}},
+				{"key": "GET repos/x/y/git/commits/parent", "body": map[string]any{"tree": map[string]any{"sha": "base"}}},
+				{
+					"key": "GET repos/x/y/git/trees/base?recursive=1",
+					"body": map[string]any{
+						"truncated": true,
+						"tree": []any{
+							map[string]any{"path": "code-review/SKILL.md", "type": "blob"},
+						},
+					},
+				},
+			})
+			c := &Client{GH: bin, Repo: "x/y", DefaultBranch: "main", MaxRetries: 3, RetryBaseS: 0}
+			_, err := c.Delete(context.Background(), tc.slug)
+			if err == nil {
+				t.Fatal("expected ErrTreeTruncated, got nil")
+			}
+			if !errors.Is(err, ErrTreeTruncated) {
+				t.Fatalf("expected ErrTreeTruncated, got %v", err)
+			}
+		})
 	}
 }
 

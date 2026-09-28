@@ -22,6 +22,10 @@ final class AppState: ObservableObject {
     @Published var skills: [SkillSummary] = []
     @Published var skillsLoading = false
     @Published var skillsError: String?
+    /// True when the last browse-list fetch hit GitHub's truncated tree
+    /// listing: `skills` is partial and BrowseView warns instead of
+    /// presenting it as complete.
+    @Published var skillsTruncated = false
 
     /// Unsaved SKILL.md editor drafts, keyed by slug. The detail view is
     /// recreated on every skill and sidebar-section switch (`.id(slug)` /
@@ -424,7 +428,9 @@ final class AppState: ObservableObject {
         skillsError = nil
         defer { skillsLoading = false }
         do {
-            skills = try await api.listSkills(repo, branch: branch)
+            let result = try await api.listSkills(repo, branch: branch)
+            skills = result.value
+            skillsTruncated = result.truncated
         } catch {
             // Keep the stale list on screen; BrowseView surfaces the failure
             // as an inline retry banner on top of it.
@@ -438,7 +444,11 @@ final class AppState: ObservableObject {
         if isDemo { return Self.demoDetail(slug) }
         guard let api, let repo else { throw GitHubError(status: 0, message: "Not ready", endpoint: "") }
         do {
-            return try await api.getSkill(repo, slug: slug, branch: branch)
+            let detail = try await api.getSkill(repo, slug: slug, branch: branch)
+            if detail.truncated {
+                showToast("Warning: the registry file listing was truncated — this skill's file list may be incomplete.", .info)
+            }
+            return detail
         } catch {
             redirectIfUnauthorized(error)
             throw error
@@ -556,10 +566,14 @@ final class AppState: ObservableObject {
         }
         guard let api, let repo else { return }
         do {
-            let files = try await api.skillFileData(repo, slug: slug, branch: branch)
+            let result = try await api.skillFileData(repo, slug: slug, branch: branch)
             let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let written = try LocalInstall.install(slug: slug, files: files, targets: targets, home: home, cwd: home)
-            showToast("Installed \(slug) into \(written.count) agent\(written.count == 1 ? "" : "s")", .ok)
+            let written = try LocalInstall.install(slug: slug, files: result.value, targets: targets, home: home, cwd: home)
+            if result.truncated {
+                showToast("Installed \(slug), but the file listing was truncated — some files may be missing.", .info)
+            } else {
+                showToast("Installed \(slug) into \(written.count) agent\(written.count == 1 ? "" : "s")", .ok)
+            }
             refreshMetaSkillStatus()
         } catch {
             if redirectIfUnauthorized(error) { return }

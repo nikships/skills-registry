@@ -28,13 +28,17 @@ public struct SkillDetail: Sendable {
     public var markdown: String
     /// Repo-relative file paths under `<slug>/`, e.g. ["SKILL.md", "scripts/run.sh"].
     public var files: [String]
+    /// True when GitHub truncated the recursive tree listing: `files` may
+    /// omit entries. Mirrors `Truncated.truncated` on the list/files reads.
+    public var truncated: Bool
 
-    public init(slug: String, name: String, description: String, markdown: String, files: [String]) {
+    public init(slug: String, name: String, description: String, markdown: String, files: [String], truncated: Bool = false) {
         self.slug = slug
         self.name = name
         self.description = description
         self.markdown = markdown
         self.files = files
+        self.truncated = truncated
     }
 
     /// Copy target for the detail pane: follows the visible file. `SKILL.md`

@@ -1,5 +1,34 @@
 import Foundation
 
+/// A read result paired with GitHub's recursive-tree truncation flag. When
+/// a repo exceeds the tree size limit the API sets `truncated: true` and the
+/// listing is incomplete, so callers must warn rather than present `value`
+/// as complete. Writes take the stricter path and refuse outright — see
+/// `WriteError.treeTruncated`.
+public struct Truncated<Value: Sendable>: Sendable {
+    public var value: Value
+    /// True when the tree listing was cut off and `value` may omit entries.
+    public var truncated: Bool
+
+    public init(_ value: Value, truncated: Bool) {
+        self.value = value
+        self.truncated = truncated
+    }
+}
+
+/// A read that cannot complete because the tree listing was truncated: the
+/// target is absent from a partial listing, so "not found" would be a lie.
+public enum ReadError: Error, LocalizedError {
+    case treeTruncated(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .treeTruncated(let slug):
+            return "The registry is too large: GitHub truncated the file listing, so \"\(slug)\" may be missing from this partial result. Narrow or split the repo and try again."
+        }
+    }
+}
+
 extension GitHubAPI {
     /// The authenticated user (GET /user).
     public func currentUser() async throws -> Identity {
@@ -62,15 +91,18 @@ extension GitHubAPI {
 
     /// Enumerate registry skills with summaries. One recursive tree call to map
     /// slug→treeSHA and slug→SKILL.md blob SHA, then bounded-concurrency blob
-    /// fetches. Empty/absent repo → []. Sorted by slug.
-    public func listSkills(_ repo: RepoRef, branch: String) async throws -> [SkillSummary] {
+    /// fetches. Empty/absent repo → []. Sorted by slug. When GitHub truncates
+    /// the tree the partial list still returns, flagged, so the UI can warn
+    /// instead of silently omitting skills.
+    public func listSkills(_ repo: RepoRef, branch: String) async throws -> Truncated<[SkillSummary]> {
         let tree: GHTreeResp
         do {
             tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
                                         as: GHTreeResp.self)
         } catch let e as GitHubError where e.isNotFound || e.isConflict {
-            return []  // brand-new / empty repo
+            return Truncated([], truncated: false)  // brand-new / empty repo
         }
+        let truncated = tree.truncated == true
 
         var slugTreeSHA: [String: String] = [:]
         var slugBlobSHA: [String: String] = [:]
@@ -95,14 +127,18 @@ extension GitHubAPI {
             return SkillSummary(slug: slug, name: name, description: desc,
                                 treeSHA: treeSHABySlug[slug] ?? "")
         }
-        return summaries.compactMap { $0 }.sorted { $0.slug < $1.slug }
+        return Truncated(summaries.compactMap { $0 }.sorted { $0.slug < $1.slug }, truncated: truncated)
     }
 
     /// Fetch a single skill: its SKILL.md body + the relative paths of every
-    /// file under `<slug>/`.
+    /// file under `<slug>/`. When the tree is truncated the detail still
+    /// returns, flagged, so the UI can warn the file list may be shortened;
+    /// when the skill is absent from a truncated listing that is
+    /// `.treeTruncated`, not a false "has no SKILL.md".
     public func getSkill(_ repo: RepoRef, slug: String, branch: String) async throws -> SkillDetail {
         let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
                                         as: GHTreeResp.self)
+        let truncated = tree.truncated == true
         let prefix = "\(slug)/"
         var files: [String] = []
         var skillBlobSHA: String?
@@ -113,10 +149,11 @@ extension GitHubAPI {
         }
         files.sort()
         guard let blobSHA = skillBlobSHA, let markdown = try await blobUTF8(repo, sha: blobSHA) else {
+            if truncated { throw ReadError.treeTruncated(slug) }
             throw GitHubError(status: 404, message: "Skill \(slug) has no SKILL.md", endpoint: repo.fullName)
         }
         let (name, desc) = Frontmatter.parseSummary(markdown, slug: slug)
-        return SkillDetail(slug: slug, name: name, description: desc, markdown: markdown, files: files)
+        return SkillDetail(slug: slug, name: name, description: desc, markdown: markdown, files: files, truncated: truncated)
     }
 
     /// Fetch the UTF-8 contents of a single repo-relative file path (e.g.
@@ -139,22 +176,26 @@ extension GitHubAPI {
     /// to the skill folder (e.g. "SKILL.md", "scripts/run.sh"). One recursive
     /// tree call + bounded-concurrency blob fetches. Raw bytes (not UTF-8
     /// decoded) so binaries survive. Feeds `LocalInstall.install` for durable
-    /// installs of a registry skill. Throws 404 if the slug has no files.
-    public func skillFileData(_ repo: RepoRef, slug: String, branch: String) async throws -> [String: Data] {
+    /// installs of a registry skill. Throws 404 if the slug has no files —
+    /// or `.treeTruncated` when a truncated listing is the reason nothing
+    /// was found.
+    public func skillFileData(_ repo: RepoRef, slug: String, branch: String) async throws -> Truncated<[String: Data]> {
         let tree = try await getDecoded("repos/\(repo.fullName)/git/trees/\(branch)?recursive=1",
                                         as: GHTreeResp.self)
+        let truncated = tree.truncated == true
         let prefix = "\(slug)/"
         var blobs: [(rel: String, sha: String)] = []
         for e in tree.tree where e.type == "blob" && e.path.hasPrefix(prefix) {
             blobs.append((String(e.path.dropFirst(prefix.count)), e.sha))
         }
         guard !blobs.isEmpty else {
+            if truncated { throw ReadError.treeTruncated(slug) }
             throw GitHubError(status: 404, message: "Skill \(slug) has no files", endpoint: repo.fullName)
         }
         let pairs = try await mapConcurrent(blobs, concurrency: 8) { item -> (String, Data) in
             (item.rel, try await self.blobData(repo, sha: item.sha))
         }
-        return Dictionary(uniqueKeysWithValues: pairs)
+        return Truncated(Dictionary(uniqueKeysWithValues: pairs), truncated: truncated)
     }
 
     // MARK: - blob helpers

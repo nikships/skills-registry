@@ -45,6 +45,12 @@ extension AppState {
         repo = RepoRef(owner: "octocat", name: "skills-registry")
         branch = "main"
         skills = isDemoEmpty ? [] : Self.demoSkills + Self.demoExtraSkills
+        skills = Self.demoSkills
+        // Demo-only screenshot fixture: `--demo-truncated-list` pretends the
+        // browse fetch hit GitHub's truncated tree listing, so the "Results
+        // incomplete" banner renders without a huge registry. Production code
+        // never reads this flag.
+        skillsTruncated = ProcessInfo.processInfo.arguments.contains("--demo-truncated-list")
         cliInstalled = false
         // Fixture status so the Settings card renders its installed state
         // (and its button stays enabled) without reading real dot-folders.
