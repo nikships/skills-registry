@@ -64,13 +64,22 @@ extension AppState {
 
     /// Demo-mode search: filters the fixtures on the query so the pane behaves
     /// like the real one, and reports a miss as an empty result set rather than
-    /// an error.
+    /// an error. Two demo-only drivers make offline states reachable: a
+    /// leading `!` fails the search the way an unreachable index would (so the
+    /// error state, fallback hint, and retry are exercisable without a
+    /// network), and the query's category filter applies to the fixtures the
+    /// way the live index applies it server-side.
     static func demoDiscoverResponse(_ query: DiscoverQuery) throws -> DiscoverResponse {
         let q = try query.normalized()
+        if q.text.hasPrefix("!") {
+            throw DiscoverError.unreachable(
+                DiscoverClient.defaultBaseURL, "demo error trigger (query starts with \"!\")")
+        }
         let needle = q.text.lowercased()
         let hits = demoDiscoverResults.filter {
-            $0.name.lowercased().contains(needle) || $0.description.lowercased().contains(needle)
-                || $0.category.lowercased().contains(needle)
+            q.categoryMatches($0.category)
+                && ($0.name.lowercased().contains(needle) || $0.description.lowercased().contains(needle)
+                    || $0.category.lowercased().contains(needle))
         }
         return DiscoverResponse(source: DiscoverClient.source, query: q.text,
                                 mode: q.mode.rawValue, results: Array(hits.prefix(q.limit)))
