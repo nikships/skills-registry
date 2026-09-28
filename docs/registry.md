@@ -38,6 +38,8 @@ Every subcommand supports `--json`. The primary commands are `bootstrap`, `list`
 
 `get <slug>` fails loudly when the registry has no such slug (exit 1, `{"error": ...}` under `--json`) and leaves no directory behind, so a scripted fetch can trust a zero exit to mean the skill actually downloaded. The registry client surfaces the same `ErrSlugNotFound` sentinel on a 404 contents listing or a missing mirror folder, so every `Get` caller (including the durable installer) benefits.
 
+`list --query` seeds the TUI's `/` filter instead of pre-dropping rows, so the header shows a `filter: <q>` chip and esc clears back to the full list. While the filter input is open, enter accepts and blurs keeping the narrowed results, the footer says shortcut keys are captured, and a filter matching nothing renders an explicit "No skills match" state rather than a blank pane.
+
 ## Discover
 
 `search` ranks the user's own registry. `discover QUERY` is the outward-facing counterpart: it queries the public SkillNet index and returns importable GitHub URLs.

@@ -176,6 +176,13 @@ type ListModel struct {
 	width    int
 	height   int
 	showHelp bool
+	// seedFilter is the initial filter text applied once the full row
+	// set is present (e.g. from `list --query`). Stored on the model —
+	// rather than on the bubbles list up front — because the reveal
+	// animation re-seeds list items tick by tick, and each SetItems
+	// resets the paginator.
+	seedFilter string
+	seeded     bool
 
 	confirmRemoval bool
 	removeCursor   int
@@ -211,8 +218,10 @@ type ListModel struct {
 // a signal. Hitting `q` inside the TUI does *not* cancel ctx — bubbletea
 // returns to cobra cleanly and installs run to completion.
 // `repo` is shown in the header chip (e.g. "owner/repo").
-// `loader` is invoked once after the spinner mounts. Pre-filter inside
-// the loader if you want a narrowed initial view.
+// `loader` is invoked once after the spinner mounts. It must return the
+// full row set; for a narrowed initial view use WithInitialFilter,
+// which seeds the bubbles filter so the header chip shows and esc
+// clears back to the full list.
 // `installer` is invoked after the user has picked agent dot-folders for
 // a row; it runs in a goroutine so the TUI stays responsive.
 func NewList(ctx context.Context, repo string, loader RowLoader, installer Installer) ListModel {
@@ -284,6 +293,17 @@ func (m ListModel) WithInstallTargets(loader InstallTargetLoader) ListModel {
 
 func (m ListModel) WithOnExit(onExit func(ListModel) tea.Msg) ListModel {
 	m.OnExit = onExit
+	return m
+}
+
+// WithInitialFilter seeds the bubbles filter once rows arrive so the
+// header renders a `filter: <q>` chip and esc clears back to the full
+// list instead of quitting. The loader must return the full,
+// unfiltered row set — the predicate is the shared substring rule
+// (SubstringFilter, same as `list --query` and the `/` filter) — and an
+// empty q is a no-op.
+func (m ListModel) WithInitialFilter(q string) ListModel {
+	m.seedFilter = q
 	return m
 }
 
@@ -378,7 +398,26 @@ func (m ListModel) handleRowsLoaded(msg rowsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.state = stateReady
 	m.refreshPreview()
+	if m.revealCap >= len(m.rows) {
+		// Zero or one row: no reveal ticks will follow, so seed the
+		// filter inline. (Multi-row loads seed from handleRevealTick
+		// once the full row set is in the list.)
+		m.seedInitialFilter()
+	}
 	return m, revealTick()
+}
+
+// seedInitialFilter applies the WithInitialFilter query to the bubbles
+// list exactly once, after the full row set is present. Seeding earlier
+// would filter a partial reveal window and leave the paginator showing
+// stale counts.
+func (m *ListModel) seedInitialFilter() {
+	if m.seeded || m.seedFilter == "" || m.state != stateReady {
+		return
+	}
+	m.seeded = true
+	m.list.SetFilterText(m.seedFilter)
+	m.refreshPreview()
 }
 
 func (m ListModel) handleInstallDone(msg installDoneMsg) (tea.Model, tea.Cmd) {
@@ -474,6 +513,9 @@ func (m ListModel) handleRevealTick() (tea.Model, tea.Cmd) {
 	if m.revealCap < len(m.rows) {
 		m.revealCap++
 		m.list.SetItems(rowsAsItems(m.rows[:m.revealCap]))
+		if m.revealCap >= len(m.rows) {
+			m.seedInitialFilter()
+		}
 		return m, revealTick()
 	}
 	return m, nil
@@ -495,10 +537,20 @@ func (m ListModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// While the list's own filter input is active, defer everything except
-	// ctrl+c so users can type freely.
+	// ctrl+c so users can type freely. Enter accepts the filter and blurs
+	// (results stay narrowed); esc clears the filter and blurs. Both keep
+	// the session open — quitting from a narrowed view happens from the
+	// blurred state via esc/q.
 	if m.list.FilterState() == list.Filtering {
-		if msg.String() == "ctrl+c" {
+		switch msg.String() {
+		case "ctrl+c":
 			return m, m.exitCmd()
+		case "enter":
+			return m.acceptFilter()
+		case "esc":
+			m.list.ResetFilter()
+			m.refreshPreview()
+			return m, nil
 		}
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
@@ -604,6 +656,23 @@ func (m ListModel) exitCmd() tea.Cmd {
 	}
 	snapshot := m
 	return func() tea.Msg { return m.OnExit(snapshot) }
+}
+
+// acceptFilter blurs the filter input while keeping the narrowed
+// results. Bubbles' own accept path clears the filter when it matches
+// nothing, which would silently drop the query on a typo — here a
+// zero-match accept keeps the filter text so the user sees the
+// "no skills match" state and can refine or esc-clear it. An empty
+// query has nothing to keep, so it fully resets instead.
+func (m ListModel) acceptFilter() (tea.Model, tea.Cmd) {
+	if m.list.FilterValue() == "" {
+		m.list.ResetFilter()
+		m.refreshPreview()
+		return m, nil
+	}
+	m.list.SetFilterState(list.FilterApplied)
+	m.refreshPreview()
+	return m, nil
 }
 
 func (m ListModel) openRemoveConfirm() (tea.Model, tea.Cmd) {
@@ -844,6 +913,20 @@ func (m ListModel) renderHeader() string {
 
 func (m ListModel) renderListPanel() string {
 	listView := m.list.View()
+	// Bubbles renders an empty string when the filter input is open and
+	// matches nothing, leaving the pane blank with no way to tell "still
+	// filtering" from "no matches". Name the state explicitly, reusing the
+	// muted NoItems styling, and keep the typing affordance on top.
+	if m.state == stateReady && len(m.rows) > 0 &&
+		m.list.FilterState() == list.Filtering && m.visibleCount() == 0 {
+		// Pin to the same height as the replaced block so the panel
+		// keeps its full size instead of collapsing around the message.
+		height := lipgloss.Height(listView)
+		empty := m.list.Styles.NoItems.Render(
+			fmt.Sprintf("No skills match %q — esc clears the filter.", m.list.FilterValue()))
+		listView = lipgloss.NewStyle().Height(height).Render(
+			lipgloss.JoinVertical(lipgloss.Left, m.list.FilterInput.View(), empty))
+	}
 	style := PanelFocused
 	title := lipgloss.NewStyle().
 		Foreground(ColPrimary).
@@ -983,6 +1066,16 @@ func (m ListModel) renderPreviewHint(row SkillRow) string {
 }
 
 func (m ListModel) renderFooter() string {
+	// While the filter input has focus, every shortcut key types text
+	// instead of firing — say so, so `?`/`q`/`d` landing in the query
+	// reads as "captured" rather than broken.
+	if m.list.FilterState() == list.Filtering {
+		return flowFooter(m.width, m.sparkleIdx, []flowKey{
+			{"esc", "clear filter"},
+			{"enter", "keep results"},
+			{"typing", "keys captured"},
+		})
+	}
 	keys := []flowKey{
 		{"↑/↓", "navigate"},
 		{"/", "filter"},
@@ -1047,6 +1140,8 @@ func (m ListModel) renderHelp() string {
 		{"pgup / pgdn", "page up / down"},
 		{"g / G", "jump to top / bottom"},
 		{"/", "start filtering"},
+		{"enter (typing)", "accept filter, keep results"},
+		{"esc (typing)", "clear filter"},
 		{"esc", "clear filter (or quit)"},
 		{"enter", "install into selected agent dot-folders"},
 	}
