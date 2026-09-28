@@ -73,10 +73,23 @@ struct SkillDetailView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(detail?.name ?? slug)
                         .font(.system(size: compact ? 18 : 22, weight: .semibold)).foregroundStyle(Brand.fg)
-                    Pill(text: slug, dot: Brand.accent)
+                    // A skill with no frontmatter falls back to name == slug,
+                    // so the pill would repeat the title verbatim — hide it.
+                    if detail?.name != slug {
+                        Pill(text: slug, dot: Brand.accent)
+                    }
                 }
                 Spacer()
                 actions(compact: compact)
+            }
+            if let d = detail, Frontmatter.hasUnclosedFence(d.markdown) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text("Frontmatter block never closes, showing raw file")
+                }
+                .font(Brand.monoSized(11))
+                .foregroundStyle(Brand.meta)
+                .accessibilityIdentifier("unclosedFrontmatterHint")
             }
             if let d = detail, !d.description.isEmpty {
                 Text(d.description).font(.system(size: 13)).foregroundStyle(Brand.muted)
@@ -218,9 +231,10 @@ struct SkillDetailView: View {
             } else {
                 ScrollView {
                     // Render the body only — the frontmatter's name/description
-                    // already appear in the header. "Copy" still copies the raw
+                    // already appear in the header, and a leading H1 repeating
+                    // the name is suppressed. "Copy" still copies the raw
                     // file (frontmatter included).
-                    Markdown(Frontmatter.body(d.markdown))
+                    Markdown(Frontmatter.displayBody(d.markdown, name: d.name))
                         .markdownTheme(.brand)
                         .textSelection(.enabled)
                         .padding(24)

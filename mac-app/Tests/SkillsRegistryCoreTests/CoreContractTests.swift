@@ -319,6 +319,32 @@ final class FrontmatterTests: XCTestCase {
         XCTAssertEqual(Frontmatter.body(md), "# Heading\n\ncontent")
     }
 
+    func testHasUnclosedFence() {
+        XCTAssertTrue(Frontmatter.hasUnclosedFence("---\nname: x\nno closing fence\n"))
+        XCTAssertTrue(Frontmatter.hasUnclosedFence("---\nname: x\ndescription: y"))
+        XCTAssertFalse(Frontmatter.hasUnclosedFence("---\nname: x\n---\nBody\n"))
+        XCTAssertFalse(Frontmatter.hasUnclosedFence("# Just a body\n"))
+        XCTAssertFalse(Frontmatter.hasUnclosedFence(""))
+    }
+
+    func testDisplayBodyStripsMatchingH1() {
+        // Frontmatter gone and the repeated H1 gone; the rest untouched.
+        let md = "---\nname: React Code Review\n---\n# React Code Review\n\nBody text.\n"
+        XCTAssertEqual(Frontmatter.displayBody(md, name: "React Code Review"), "Body text.\n")
+        // Case-insensitive, and tolerates an ATX closing sequence.
+        XCTAssertEqual(Frontmatter.displayBody("# react code review\n\nBody\n", name: "React Code Review"), "Body\n")
+        XCTAssertEqual(Frontmatter.displayBody("# React Code Review #\n\nBody\n", name: "React Code Review"), "Body\n")
+    }
+
+    func testDisplayBodyKeepsNonMatchingHeadings() {
+        // A different H1, an H2, and a glued `#` are all real content.
+        XCTAssertEqual(Frontmatter.displayBody("# Other Title\n\nBody\n", name: "React Code Review"), "# Other Title\n\nBody\n")
+        XCTAssertEqual(Frontmatter.displayBody("## React Code Review\n\nBody\n", name: "React Code Review"), "## React Code Review\n\nBody\n")
+        XCTAssertEqual(Frontmatter.displayBody("#React Code Review\n\nBody\n", name: "React Code Review"), "#React Code Review\n\nBody\n")
+        // No heading at all: unchanged.
+        XCTAssertEqual(Frontmatter.displayBody("Just body.\n", name: "Plain Notes"), "Just body.\n")
+    }
+
     /// The provenance keys an untrusted import stamps on are unknown to this
     /// parser, and must stay that way: name and description keep coming from
     /// the same two keys.

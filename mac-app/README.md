@@ -152,6 +152,16 @@ open "build/Skills Registry.app" --args --demo --demo-refresh-slow  # every refr
 open "build/Skills Registry.app" --args --demo --demo-select react_review
 ```
 
+Two demo-only fixtures cover the detail-header edge cases: `plain_notes` (no
+frontmatter block, so the name falls back to the slug) and `unclosed_draft`
+(a `---` block that never closes, so the raw file renders with a header
+hint). Pass `--demo-select=<slug>` to land directly on one skill's detail
+pane for screenshots:
+
+```bash
+open "build/Skills Registry.app" --args --demo --demo-select=plain_notes
+```
+
 ---
 
 ## Architecture

@@ -87,6 +87,43 @@ public enum Frontmatter {
         return rest
     }
 
+    /// Whether `text` opens a frontmatter block whose closing `---` never
+    /// appears. Display-only signal for the detail header: parsing still falls
+    /// back to the whole file as the body (same as the Go CLI), but the UI
+    /// can tell the user why metadata-looking lines are showing as body text.
+    public static func hasUnclosedFence(_ text: String) -> Bool {
+        guard text.hasPrefix("---") else { return false }
+        return closingFenceIndex(text.components(separatedBy: "\n")) == nil
+    }
+
+    /// The markdown the detail pane renders: `body(_:)`, minus a leading H1
+    /// that repeats the skill name. Display only — Copy and the editor keep
+    /// using the raw file. The match is case-insensitive and ignores an
+    /// optional ATX closing sequence (`# Name #`); anything else (H2+,
+    /// `#glued`, a different title) is left alone.
+    public static func displayBody(_ text: String, name: String) -> String {
+        var rendered = body(text)
+        var lines = rendered.components(separatedBy: "\n")
+        var idx = 0
+        while idx < lines.count, lines[idx].trimmingCharacters(in: .whitespaces).isEmpty {
+            idx += 1
+        }
+        guard idx < lines.count else { return rendered }
+        let first = lines[idx].trimmingCharacters(in: .whitespaces)
+        guard first.hasPrefix("#"), !first.hasPrefix("##") else { return rendered }
+        var heading = String(first.dropFirst())
+        if !heading.isEmpty, heading.first != " ", heading.first != "\t" { return rendered }
+        heading = heading.trimmingCharacters(in: .whitespaces)
+        while heading.hasSuffix("#") { heading.removeLast() }
+        heading = heading.trimmingCharacters(in: .whitespaces)
+        let want = name.trimmingCharacters(in: .whitespaces)
+        guard !heading.isEmpty, heading.lowercased() == want.lowercased() else { return rendered }
+        lines.remove(at: idx)
+        rendered = lines.joined(separator: "\n")
+        while rendered.hasPrefix("\n") { rendered.removeFirst() }
+        return rendered
+    }
+
     // MARK: - provenance stamping
 
     /// Merge `keys` into `text`'s frontmatter, returning the rewritten document
