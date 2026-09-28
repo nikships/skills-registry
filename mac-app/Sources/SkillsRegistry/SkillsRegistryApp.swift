@@ -9,8 +9,13 @@ struct SkillsRegistryApp: App {
 
     init() {
         let args = ProcessInfo.processInfo.arguments
+        let env = ProcessInfo.processInfo.environment
         let demo = args.contains("--demo")
-            || ProcessInfo.processInfo.environment["SKILLS_APP_DEMO"] == "1"
+            || args.contains("--demo-setup")
+            || args.contains("--demo-setup-loading")
+            || env["SKILLS_APP_DEMO"] == "1"
+            || env["SKILLS_APP_DEMO_SETUP"] == "1"
+            || env["SKILLS_APP_DEMO_SETUP"] == "loading"
         let preview: AuthPreview?
         if args.contains("--demo-auth-expired") {
             preview = .expired
@@ -19,7 +24,15 @@ struct SkillsRegistryApp: App {
         } else {
             preview = nil
         }
-        _state = StateObject(wrappedValue: AppState(demo: demo, authPreview: preview))
+        let setup: DemoSetup
+        if args.contains("--demo-setup-loading") || env["SKILLS_APP_DEMO_SETUP"] == "loading" {
+            setup = .loading
+        } else if args.contains("--demo-setup") || env["SKILLS_APP_DEMO_SETUP"] == "1" {
+            setup = .loaded
+        } else {
+            setup = .none
+        }
+        _state = StateObject(wrappedValue: AppState(demo: demo, authPreview: preview, demoSetup: setup))
         _theme = StateObject(wrappedValue: ThemeManager(demo: demo))
     }
 

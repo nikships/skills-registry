@@ -16,7 +16,13 @@ final class AppState: ObservableObject {
     @Published var skillsError: String?
 
     @Published var installRepos: [InstallationRepo] = []
-    @Published var setupLoading = false
+    /// Listing and creation are independent operations: the repo-list spinner
+    /// must never disable the Create button (or vice versa).
+    @Published var isListingRepos = false
+    @Published var isCreatingRepo = false
+    /// Persistent Setup failure surface (create/connect/list). Unlike the
+    /// transient toast, this stays on screen until the next attempt succeeds.
+    @Published var setupError: String?
 
     // Device-flow sheet state.
     @Published var deviceCode: DeviceCode?
@@ -41,6 +47,9 @@ final class AppState: ObservableObject {
     @Published var dismissedKeys: Set<String> = []
 
     let isDemo: Bool
+    /// Demo-only Setup fixture selector (`--demo-setup` /
+    /// `--demo-setup-loading`). Always `.none` outside demo mode.
+    let demoSetup: DemoSetup
     private var token: String?
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
@@ -78,10 +87,11 @@ final class AppState: ObservableObject {
     private let lastCLICheckKey = "lastCLIUpdateCheck"
     private let cliCheckInterval: TimeInterval = 6 * 3600
 
-    init(demo: Bool = false, authPreview: AuthPreview? = nil) {
+    init(demo: Bool = false, authPreview: AuthPreview? = nil, demoSetup: DemoSetup = .none) {
         self.isDemo = demo
         self.defaults = DemoDefaults.store(isDemo: demo)
         self.authPreview = authPreview
+        self.demoSetup = demo ? demoSetup : .none
         if demo {
             // Reroute every Keychain call to a process-local dictionary so a
             // demo Sign out can never delete the real saved token.
@@ -252,23 +262,29 @@ final class AppState: ObservableObject {
 
     func loadInstallations() async {
         guard let api else { return }
-        setupLoading = true
-        defer { setupLoading = false }
+        isListingRepos = true
+        setupError = nil
+        defer { isListingRepos = false }
         do {
             installRepos = try await api.skillsRegistryRepos().sorted { $0.fullName < $1.fullName }
         } catch {
             if redirectIfUnauthorized(error) { return }
             installRepos = []
-            showToast("Couldn't list installed repos: \(error.localizedDescription)", .error)
+            let msg = "Couldn't list installed repos: \(error.localizedDescription)"
+            setupError = msg
+            showToast(msg, .error)
         }
     }
 
     func connect(_ repoRef: RepoRef, branch defaultBranch: String) async {
         guard let api else { return }
+        setupError = nil
         do {
             let exists = try await api.repoExists(repoRef)
             guard exists else {
-                showToast("Can't access \(repoRef.fullName). Install the app on it first.", .error)
+                let msg = "Can't access \(repoRef.fullName). Install the app on it first."
+                setupError = msg
+                showToast(msg, .error)
                 return
             }
             let resolved = (try? await api.defaultBranch(repoRef)) ?? defaultBranch
@@ -279,14 +295,17 @@ final class AppState: ObservableObject {
             await refreshSkills()
         } catch {
             if redirectIfUnauthorized(error) { return }
-            showToast("Connect failed: \(error.localizedDescription)", .error)
+            let msg = "Connect failed: \(error.localizedDescription)"
+            setupError = msg
+            showToast(msg, .error)
         }
     }
 
     func createRegistry(name: String, isPrivate: Bool) async {
         guard let api else { return }
-        setupLoading = true
-        defer { setupLoading = false }
+        isCreatingRepo = true
+        setupError = nil
+        defer { isCreatingRepo = false }
         do {
             let ref = try await api.createRepo(
                 name: name, isPrivate: isPrivate,
@@ -302,7 +321,9 @@ final class AppState: ObservableObject {
             NSWorkspace.shared.open(URL(string: "https://github.com/new")!)
         } catch {
             if redirectIfUnauthorized(error) { return }
-            showToast("Create failed: \(error.localizedDescription)", .error)
+            let msg = "Create failed: \(error.localizedDescription)"
+            setupError = msg
+            showToast(msg, .error)
         }
     }
 

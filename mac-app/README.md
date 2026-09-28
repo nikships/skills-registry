@@ -79,6 +79,21 @@ shows the "session expired, sign in again" re-auth prompt, and
 button. An expired or revoked token anywhere else in the app routes back to
 that same login prompt automatically.
 
+To drive the **Setup screen** (create / connect) without completing real auth,
+use the demo-only Setup fixtures:
+
+```bash
+open "build/Skills Registry.app" --args --demo-setup
+# or: SKILLS_APP_DEMO_SETUP=1 open "build/Skills Registry.app"
+```
+
+`--demo-setup` renders Setup with a signed-in fixture identity and two
+fixture installations. `--demo-setup-loading` (or
+`SKILLS_APP_DEMO_SETUP=loading`) instead holds the installation-list spinner
+with an empty list, so the loading state can be inspected. Both are
+offline-only fixtures for screenshots and cua-driver runs; production code
+never reads them.
+
 ---
 
 ## Architecture
