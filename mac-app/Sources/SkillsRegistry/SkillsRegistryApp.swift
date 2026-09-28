@@ -16,6 +16,10 @@ struct SkillsRegistryApp: App {
             || env["SKILLS_APP_DEMO"] == "1"
             || env["SKILLS_APP_DEMO_SETUP"] == "1"
             || env["SKILLS_APP_DEMO_SETUP"] == "loading"
+        // Screenshot-only: paints the first Browse row in the hover state.
+        // Ignored unless demo mode is also on, so a real launch never uses it.
+        let hoverPreview = demo && (args.contains("--demo-hover")
+            || env["SKILLS_APP_DEMO_HOVER"] == "1")
         let preview: AuthPreview?
         if args.contains("--demo-auth-expired") {
             preview = .expired
@@ -32,7 +36,9 @@ struct SkillsRegistryApp: App {
         } else {
             setup = .none
         }
-        _state = StateObject(wrappedValue: AppState(demo: demo, authPreview: preview, demoSetup: setup))
+        _state = StateObject(wrappedValue: AppState(
+            demo: demo, authPreview: preview, demoSetup: setup,
+            demoHoverPreview: hoverPreview))
         _theme = StateObject(wrappedValue: ThemeManager(demo: demo))
     }
 

@@ -58,6 +58,8 @@ final class AppState: ObservableObject {
     /// Demo-only Setup fixture selector (`--demo-setup` /
     /// `--demo-setup-loading`). Always `.none` outside demo mode.
     let demoSetup: DemoSetup
+    /// Demo-only hover preview (`--demo-hover`). Never set for a real launch.
+    let demoHoverPreview: Bool
     private var token: String?
     private var api: GitHubAPI?
     private var authTask: Task<Void, Never>?
@@ -100,11 +102,13 @@ final class AppState: ObservableObject {
     /// TTL would lie, while minutes still make repeat Settings visits free.
     private let cliStatusTTL: TimeInterval = 5 * 60
 
-    init(demo: Bool = false, authPreview: AuthPreview? = nil, demoSetup: DemoSetup = .none) {
+    init(demo: Bool = false, authPreview: AuthPreview? = nil,
+         demoSetup: DemoSetup = .none, demoHoverPreview: Bool = false) {
         self.isDemo = demo
         self.defaults = DemoDefaults.store(isDemo: demo)
         self.authPreview = authPreview
         self.demoSetup = demo ? demoSetup : .none
+        self.demoHoverPreview = demo && demoHoverPreview
         if demo {
             // Reroute every Keychain call to a process-local dictionary so a
             // demo Sign out can never delete the real saved token.
@@ -1104,6 +1108,9 @@ final class AppState: ObservableObject {
     func showToast(_ message: String, _ kind: ToastItem.Kind) {
         let item = ToastItem(message: message, kind: kind)
         toast = item
+        // The toast auto-dismisses, so without an announcement a VoiceOver
+        // user never learns a copy/install/remove/import succeeded or failed.
+        AccessibilityAnnouncer.post(message, priority: kind == .error ? .high : .medium)
         Task {
             try? await Task.sleep(nanoseconds: 3_500_000_000)
             if self.toast?.id == item.id { self.toast = nil }

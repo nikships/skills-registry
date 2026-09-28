@@ -111,6 +111,11 @@ Demo-only failure drivers (for exercising error states without a network):
   "repository not found" reason (e.g. `!owner/repo`), so the Fetch-failed
   empty state renders its detail line.
 
+`--demo-hover` (or `SKILLS_APP_DEMO_HOVER=1`, only honored together with demo
+mode) paints the first Browse row in the hover state. The UI driver cannot
+move the OS pointer inside a window, so this is how a screenshot shows that
+treatment. It does nothing outside demo mode.
+
 ---
 
 ## Architecture
@@ -357,6 +362,15 @@ expected scores); keep them verbatim.
 
 ---
 
+## Accessibility
+
+Browse and Discover rows are buttons. Keyboard, Full Keyboard Access, and
+VoiceOver can activate them; VoiceOver hears one combined label (name, slug or
+grades, description) plus a selected trait, and the row lifts with an accent
+bar on hover or keyboard focus. Icon-only controls have explicit labels
+(clear search, refresh, copy, remove, dismiss, account). Toasts and section
+changes are announced to VoiceOver.
+
 ## Testing
 
 ```bash
@@ -377,6 +391,7 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `discoverRefreshStale`, `discoverImport`,
 `discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
 `copySkillFile`, `openOnGitHub`,
+`skillRow-<slug>` / `discoverRow-<name>`,
 `nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`,
 `updaterFailureHint`, `simulateUpdateFailure`)
 so an automated driver can find them deterministically. Two demo-only launch

@@ -1,5 +1,82 @@
 import SwiftUI
+import AppKit
 import SkillsRegistryCore
+
+/// Posts VoiceOver announcements. SwiftUI has no announcement API, so the
+/// toast and section switches go through NSAccessibility directly.
+enum AccessibilityAnnouncer {
+    /// - Parameter priority: `.high` interrupts current speech (errors);
+    ///   `.medium` waits its turn (confirmations, navigation).
+    static func post(_ message: String, priority: NSAccessibilityPriorityLevel = .medium) {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        // Priority has to be an NSNumber. A raw Swift integer does not bridge
+        // into the announcement userInfo VoiceOver actually reads.
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: text,
+                .priority: NSNumber(value: priority.rawValue),
+            ])
+    }
+}
+
+// MARK: - Accessible list row
+
+/// A list row that is a real button, so keyboard, Full Keyboard Access, and
+/// VoiceOver can activate it. Hover and pressed are drawn here; the label
+/// only lays out content. `.combine` publishes the label's texts as one AX
+/// label (name, slug or grades, description) instead of a pile of static texts.
+struct ListRowButton<Label: View>: View {
+    var selected: Bool
+    var hint: String
+    var identifier: String
+    /// Demo-only (`--demo-hover`). Production passes false; a real pointer
+    /// sets `hovering` instead. The UI driver cannot move the OS cursor in
+    /// window scope, so screenshots of the hover treatment use this flag.
+    var previewHover: Bool = false
+    var action: () -> Void
+    @ViewBuilder var label: () -> Label
+
+    @State private var hovering = false
+    @FocusState private var focused: Bool
+
+    private var highlighted: Bool { hovering || focused || previewHover }
+
+    var body: some View {
+        Button(action: action) {
+            label()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(fill)
+                .overlay(alignment: .leading) {
+                    if highlighted {
+                        Rectangle()
+                            .fill(Brand.accent)
+                            .frame(width: 3)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
+        .buttonStyle(RowButtonStyle())
+        .focused($focused)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(hint)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(identifier)
+        .animation(.easeInOut(duration: 0.12), value: highlighted)
+    }
+
+    private var fill: Color {
+        if highlighted && !selected { return Brand.surfaceHover }
+        if selected { return Brand.surfaceRaised }
+        return .clear
+    }
+}
 
 // MARK: - Toast
 
@@ -7,7 +84,7 @@ struct ToastView: View {
     let item: ToastItem
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(color)
+            Image(systemName: icon).foregroundStyle(color).accessibilityHidden(true)
             Text(item.message).font(.system(size: 13)).foregroundStyle(Brand.fg)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -17,6 +94,7 @@ struct ToastView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
         .frame(maxWidth: 420)
+        .accessibilityElement(children: .combine)
     }
 
     private var icon: String {

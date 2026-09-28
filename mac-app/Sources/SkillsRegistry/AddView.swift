@@ -84,6 +84,7 @@ struct AddView: View {
                 if !source.isEmpty {
                     Button { source = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(Brand.meta)
+                        .accessibilityLabel("Clear source")
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)

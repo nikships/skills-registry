@@ -106,6 +106,7 @@ struct DiscoverView: View {
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundStyle(Brand.meta)
+                        .accessibilityLabel("Clear search")
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
@@ -289,24 +290,16 @@ struct DiscoverView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(results) { row in
-                        // A tap gesture rather than a Button, matching how
-                        // BrowseView selects a row: a plain Button publishes
-                        // one opaque element and drops the row's name, grade,
-                        // and description out of the accessibility tree, which
-                        // both VoiceOver and the UI driver that verifies this
-                        // pane read.
-                        DiscoverRow(result: row, selected: selected?.id == row.id)
-                            .onTapGesture {
+                        ListRowButton(
+                            selected: selected?.id == row.id,
+                            hint: "Selects this result",
+                            identifier: "discoverRow-\(row.name)",
+                            action: {
                                 withAnimation(.easeInOut(duration: 0.2)) { selected = row }
                             }
-                            // The row is a tap target rather than a Button so its
-                            // name and grade stay in the accessibility tree. The
-                            // default action is that same tap, so VoiceOver and
-                            // the UI driver can select it.
-                            .accessibilityAction(.default) {
-                                withAnimation(.easeInOut(duration: 0.2)) { selected = row }
-                            }
-                            .accessibilityIdentifier("discoverRow-\(row.name)")
+                        ) {
+                            DiscoverRow(result: row)
+                        }
                         Divider().overlay(Brand.border).padding(.leading, 14)
                     }
                 }
@@ -666,7 +659,6 @@ struct DiscoverView: View {
 /// One index row in the result list.
 struct DiscoverRow: View {
     let result: DiscoverResult
-    let selected: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -691,10 +683,6 @@ struct DiscoverRow: View {
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected ? Brand.surfaceRaised : Color.clear)
-        .contentShape(Rectangle())
     }
 }
 

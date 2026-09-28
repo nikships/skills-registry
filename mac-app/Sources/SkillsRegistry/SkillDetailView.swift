@@ -149,6 +149,7 @@ struct SkillDetailView: View {
                     Image(systemName: "trash").font(.system(size: 12))
                 }
                 .buttonStyle(GhostButtonStyle())
+                .accessibilityLabel("Remove skill")
                 .accessibilityIdentifier("removeSkill")
             }
         }
