@@ -33,6 +33,16 @@ public enum Agents {
     /// Just the dot-dir names — used to enumerate candidate source folders.
     public static func dotDirs() -> [String] { known.map(\.dotDir) }
 
+    /// Case-insensitive substring filter over display name + dot-dir, used by
+    /// the agent picker. A blank query matches everything.
+    public static func matching(_ targets: [AgentTarget], query: String) -> [AgentTarget] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return targets }
+        return targets.filter {
+            $0.display.lowercased().contains(q) || $0.dotDir.lowercased().contains(q)
+        }
+    }
+
     static let known: [AgentTarget] = [
         AgentTarget(dotDir: ".agents", display: "Universal (.agents/skills)", universal: true, underHome: false),
         AgentTarget(dotDir: ".claude", display: "Claude Code"),
