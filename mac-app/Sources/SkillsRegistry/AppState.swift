@@ -54,6 +54,17 @@ final class AppState: ObservableObject {
     @Published var metaSkill = MetaSkill.Status()
     @Published var dismissedKeys: Set<String> = []
 
+    // Navigation context, hoisted out of the pane views so it survives both
+    // accent-driven rebuilds (RootView `.id(theme.accent)`) and sidebar
+    // section switches (HomeView `.id(section)`). The pane snapshot is the
+    // single source of truth; views bind to a field and keep only transient
+    // UI state (spinners, sheets, in-flight tasks) locally.
+    @Published var navSection: String = "Browse"
+    @Published var browsePane = PaneState.Browse()
+    @Published var discoverPane = PaneState.Discover()
+    @Published var addPane = PaneState.Add()
+    @Published var importPane = PaneState.Import()
+
     let isDemo: Bool
     /// Demo-only: start with an empty registry (welcome-card state). Ignored
     /// outside demo mode; see `startDemo`.

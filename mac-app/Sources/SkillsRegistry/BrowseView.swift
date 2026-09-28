@@ -4,14 +4,20 @@ import SkillsRegistryCore
 
 struct BrowseView: View {
     @EnvironmentObject var state: AppState
+
     @Binding var section: NavSection
-    // Demo-only: presets the search field when --demo-query is passed (""
-    // otherwise, so production behavior is unchanged).
-    @State private var query = AppState.demoInitialQuery
-    @State private var selected: String?
+
+    /// Search text + selection live in `AppState` so switching sections or
+    /// re-theming the accent keeps the list filtered and the detail open.
+    private var query: Binding<String> {
+        Binding(get: { state.browsePane.query }, set: { state.browsePane.query = $0 })
+    }
+    private var selected: Binding<String?> {
+        Binding(get: { state.browsePane.selectedSlug }, set: { state.browsePane.selectedSlug = $0 })
+    }
 
     private var filtered: [SkillSummary] {
-        let q = query.trimmingCharacters(in: .whitespaces)
+        let q = state.browsePane.query.trimmingCharacters(in: .whitespaces)
         if q.isEmpty { return state.skills.sorted { $0.slug < $1.slug } }
         // Browse shows every match (like the CLI list TUI), so rank without
         // the headless-search top-N cap; the header count stays truthful.
@@ -26,16 +32,16 @@ struct BrowseView: View {
         }
         .onChange(of: state.skills) { _, skills in
             // Reset the detail pane if the selected skill is gone (e.g. removed).
-            if let s = selected, !skills.contains(where: { $0.slug == s }) {
-                selected = nil
+            if let s = state.browsePane.selectedSlug, !skills.contains(where: { $0.slug == s }) {
+                state.browsePane.selectedSlug = nil
             }
         }
         .task {
             // Demo-only screenshot hook: preselect a skill so the detail pane
             // (including its compact layout) can be captured without clicks.
-            if selected == nil, let slug = DemoHooks.preselectedSkill,
+            if state.browsePane.selectedSlug == nil, let slug = DemoHooks.preselectedSkill,
                state.skills.contains(where: { $0.slug == slug }) {
-                selected = slug
+                state.browsePane.selectedSlug = slug
             }
         }
     }
@@ -46,11 +52,11 @@ struct BrowseView: View {
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.muted)
-                    TextField("Search skills…", text: $query)
+                    TextField("Search skills…", text: query)
                         .textFieldStyle(.plain).font(.system(size: 13))
                         .accessibilityIdentifier("searchField")
-                    if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    if !state.browsePane.query.isEmpty {
+                        Button { state.browsePane.query = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundStyle(Brand.meta)
                             .help("Clear search")
                             .accessibilityLabel("Clear search")
@@ -130,18 +136,19 @@ struct BrowseView: View {
             } else if state.skills.isEmpty {
                 WelcomeCard(section: $section) { publish() }
             } else if filtered.isEmpty {
-                EmptyState(icon: "tray", title: "No matches", subtitle: "Try a different search term.")
+                EmptyState(icon: "tray", title: state.browsePane.query.isEmpty ? "No skills yet" : "No matches",
+                           subtitle: state.browsePane.query.isEmpty ? "Publish one, or import your local skills." : "Try a different search term.")
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(filtered) { skill in
                             ListRowButton(
-                                selected: selected == skill.slug,
+                                selected: state.browsePane.selectedSlug == skill.slug,
                                 hint: "Selects this skill",
                                 identifier: "skillRow-\(skill.slug)",
                                 previewHover: state.demoHoverPreview && skill.slug == filtered.first?.slug,
                                 action: {
-                                    withAnimation(.easeInOut(duration: 0.2)) { selected = skill.slug }
+                                    withAnimation(.easeInOut(duration: 0.2)) { state.browsePane.selectedSlug = skill.slug }
                                 }
                             ) {
                                 SkillRow(skill: skill)
@@ -150,7 +157,7 @@ struct BrowseView: View {
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: query)
+                .animation(.easeInOut(duration: 0.2), value: state.browsePane.query)
             }
         }
         .frame(width: 340)
@@ -159,7 +166,7 @@ struct BrowseView: View {
 
     @ViewBuilder private var detailColumn: some View {
         ZStack {
-            if let slug = selected {
+            if let slug = state.browsePane.selectedSlug {
                 SkillDetailView(slug: slug).id(slug)
                     .transition(.opacity)
             } else {

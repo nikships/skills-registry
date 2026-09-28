@@ -22,10 +22,15 @@ enum NavSection: String, CaseIterable, Identifiable {
 
 struct HomeView: View {
     @EnvironmentObject var state: AppState
-    /// `--demo-scan-sheet` opens Discover so the held import confirmation is
-    /// on screen at launch. Production always starts on Browse.
-    @State private var section: NavSection = ProcessInfo.processInfo.arguments.contains("--demo-scan-sheet")
-        ? .discover : .browse
+
+    /// The selected sidebar section, owned by `AppState` so an accent change
+    /// (which rebuilds this whole tree via `RootView .id(theme.accent)`) does
+    /// not reset navigation to Browse.
+    private var section: Binding<NavSection> {
+        Binding(
+            get: { NavSection(rawValue: state.navSection) ?? .browse },
+            set: { state.navSection = $0.rawValue })
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -37,7 +42,7 @@ struct HomeView: View {
         .task { await state.checkForUpdates() }
         // VoiceOver announcement: the content swaps with no focus move, so
         // without this a section switch is silent.
-        .onChange(of: section) { _, new in AccessibilityAnnouncer.post(new.rawValue) }
+        .onChange(of: state.navSection) { _, raw in AccessibilityAnnouncer.post(raw) }
     }
 
     private var sidebar: some View {
@@ -77,15 +82,15 @@ struct HomeView: View {
     }
 
     private func navButton(_ item: NavSection) -> some View {
-        Button { withAnimation(.easeInOut(duration: 0.22)) { section = item } } label: {
+        Button { withAnimation(.easeInOut(duration: 0.22)) { section.wrappedValue = item } } label: {
             HStack(spacing: 10) {
                 Image(systemName: item.icon).font(.system(size: 13)).frame(width: 18)
                 Text(item.rawValue).font(.system(size: 13, weight: .medium))
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
-            .foregroundStyle(section == item ? Brand.fg : Brand.muted)
-            .background(section == item ? Brand.surfaceRaised : Color.clear)
+            .foregroundStyle(section.wrappedValue == item ? Brand.fg : Brand.muted)
+            .background(section.wrappedValue == item ? Brand.surfaceRaised : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
         }
@@ -149,15 +154,15 @@ struct HomeView: View {
         VStack(spacing: 0) {
             UpdateBanner()
             Group {
-                switch section {
-                case .browse: BrowseView(section: $section)
+                switch section.wrappedValue {
+                case .browse: BrowseView(section: section)
                 case .discover: DiscoverView()
                 case .add: AddView()
                 case .importLocal: ImportView()
                 case .settings: SettingsView()
                 }
             }
-            .id(section)
+            .id(section.wrappedValue)
             .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
     }

@@ -29,6 +29,11 @@ enum DemoSetup {
 /// the full authed UI be exercised by cua-driver without GitHub credentials.
 extension AppState {
     func startDemo() {
+        // `--demo-scan-sheet` opens Discover so the held import confirmation is
+        // on screen at launch. Production always starts on Browse.
+        if ProcessInfo.processInfo.arguments.contains("--demo-scan-sheet") {
+            navSection = NavSection.discover.rawValue
+        }
         switch demoSetup {
         case .loaded, .loading:
             startDemoSetup(loading: demoSetup == .loading)
