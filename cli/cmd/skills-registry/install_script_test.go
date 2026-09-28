@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,9 +83,24 @@ func envSlice(m map[string]string) []string {
 }
 
 // TestInstallScriptURLConstruction covers INSTALL-001..004: every
-// supported OS/arch combination resolves to the expected GitHub
-// Releases URL.
+// supported OS/arch combination resolves to a pinned download URL for
+// the newest CLI release. The fixture API lists a newer macapp-v*
+// release first, which the script must skip — "latest" never means the
+// tag-agnostic /releases/latest endpoint.
 func TestInstallScriptURLConstruction(t *testing.T) {
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/repos/nikships/skills-registry/releases") {
+			t.Errorf("unexpected API path %q", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `[
+{"tag_name":"macapp-v9.9.9","draft":false,"prerelease":false},
+{"tag_name":"v7.7.8","draft":true,"prerelease":false},
+{"tag_name":"v7.7.7","draft":false,"prerelease":false},
+{"tag_name":"v7.7.6","draft":false,"prerelease":false}
+]`)
+	}))
+	t.Cleanup(apiSrv.Close)
+
 	cases := []struct {
 		name   string
 		os     string
@@ -93,33 +111,34 @@ func TestInstallScriptURLConstruction(t *testing.T) {
 			name:   "darwin/arm64",
 			os:     "Darwin",
 			arch:   "arm64",
-			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_darwin_arm64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/download/v7.7.7/skills-registry_darwin_arm64.tar.gz",
 		},
 		{
 			name:   "darwin/amd64",
 			os:     "Darwin",
 			arch:   "x86_64",
-			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_darwin_amd64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/download/v7.7.7/skills-registry_darwin_amd64.tar.gz",
 		},
 		{
 			name:   "linux/amd64",
 			os:     "Linux",
 			arch:   "amd64",
-			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_linux_amd64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/download/v7.7.7/skills-registry_linux_amd64.tar.gz",
 		},
 		{
 			name:   "linux/arm64",
 			os:     "Linux",
 			arch:   "aarch64",
-			expect: "https://github.com/nikships/skills-registry/releases/latest/download/skills-registry_linux_arm64.tar.gz",
+			expect: "https://github.com/nikships/skills-registry/releases/download/v7.7.7/skills-registry_linux_arm64.tar.gz",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out, errStr, code := runScript(t, map[string]string{
-				"SKILLS_REGISTRY_OS":      tc.os,
-				"SKILLS_REGISTRY_ARCH":    tc.arch,
-				"SKILLS_REGISTRY_DRY_RUN": "1",
+				"SKILLS_REGISTRY_OS":       tc.os,
+				"SKILLS_REGISTRY_ARCH":     tc.arch,
+				"SKILLS_REGISTRY_DRY_RUN":  "1",
+				"SKILLS_REGISTRY_API_BASE": apiSrv.URL,
 			})
 			if code != 0 {
 				t.Fatalf("expected exit 0, got %d (stderr: %s)", code, errStr)
@@ -128,7 +147,32 @@ func TestInstallScriptURLConstruction(t *testing.T) {
 			if got != tc.expect {
 				t.Fatalf("URL mismatch:\n  got:  %s\n  want: %s", got, tc.expect)
 			}
+			if !strings.Contains(errStr, "version  : v7.7.7") {
+				t.Fatalf("stderr missing resolved version line:\n%s", errStr)
+			}
 		})
+	}
+}
+
+// TestInstallScriptLatestResolutionFailure verifies an unresolvable
+// "latest" exits 1 and names SKILLS_REGISTRY_VERSION as the escape hatch.
+func TestInstallScriptLatestResolutionFailure(t *testing.T) {
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `[{"tag_name":"macapp-v9.9.9","draft":false,"prerelease":false}]`)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	_, errStr, code := runScript(t, map[string]string{
+		"SKILLS_REGISTRY_OS":       "Linux",
+		"SKILLS_REGISTRY_ARCH":     "amd64",
+		"SKILLS_REGISTRY_DRY_RUN":  "1",
+		"SKILLS_REGISTRY_API_BASE": apiSrv.URL,
+	})
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d (stderr: %s)", code, errStr)
+	}
+	if !strings.Contains(errStr, "SKILLS_REGISTRY_VERSION") {
+		t.Fatalf("stderr missing pinning hint:\n%s", errStr)
 	}
 }
 

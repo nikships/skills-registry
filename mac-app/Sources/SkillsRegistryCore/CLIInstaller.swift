@@ -34,29 +34,35 @@ public enum CLIInstaller {
         return line.isEmpty ? nil : line
     }
 
+    /// Pinned download URL for one CLI release tag. Callers must resolve
+    /// the tag first via `Updates.latestRelease(channel: .cli)` — there is
+    /// deliberately no "latest" spelling here, since the tag-agnostic
+    /// /releases/latest/download endpoint 404s whenever the repo's newest
+    /// release overall is a macOS app release (which carries no CLI binary).
+    public static func downloadURL(version: String, repo: String = AppConfig.projectRepo) -> URL? {
+        URL(string: "https://github.com/\(repo)/releases/download/\(version)/skills-registry_darwin_arm64.tar.gz")
+    }
+
     /// Download + extract + install. Returns the installed binary path.
+    /// `version` must be a resolved CLI tag (e.g. "v0.5.50"), never "latest".
     @discardableResult
-    public static func install(version: String = "latest") async throws -> URL {
-        let asset = "skills-registry_darwin_arm64.tar.gz"
-        let urlString = version == "latest"
-            ? "https://github.com/\(AppConfig.projectRepo)/releases/latest/download/\(asset)"
-            : "https://github.com/\(AppConfig.projectRepo)/releases/download/\(version)/\(asset)"
-        guard let url = URL(string: urlString) else {
-            throw GitHubError(status: 0, message: "Bad release URL", endpoint: urlString)
+    public static func install(version: String) async throws -> URL {
+        guard version != "latest", let url = downloadURL(version: version) else {
+            throw GitHubError(status: 0, message: "Bad release version: \(version)", endpoint: version)
         }
 
         let fm = FileManager.default
         let (tmpDownload, resp) = try await URLSession.shared.download(from: url)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
-            throw GitHubError(status: code, message: "Download failed: \(urlString)", endpoint: urlString)
+            throw GitHubError(status: code, message: "Download failed: \(url.absoluteString)", endpoint: url.absoluteString)
         }
 
         let work = fm.temporaryDirectory.appendingPathComponent("skills-registry-install-\(UUID().uuidString)")
         try fm.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: work) }
 
-        let tarball = work.appendingPathComponent(asset)
+        let tarball = work.appendingPathComponent("skills-registry_darwin_arm64.tar.gz")
         try fm.moveItem(at: tmpDownload, to: tarball)
 
         let result = try await Subprocess.run("/usr/bin/tar",
