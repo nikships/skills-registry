@@ -38,9 +38,38 @@ func (s SkillRow) Title() string {
 // Description implements list.Item.
 func (s SkillRow) Description() string { return s.Desc }
 
-// FilterValue implements list.Item — fuzzy search hits any of the fields.
+// FilterValue implements list.Item — substring search hits any of the fields.
 func (s SkillRow) FilterValue() string {
 	return s.Slug + " " + s.Name + " " + s.Desc
+}
+
+// FilterMatches reports whether a skill haystack (slug + name +
+// description, see SkillRow.FilterValue) matches an already-lowercased
+// filter needle: plain case-insensitive substring. An empty needle
+// matches everything. This is the single predicate behind `list
+// --query` (`--plain`, `--json`, and the TUI loader) and the TUI `/`
+// filter, so all four agree on what a query selects.
+func FilterMatches(haystack, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(haystack), needle)
+}
+
+// SubstringFilter is a list.FilterFunc with plain case-insensitive
+// substring semantics over each item's FilterValue. It replaces
+// bubbles' default fuzzy matcher so typing `/pdf` in the list TUI
+// selects exactly the rows `list --query pdf` would: matches keep
+// registry order (no fuzzy re-ranking).
+func SubstringFilter(term string, targets []string) []list.Rank {
+	needle := strings.ToLower(term)
+	ranks := make([]list.Rank, 0, len(targets))
+	for i, target := range targets {
+		if FilterMatches(target, needle) {
+			ranks = append(ranks, list.Rank{Index: i})
+		}
+	}
+	return ranks
 }
 
 // RowLoader fetches the registry rows. Invoked once after the model starts so
@@ -203,6 +232,9 @@ func NewList(ctx context.Context, repo string, loader RowLoader, installer Insta
 	l.SetFilteringEnabled(true)
 	l.SetShowPagination(true)
 	l.DisableQuitKeybindings()
+	// Substring matching (not bubbles' default fuzzy) so the `/` filter
+	// selects exactly what `list --query` would for the same text.
+	l.Filter = SubstringFilter
 	// The header indicator already surfaces the active filter ("filter: foo ·
 	// 23 / 91 shown"); the bubbles built-in filter row inside the panel just
 	// duplicates that. Keep only the typing affordance (cursor + text) so

@@ -886,3 +886,115 @@ func TestClampPreviewDescPassthrough(t *testing.T) {
 		t.Errorf("clampPreviewDesc mutated an in-budget block:\nwant: %q\ngot:  %q", want, got)
 	}
 }
+
+// filterFixtureRows mirrors the cli-tui-10 repro: "pdf" must match
+// nano-pdf (slug + description) and github-image-upload (description
+// only), while the old fuzzy matcher also swept up rows like
+// design-md, spike, and code-review that merely contain p/d/f as a
+// subsequence.
+func filterFixtureRows() []SkillRow {
+	return []SkillRow{
+		{Slug: "nano_pdf", Name: "nano-pdf", Desc: "Edit PDF text/typos/titles via nano-pdf CLI (NL prompts)."},
+		{Slug: "design_md", Name: "design-md", Desc: "Author/validate/export Google's DESIGN.md token spec files."},
+		{Slug: "github_image_upload", Name: "github-image-upload", Desc: "Upload local images and other files (PDF, zip, log) to GitHub."},
+		{Slug: "spike", Name: "Spike", Desc: "Throwaway experiments to validate an idea before build."},
+		{Slug: "code_review", Name: "code-review", Desc: "Guidelines for performing thorough code reviews with security and quality focus."},
+	}
+}
+
+func filterFixtureTargets() []string {
+	rows := filterFixtureRows()
+	targets := make([]string, len(rows))
+	for i, r := range rows {
+		targets[i] = r.FilterValue()
+	}
+	return targets
+}
+
+// TestFilterMatches_SubstringSemantics pins the shared list predicate:
+// case-insensitive substring over slug+name+description, with an empty
+// needle matching everything. Fuzzy-subsequence-only rows must not
+// match.
+func TestFilterMatches_SubstringSemantics(t *testing.T) {
+	rows := filterFixtureRows()
+	cases := []struct {
+		row    int
+		needle string
+		want   bool
+	}{
+		{0, "pdf", true},      // slug + description hit
+		{2, "pdf", true},      // description-only hit
+		{1, "pdf", false},     // fuzzy subsequence only — must not match
+		{3, "pdf", false},     // fuzzy subsequence only — must not match
+		{4, "pdf", false},     // fuzzy subsequence only — must not match
+		{1, "design", true},   // name hit
+		{3, "spike", true},    // slug + name hit
+		{4, "thorough", true}, // description hit
+		{0, "", true},         // empty needle matches everything
+		{3, "", true},
+	}
+	for _, tc := range cases {
+		got := FilterMatches(rows[tc.row].FilterValue(), tc.needle)
+		if got != tc.want {
+			t.Errorf("FilterMatches(row %d %q, %q) = %v, want %v",
+				tc.row, rows[tc.row].Slug, tc.needle, got, tc.want)
+		}
+	}
+}
+
+func rankIndexes(ranks []list.Rank) []int {
+	got := make([]int, len(ranks))
+	for i, r := range ranks {
+		got[i] = r.Index
+	}
+	return got
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestSubstringFilter_MatchesQuerySemantics pins the TUI `/` filter to
+// the same rows `list --query pdf` selects: substring hits only, in
+// stable registry order (no fuzzy re-ranking).
+func TestSubstringFilter_MatchesQuerySemantics(t *testing.T) {
+	targets := filterFixtureTargets()
+	want := []int{0, 2}
+
+	if got := rankIndexes(SubstringFilter("pdf", targets)); !equalInts(got, want) {
+		t.Errorf("SubstringFilter(pdf) = %v, want %v", got, want)
+	}
+	// The term is case-insensitive even though the predicate takes a
+	// pre-lowercased needle — SubstringFilter lowercases it.
+	if got := rankIndexes(SubstringFilter("PDF", targets)); !equalInts(got, want) {
+		t.Errorf("SubstringFilter(PDF) = %v, want %v", got, want)
+	}
+	// Empty term matches everything (bubbles resets before calling
+	// with "", but the func must still be total).
+	if got := SubstringFilter("", targets); len(got) != len(targets) {
+		t.Errorf("SubstringFilter(\"\") matched %d/%d targets, want all", len(got), len(targets))
+	}
+	if got := SubstringFilter("zzz-no-such-skill", targets); len(got) != 0 {
+		t.Errorf("SubstringFilter(zzz-no-such-skill) matched %d targets, want 0", len(got))
+	}
+}
+
+// TestNewList_InstallsSubstringFilter proves the list TUI actually uses
+// SubstringFilter (not bubbles' DefaultFilter): run the model's
+// installed func over the fixture haystacks and demand the --query
+// row set.
+func TestNewList_InstallsSubstringFilter(t *testing.T) {
+	m := NewList(context.Background(), "owner/repo", nil, nil)
+	targets := filterFixtureTargets()
+	if got := rankIndexes(m.list.Filter("pdf", targets)); !equalInts(got, []int{0, 2}) {
+		t.Errorf("installed list filter selected %v for pdf, want [0 2]", got)
+	}
+}
