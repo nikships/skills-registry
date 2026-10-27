@@ -146,7 +146,7 @@ extension View {
 
 /// The app's shared search/source field chrome (design-a11y-11): leading
 /// icon, plain text field, and clear button in an `inputContainer`. Replaces
-/// the copy-pasted variants in Browse/Discover/Add. Panes own the
+/// the copy-pasted variants in Browse/Add. Panes own the
 /// `@FocusState` and pass its binding down so Cmd-F can drive focus.
 struct SearchField: View {
     let icon: String
@@ -240,8 +240,7 @@ struct GitHubMark: View {
     }
 }
 
-/// The import-gate blocker warning shared by the Discover confirmation sheet
-/// and the Add results banner: the block summary plus the acknowledgement
+/// The import-gate blocker warning in the Add results banner: the block summary plus the acknowledgement
 /// checkbox that clears it. Neither consent implies an install.
 struct GateBlockWarning: View {
     let review: ImportReview
@@ -271,9 +270,8 @@ struct GateBlockWarning: View {
     }
 }
 
-/// The local scan's hits, or the clean-scan line when there are none. Shared
-/// by the Add banner and the Discover confirmation so both surfaces quote the
-/// same lines and the same disclaimer. A slug prefix appears only when more
+/// The local scan's hits, or the clean-scan line when there are none.
+/// A slug prefix appears only when more
 /// than one skill contributed a hit.
 struct ScanFindingsList: View {
     let rows: [(slug: String, finding: SkillFinding)]
@@ -320,5 +318,31 @@ struct EmptyState: View {
                 .multilineTextAlignment(.center).frame(maxWidth: 340)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The index grade shown in the Add source review.
+struct GradeBadge: View {
+    let level: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(tint).frame(width: 5, height: 5)
+            Text(ImportGate.label(level))
+                .font(Brand.monoSized(11)).foregroundStyle(Brand.fg2)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Brand.surfaceWarm)
+        .overlay(Capsule().strokeBorder(tint.opacity(0.45), lineWidth: 1))
+        .clipShape(Capsule())
+    }
+
+    private var tint: Color {
+        switch ImportGate.label(level) {
+        case ImportGate.levelGood: return Brand.success
+        case ImportGate.levelAverage: return Brand.warn
+        case ImportGate.levelPoor: return Brand.danger
+        default: return Brand.muted
+        }
     }
 }

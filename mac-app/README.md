@@ -6,8 +6,7 @@ rich markdown rendering and fuzzy search, edit a skill's `SKILL.md` in
 place (the editor takes focus on open; Escape or Cancel asks before
 discarding unsaved text; switching skills or sections keeps the draft and
 restores it on return), publish a skill from a folder,
-**install** a registry skill into your agent folders, **discover** third-party
-skills in the public index and import one behind the import gate, **add**
+**install** a registry skill into your agent folders, **add**
 skills from an external source (local path, `owner/repo`, a git URL, or a
 GitHub `/tree/<ref>/<path>` link) and publish + install them in one pass,
 **remove** one end-to-end (registry + local downloads + agent folders),
@@ -59,7 +58,7 @@ fully side-effect free by construction:
   and real instances.
 - CLI and agent-skill installs are simulated with fixture state — no network,
   no `~/.local/bin` or dot-folder writes.
-- Every other write path (Import, Add publish, Discover import, publish,
+- Every other write path (Import, Add publish, publish,
   install, remove) shows an honest `Demo mode: would …` info toast instead of
   silently doing nothing.
 - The detail pane's GitHub button is disabled with a tooltip saying why, so
@@ -68,21 +67,11 @@ fully side-effect free by construction:
 
 `--demo-empty` / `SKILLS_APP_DEMO_EMPTY=1` starts with an empty registry so
 the Browse welcome card a new user sees after create/connect is reachable.
-Several demo-only drivers make
-otherwise-unreachable states reachable: a
-Discover query starting with `!` fails the search the way an unreachable index
-would (error state, fallback hint, and retry, all offline); the Discover
-category field filters the fixtures the way the live index filters server-side;
-the Discover pane arrives with a query already run; and the Add pane arrives
-with an untrusted fixture source (`AppState.demoAddSource`, resolving to the
-Poor-safety fixture row) already fetched, so the gated states are reachable
-without typing. That same fixture's `SKILL.md` (`AppState.demoScanHitMarkdown`)
-is run through `SkillScan`, so the Add banner lists the hits and Discover's
-pdf-scraper import holds on the same acknowledgement after you confirm.
-`--demo-scan-sheet` opens that held confirmation immediately (still demo-only;
-the findings are the scanner's). Any other source typed into Add classifies
-through the real `AddGate.build`, degrading to unscored when no fixture row
-matches, and scans clean.
+The Add pane arrives with an untrusted fixture source (`AppState.demoAddSource`),
+so its gated states are reachable without typing. Its fixture `SKILL.md` is
+run through `SkillScan`, and the Add banner lists any hits. Other sources
+classify through `AddGate.build`, degrading to unscored when no fixture row
+matches.
 
 Two more demo-only launch arguments render the login error states with no
 Keychain or network touch (for review screenshots): `--demo-auth-expired`
@@ -169,9 +158,9 @@ accent ring.
 
 | Shortcut | Action |
 |---|---|
-| `⌘F` | Focus the current section's search / source field (Browse, Discover, Add) |
-| `⌘R` | Refresh: reload the Browse list, re-run the Discover search, rescan Import |
-| `⌘1`–`⌘5` | Switch to Browse · Discover · Add · Import · Settings |
+| `⌘F` | Focus the current section's search / source field (Browse, Add) |
+| `⌘R` | Refresh: reload the Browse list, rescan Import |
+| `⌘1`–`⌘4` | Switch to Browse · Add · Import · Settings |
 | `⌘,` | Open Settings |
 | `Return` | Confirm: sign in, create/connect, sheet confirm buttons |
 | `Esc` | Cancel sheets |
@@ -203,7 +192,7 @@ Two SwiftPM targets:
 Sources/SkillsRegistryCore/
   AppConfig.swift       GitHub App client_id and slug, project repo, CLI install path
   Models.swift          SkillSummary, SkillDetail, RepoRef, Identity, InstallationRepo, LocalSkill
-  PaneState.swift       per-pane navigation snapshots hoisted into AppState (Browse/Discover/Add/Import)
+  PaneState.swift       per-pane navigation snapshots hoisted into AppState (Browse/Add/Import)
   Slug.swift            slugify  ── shared cross-language contract
   FuzzyScore.swift      fzf-V1 scorer ── shared cross-language contract
   Frontmatter.swift     parseSummary/body/flat-YAML ── shared cross-language contract
@@ -238,10 +227,9 @@ Sources/SkillsRegistry/
   UpdateBanner.swift       dismissible CLI-update + meta-skill prompts
   LoginView.swift          sign-in pitch + DeviceCodeSheet
   SetupView.swift          create / connect / install-app
-  HomeView.swift           sidebar (Browse · Discover · Add · Import · Settings) + content router + UpdateBanner
+  HomeView.swift           sidebar (Browse · Add · Import · Settings) + content router + UpdateBanner
   BrowseView.swift         search list + skill rows + detail pane
   SkillDetailView.swift    MarkdownUI render + file rail + actions (Install/GitHub/Copy/Remove)
-  DiscoverView.swift       public-index search → grades + source preview → gated import
   AddView.swift            add from source → multi-select → publish + install
   AgentPickerSheet.swift   reusable home-agent multi-select (Install + Add)
   MarkdownTheme.swift      brand-matched MarkdownUI theme
@@ -363,22 +351,6 @@ Three flows mirror the Go CLI's `install` / `add` / `remove`:
   You multi-select discovered skills (dups already in the registry are filtered
   out), then `publishAndInstall` publishes each and installs it into the agents
   you pick.
-- **Discover from the public index.** The **Discover** sidebar section searches
-  the public SkillNet index through `DiscoverClient` (the Swift mirror of
-  `cli/internal/discover`), so it reads the same JSON contract as
-  `skills-registry discover --json` without spawning the CLI. The request is
-  built in that client rather than through `GitHubAPI` and carries **no
-  credential** — the endpoint is plain HTTP because its certificate does not
-  match the host, so only the query terms leave the machine. A search fails
-  closed: an unreachable index, a timeout, a 5xx, or a non-JSON body renders an
-  inline error and no list, so "unreachable" and "no match" never look alike.
-  Importing a row resolves its `skill_url` through the same `SourceResolver`
-  fetch path (folder only, no clone), stamps `category` + `source_url` onto the
-  copy, and publishes it. The confirmation keeps the durable agent install
-  **off by default** (when on, confirming opens the agent picker so the
-  install goes only where chosen; picking nothing imports registry-only),
-  and a `Poor` safety grade needs a second acknowledgement;
-  `ImportGate.swift` owns those rules, mirroring `importgate` + `trust`.
 - **Remove end-to-end.** `remove(_:)` deletes the `<slug>/` subtree from the
   registry, then `LocalRemove` clears the CLI download (`<slug>/` +
   `<slug>.meta.json`) and sweeps every agent dot-folder for a literal- or
@@ -442,7 +414,7 @@ expected scores); keep them verbatim.
 
 ## Accessibility
 
-Browse and Discover rows are buttons. Keyboard, Full Keyboard Access, and
+Browse rows are buttons. Keyboard, Full Keyboard Access, and
 VoiceOver can activate them; VoiceOver hears one combined label (name, slug or
 grades, description) plus a selected trait, and the row lifts with an accent
 bar on hover or keyboard focus. Icon-only controls have explicit labels
@@ -464,13 +436,9 @@ UI is verified by launching in demo mode and driving it with cua-driver
 `removeSkill`, `installSkill`, `editSkill`, `skillEditor`, `saveSkillEdit`,
 `cancelSkillEdit`, `discardSkillEdit`, `keepEditingSkill`, `addSourceField`, `addFetch`, `addSelected`,
 `addGateBanner`, `addAllowUnsafe`,
-`agentPickerConfirm`, `agentPickerFilter`, `discoverQueryField`,
-`discoverCategoryField`, `discoverSearch`, `discoverLimit-10/25/50`,
-`discoverRefreshStale`, `discoverImport`,
-`discoverInstallToggle`, `discoverAllowUnsafe`, `discoverConfirmImport`,
-`copySkillFile`, `openOnGitHub`,
-`skillRow-<slug>` / `discoverRow-<name>`,
-`nav-Browse` / `nav-Discover` / `nav-Add` / `nav-Import` / `nav-Settings`,
+`agentPickerConfirm`, `agentPickerFilter`, `copySkillFile`, `openOnGitHub`,
+`skillRow-<slug>`,
+`nav-Browse` / `nav-Add` / `nav-Import` / `nav-Settings`,
 `updaterFailureHint`, `simulateUpdateFailure`, `switchRegistry`)
 so an automated driver can find them deterministically. Two demo-only launch
 arguments reach states the driver cannot: `--demo-select <slug>` opens that

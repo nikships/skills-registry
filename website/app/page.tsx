@@ -197,7 +197,7 @@ skills-registry get code-review --json
 
         <section id="mac-app">
           <div className="container">
-            <div className="section-head"><p className="eyebrow"><span className="dot" /> Native macOS app</p><h2 className="h2">The same registry, without the terminal.</h2><p className="lead">The Apple Silicon SwiftUI app supports GitHub login, rich Markdown browsing, fuzzy search, in-app SKILL.md editing, publishing, removal, a Discover pane that imports behind the same gate, bulk local import, and one-click CLI installation.</p></div>
+            <div className="section-head"><p className="eyebrow"><span className="dot" /> Native macOS app</p><h2 className="h2">The same registry, without the terminal.</h2><p className="lead">The Apple Silicon SwiftUI app supports GitHub login, rich Markdown browsing, fuzzy search, in-app SKILL.md editing, publishing, removal, gated third-party adds, bulk local import, and one-click CLI installation.</p></div>
             <figure className="media-frame"><img src="/assets/mac-app.png" alt="Skills Registry macOS app with skill list, rendered Markdown, and file browser" width={1568} height={962} loading="lazy" decoding="async" /></figure>
           </div>
         </section>

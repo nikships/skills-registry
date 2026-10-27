@@ -154,7 +154,7 @@ public struct ImportReview: Sendable, Hashable, Codable {
     /// means the index never saw the skill, and no findings means the
     /// heuristic scan matched nothing (which is not a guarantee of safety).
     /// A caller that has not fetched the skill yet passes no findings, which
-    /// is exactly what the Discover confirmation does: it reviews the grades
+    /// reviews the grades
     /// it has, and the scan block can only join after the fetch.
     public static func evaluate(slug: String, scores: ImportScores,
                                 findings: [SkillFinding] = []) -> ImportReview {

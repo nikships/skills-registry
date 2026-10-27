@@ -16,58 +16,6 @@ public enum PaneState {
         }
     }
 
-    /// Discover pane: the query field, ranking mode, last results, selection,
-    /// and whether a search has run (which decides the empty state).
-    public struct Discover: Sendable, Equatable {
-        public var query: String
-        public var mode: DiscoverMode
-        public var results: [DiscoverResult]
-        public var selectedName: String?
-        public var didSearch: Bool
-        public var searchError: String?
-
-        public init(query: String = "", mode: DiscoverMode = .keyword,
-                    results: [DiscoverResult] = [], selectedName: String? = nil,
-                    didSearch: Bool = false, searchError: String? = nil) {
-            self.query = query
-            self.mode = mode
-            self.results = results
-            self.selectedName = selectedName
-            self.didSearch = didSearch
-            self.searchError = searchError
-        }
-
-        /// The selected row, resolved against the current results. Names are
-        /// unique within one index response, and re-resolving (rather than
-        /// storing the row) keeps the selection pointing at the live list.
-        public var selected: DiscoverResult? {
-            guard let selectedName else { return nil }
-            return results.first { $0.name == selectedName }
-        }
-
-        /// The new snapshot after a search completes: results replaced,
-        /// selection reset to the first row, the error cleared.
-        public func searched(_ results: [DiscoverResult]) -> Discover {
-            var next = self
-            next.results = results
-            next.selectedName = results.first?.name
-            next.searchError = nil
-            next.didSearch = true
-            return next
-        }
-
-        /// The new snapshot after a search fails closed: no partial list
-        /// survives, so results and selection are cleared and the error kept.
-        public func failed(_ message: String) -> Discover {
-            var next = self
-            next.results = []
-            next.selectedName = nil
-            next.searchError = message
-            next.didSearch = true
-            return next
-        }
-    }
-
     /// Add pane: the source string, fetched skills, multi-selection, and
     /// whether a fetch has run (which decides the empty state). The fetch
     /// failure reason and the import-gate acknowledgement live here too, so a

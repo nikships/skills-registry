@@ -4,7 +4,6 @@ import SkillsRegistryCore
 
 enum NavSection: String, CaseIterable, Identifiable {
     case browse = "Browse"
-    case discover = "Discover"
     case add = "Add"
     case importLocal = "Import"
     case settings = "Settings"
@@ -12,7 +11,6 @@ enum NavSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .browse: return "square.grid.2x2"
-        case .discover: return "sparkle.magnifyingglass"
         case .add: return "square.and.arrow.down"
         case .importLocal: return "tray.and.arrow.down"
         case .settings: return "gearshape"
@@ -147,7 +145,6 @@ struct HomeView: View {
             Group {
                 switch state.section {
                 case .browse: BrowseView(section: $state.section)
-                case .discover: DiscoverView()
                 case .add: AddView()
                 case .importLocal: ImportView()
                 case .settings: SettingsView()

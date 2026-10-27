@@ -2,7 +2,7 @@ import Foundation
 
 /// Client for the public SkillNet skill index. Swift mirror of Go
 /// `cli/internal/discover` (`discover.Client`, `discover.Response`), so the
-/// macOS Discover pane reads the same rows `skills-registry discover --json`
+/// macOS Add flow reads the same rows `skills-registry discover --json`
 /// prints without shelling out to the CLI binary.
 ///
 /// Two transport facts drive this code, exactly as they do in Go:
@@ -266,16 +266,6 @@ public struct DiscoverQuery: Sendable, Equatable {
         return q
     }
 
-    /// Whether a result category passes this query's category filter. An
-    /// empty filter matches everything; otherwise the match is a
-    /// case-insensitive substring, so `product` finds `Productivity`. The
-    /// live index applies its own filter server-side; this is what lets
-    /// demo mode honor the same field offline.
-    public func categoryMatches(_ resultCategory: String) -> Bool {
-        let want = category.trimmed
-        guard !want.isEmpty else { return true }
-        return resultCategory.trimmed.range(of: want, options: .caseInsensitive) != nil
-    }
 }
 
 // MARK: - published contract

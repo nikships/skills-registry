@@ -5,7 +5,7 @@ import XCTest
 /// the skill index host. `DiscoverClient` talks plain HTTP because port 443 on
 /// that host serves an unrelated site behind a certificate issued for a
 /// different name, so without the exception ATS cancels every search and the
-/// Discover pane only ever renders "requires the use of a secure connection".
+/// index lookup only ever reports "requires the use of a secure connection".
 ///
 /// `DiscoverTests` all inject a fake transport, so none of them touch ATS.
 /// These assertions are the guard: they fail if the endpoint host changes

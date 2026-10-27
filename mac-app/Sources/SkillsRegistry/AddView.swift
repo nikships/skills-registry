@@ -52,7 +52,7 @@ struct AddView: View {
         }
         // Demo mode drives the whole app offline, so the pane arrives with an
         // untrusted source already fetched rather than requiring synthetic
-        // keystrokes — the same pattern as Discover's demo auto-search.
+        // keystrokes.
         .onAppear {
             guard state.isDemo, !state.addPane.didFetch, source.wrappedValue.isEmpty else { return }
             source.wrappedValue = AppState.demoAddSource

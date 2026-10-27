@@ -2,8 +2,7 @@ import SwiftUI
 import SkillsRegistryCore
 
 /// Reusable agent multi-select used by "Install" (registry skill → local),
-/// "Add" (external source → publish + install), and "Discover" (index row →
-/// import + install). Lists the home-based
+/// and "Add" (external source → publish + install). Lists the home-based
 /// agents from `Agents.all()` (`underHome == true`) plus the universal
 /// `.agents` target. The app uses the home directory as the universal target's
 /// install base, so that row writes to `~/.agents/skills`.

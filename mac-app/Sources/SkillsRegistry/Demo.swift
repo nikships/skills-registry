@@ -29,11 +29,6 @@ enum DemoSetup {
 /// the full authed UI be exercised by cua-driver without GitHub credentials.
 extension AppState {
     func startDemo() {
-        // `--demo-scan-sheet` opens Discover so the held import confirmation is
-        // on screen at launch. Production always starts on Browse.
-        if ProcessInfo.processInfo.arguments.contains("--demo-scan-sheet") {
-            section = .discover
-        }
         switch demoSetup {
         case .loaded, .loading:
             startDemoSetup(loading: demoSetup == .loading)
@@ -186,9 +181,7 @@ extension AppState {
                    folder: "~/.cursor/skills/changelog-writer", source: "~/.cursor/skills"),
     ]
 
-    /// Fixture rows for the Discover pane. They carry the same grade shapes the
-    /// real index returns, including a `Poor` row and one the index never
-    /// graded, so both consent paths are reachable offline.
+    /// Index fixtures for the Add gate, including a Poor-safety row.
     static let demoDiscoverResults: [DiscoverResult] = [
         DiscoverResult(name: "pdf-form-filler", description: "Fill and flatten PDF AcroForms from a JSON payload, then verify every field landed.",
                        author: "openclaw", category: "Productivity",
@@ -214,9 +207,7 @@ extension AppState {
     /// The source the Add pane arrives with in demo mode: a third-party folder
     /// URL that resolves to the Poor-safety fixture row, so the untrusted
     /// banner, grades, and acknowledgement are reachable offline. The same
-    /// URL is the Discover row whose fetched `SKILL.md` is
-    /// `demoScanHitMarkdown`, so both import paths can show a scan hit
-    /// without leaving demo mode. Any other typed source classifies through
+    /// URL uses `demoScanHitMarkdown` so Add can show a scan hit offline. Any other typed source classifies through
     /// the real `AddGate.build`, degrading to unscored when no fixture row
     /// matches, and scans clean.
     static let demoAddSource = "https://github.com/anon/pdf-scraper/blob/main/skills/pdf-scraper"
@@ -267,66 +258,6 @@ extension AppState {
             source: src, owners: repo.map { [$0.owner] } ?? [],
             slugs: Self.demoLocal.map(\.slug), indexed: row, findings: bySlug))
         return Self.demoLocal
-    }
-
-    /// Demo-mode Discover import. A scan hit on the hostile fixture holds the
-    /// import (publishing `scanBlockedImport`) until `scanAcknowledged`, even
-    /// when `allowUnsafe` already cleared the grade block. Nothing is written
-    /// either way: demo mode never touches a registry.
-    @discardableResult
-    func demoImportDiscovered(_ result: DiscoverResult, targets: [AgentTarget],
-                              pickedNoAgents: Bool = false,
-                              allowUnsafe: Bool = false,
-                              scanAcknowledged: Bool = false) -> Bool {
-        if !scanAcknowledged, let held = Self.demoScanRefusal(result) {
-            scanBlockedImport = ScanBlockedImport(result: result, targets: targets, refusal: held)
-            return false
-        }
-        if !allowUnsafe, result.scores.safetyIsPoor {
-            showToast("Refused: the public skill index graded this skill's safety Poor.", .error)
-            return false
-        }
-        scanBlockedImport = nil
-        let name = result.name.isEmpty ? result.skillURL : result.name
-        var msg = "would import \(name) into your registry"
-        if !targets.isEmpty {
-            msg += " and install into \(targets.count) agent\(targets.count == 1 ? "" : "s")"
-        } else if pickedNoAgents {
-            msg += "; no agents picked, so the install was skipped"
-        }
-        demoToast(msg)
-        return true
-    }
-
-    /// The review Discover's post-fetch hold shows for a fixture row, or nil
-    /// when that row's fixture file scans clean.
-    static func demoScanRefusal(_ result: DiscoverResult) -> ImportReview? {
-        let findings = demoScanFindings(for: result.skillURL)
-        guard !findings.isEmpty else { return nil }
-        return ImportReview.evaluate(slug: result.name, scores: result.scores, findings: findings)
-    }
-
-    /// Demo-mode search: filters the fixtures on the query so the pane behaves
-    /// like the real one, and reports a miss as an empty result set rather than
-    /// an error. Two demo-only drivers make offline states reachable: a
-    /// leading `!` fails the search the way an unreachable index would (so the
-    /// error state, fallback hint, and retry are exercisable without a
-    /// network), and the query's category filter applies to the fixtures the
-    /// way the live index applies it server-side.
-    static func demoDiscoverResponse(_ query: DiscoverQuery) throws -> DiscoverResponse {
-        let q = try query.normalized()
-        if q.text.hasPrefix("!") {
-            throw DiscoverError.unreachable(
-                DiscoverClient.defaultBaseURL, "demo error trigger (query starts with \"!\")")
-        }
-        let needle = q.text.lowercased()
-        let hits = demoDiscoverResults.filter {
-            q.categoryMatches($0.category)
-                && ($0.name.lowercased().contains(needle) || $0.description.lowercased().contains(needle)
-                    || $0.category.lowercased().contains(needle))
-        }
-        return DiscoverResponse(source: DiscoverClient.source, query: q.text,
-                                mode: q.mode.rawValue, results: Array(hits.prefix(q.limit)))
     }
 
     static func demoDetail(_ slug: String) -> SkillDetail {

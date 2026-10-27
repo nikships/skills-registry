@@ -13,9 +13,9 @@ struct AppCommands: View {
     @ObservedObject var state: AppState
 
     /// Sections with a search/source field Cmd-F can focus.
-    private static let searchable: Set<NavSection> = [.browse, .discover, .add]
+    private static let searchable: Set<NavSection> = [.browse, .add]
     /// Sections with refreshable content for Cmd-R.
-    private static let refreshable: Set<NavSection> = [.browse, .discover, .importLocal]
+    private static let refreshable: Set<NavSection> = [.browse, .importLocal]
 
     private var inMainWindow: Bool { state.phase == .ready }
 

@@ -72,7 +72,6 @@ final class AppState: ObservableObject {
     // single source of truth; views bind to a field and keep only transient
     // UI state (spinners, sheets, in-flight tasks) locally.
     @Published var browsePane = PaneState.Browse()
-    @Published var discoverPane = PaneState.Discover()
     @Published var addPane = PaneState.Add()
     @Published var importPane = PaneState.Import()
 
@@ -111,11 +110,6 @@ final class AppState: ObservableObject {
     /// The resolved directory the current Add fetch scans, so
     /// `publishAndInstall` can derive each skill's own `source_url`.
     private var addResolveDir = ""
-
-    /// An import the post-fetch scan held back. Published so DiscoverView can
-    /// offer the acknowledgement that clears it. Nil unless the scan matched
-    /// and the confirmation did not already allow it.
-    @Published var scanBlockedImport: ScanBlockedImport?
 
     private let defaults: UserDefaults
     private let dismissKey = "dismissedUpdatePrompts"
@@ -776,8 +770,7 @@ final class AppState: ObservableObject {
 
     /// Stamp `source_url`/`category` provenance onto each skill fetched from
     /// an untrusted Add source, before the first write. Each skill gets its
-    /// own subfolder URL via the shared `relativeFolder(_:under:)` helper,
-    /// exactly like the Discover import path.
+    /// own subfolder URL via the shared `relativeFolder(_:under:)` helper.
     private func stampAddProvenance(_ skills: [LocalSkill], gate: AddGate?) throws {
         guard let gate, !addSource.isEmpty else { return }
         for sk in skills {
@@ -788,148 +781,6 @@ final class AppState: ObservableObject {
                     relativeFolder: Self.relativeFolder(sk.folder, under: addResolveDir)),
                 category: gate.category)
         }
-    }
-
-    // MARK: - discover (public index → untrusted import)
-
-    /// Search the public skill index. Nothing is written and no credential is
-    /// attached; the client builds its own request rather than reusing the
-    /// GitHub transport (see `DiscoverClient`).
-    func discoverSearch(_ query: DiscoverQuery) async throws -> DiscoverResponse {
-        if isDemo { return try Self.demoDiscoverResponse(query) }
-        return try await DiscoverClient().search(query)
-    }
-
-    /// Import one row picked out of the public index.
-    ///
-    /// Untrusted by construction: the row's folder URL is fetched through the
-    /// Contents API (never a clone), scanned for injection shapes, stamped
-    /// with `category` + `source_url`, and published to the user's registry.
-    /// `targets` is empty unless the user explicitly opted into the durable
-    /// agent-folder install and picked destinations, so the default really is
-    /// registry-only. `pickedNoAgents` distinguishes "never asked" from "asked
-    /// and picked nothing", so the toast can say the install was skipped rather
-    /// than silently doing nothing. `allowUnsafe` is the confirmation's
-    /// acknowledgement of a blocker.
-    ///
-    /// The scan runs after the fetch because there is nothing to scan before
-    /// it. A hit holds the import even when `allowUnsafe` already cleared a
-    /// grade block: that consent was given before the findings existed.
-    /// `scanAcknowledged` is the second consent, given with the findings in
-    /// front of the user. Nothing is written until both are clear. Returns
-    /// whether anything was published.
-    @discardableResult
-    func importDiscovered(_ result: DiscoverResult, targets: [AgentTarget],
-                          pickedNoAgents: Bool = false,
-                          allowUnsafe: Bool = false,
-                          scanAcknowledged: Bool = false) async -> Bool {
-        if isDemo {
-            return demoImportDiscovered(result, targets: targets,
-                                        pickedNoAgents: pickedNoAgents,
-                                        allowUnsafe: allowUnsafe,
-                                        scanAcknowledged: scanAcknowledged)
-        }
-        guard let api, let repo else { return false }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let cwd = FileManager.default.currentDirectoryPath
-        do {
-            let resolved = try await SourceResolver.resolve(
-                result.skillURL, home: home, cwd: cwd, folderFetcher: api)
-            defer { resolved.cleanup() }
-
-            let discovered = Scan.discover([Scan.Source(path: resolved.dir, label: result.skillURL)])
-            guard !discovered.isEmpty else {
-                showToast("No SKILL.md found at \(result.skillURL).", .error)
-                return false
-            }
-            let existing = Set(skills.map { normalizeForMatch($0.slug) })
-            let fresh = discovered.filter { !existing.contains(normalizeForMatch($0.slug)) }
-            guard !fresh.isEmpty else {
-                showToast("\(discovered[0].slug) is already in your registry.", .info)
-                return false
-            }
-            if !scanAcknowledged {
-                let held = try scanHitRefusal(result: result, skills: fresh)
-                if let held {
-                    scanBlockedImport = ScanBlockedImport(result: result, targets: targets, refusal: held)
-                    return false
-                }
-            }
-            scanBlockedImport = nil
-            if !allowUnsafe, result.scores.safetyIsPoor {
-                showToast("Refused: the public skill index graded this skill's safety Poor.", .error)
-                return false
-            }
-            for sk in fresh {
-                try ImportProvenance.stamp(
-                    folder: sk.folder,
-                    sourceURL: ImportProvenance.sourceURL(
-                        for: result.skillURL,
-                        relativeFolder: Self.relativeFolder(sk.folder, under: resolved.dir)),
-                    category: result.category)
-            }
-            try await publishDiscovered(fresh, api: api, repo: repo, targets: targets, home: home,
-                                            pickedNoAgents: pickedNoAgents)
-            refreshMetaSkillStatus()
-            return true
-        } catch {
-            if redirectIfUnauthorized(error) { return false }
-            showToast("Import failed: \(error.localizedDescription)", .error)
-            return false
-        }
-    }
-
-    /// Scan each fetched skill. A read error fails the import: an unreviewed
-    /// file must not be published. Returns one review carrying every scan hit
-    /// (slug-prefixed when more than one skill matched), or nil when the
-    /// heuristic matched nothing. A Poor grade alone does not hold here; the
-    /// confirmation sheet already required that consent.
-    private func scanHitRefusal(result: DiscoverResult, skills: [LocalSkill]) throws -> ImportReview? {
-        var rows: [(slug: String, findings: [SkillFinding])] = []
-        for sk in skills {
-            let findings = try SkillScan.scanSkill(folder: sk.folder)
-            if !findings.isEmpty { rows.append((sk.slug, findings)) }
-        }
-        guard !rows.isEmpty else { return nil }
-        if rows.count == 1 {
-            return ImportReview.evaluate(slug: rows[0].slug, scores: result.scores,
-                                         findings: rows[0].findings)
-        }
-        let combined = rows.flatMap { row in
-            row.findings.map {
-                SkillFinding(category: $0.category, rule: $0.rule, line: $0.line,
-                             excerpt: "\(row.slug): \($0.excerpt)")
-            }
-        }
-        return ImportReview.evaluate(slug: rows[0].slug, scores: result.scores, findings: combined)
-    }
-
-    /// Publish every fetched skill and, only when `targets` is non-empty,
-    /// durably install it. Split out so `importDiscovered` stays readable.
-    private func publishDiscovered(_ fresh: [LocalSkill], api: GitHubAPI, repo: RepoRef,
-                                   targets: [AgentTarget], home: String,
-                                   pickedNoAgents: Bool = false) async throws {
-        for sk in fresh {
-            let rel = stripSlugPrefix(try Scan.filesForUpload(slug: sk.slug, folder: sk.folder),
-                                      slug: sk.slug)
-            _ = try await api.publish(repo, slug: sk.slug, files: rel,
-                                      message: "add: \(sk.slug)", branch: branch)
-            upsertSkill(SkillSummary(slug: sk.slug, name: sk.name, description: sk.description))
-            if !targets.isEmpty {
-                _ = try LocalInstall.install(slug: sk.slug, files: rel, targets: targets,
-                                             home: home, cwd: home)
-            }
-        }
-        let names = fresh.map(\.slug).joined(separator: ", ")
-        let message: String
-        if !targets.isEmpty {
-            message = "Imported \(names) and installed it into \(targets.count) agent\(targets.count == 1 ? "" : "s")"
-        } else if pickedNoAgents {
-            message = "Imported \(names) into your registry (no agents picked, install skipped)"
-        } else {
-            message = "Imported \(names) into your registry"
-        }
-        showToast(message, .ok)
     }
 
     /// A fetched skill folder's slash-separated path under the fetch root, so
@@ -1212,16 +1063,6 @@ struct ToastItem: Identifiable, Equatable {
     let id = UUID()
     let message: String
     let kind: Kind
-}
-
-/// An import the post-fetch scan held back: the row, the install targets the
-/// confirmation chose, and the review (with findings) that needs
-/// acknowledging. Re-running the import with `allowUnsafe` clears it.
-struct ScanBlockedImport: Identifiable, Equatable {
-    let id = UUID()
-    let result: DiscoverResult
-    let targets: [AgentTarget]
-    let refusal: ImportReview
 }
 
 /// Demo-only login error fixture, selected by launch argument (see

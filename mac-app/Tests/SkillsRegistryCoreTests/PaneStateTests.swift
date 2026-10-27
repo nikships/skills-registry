@@ -5,48 +5,8 @@ import XCTest
 /// plain value types so their transitions can be pinned here: the views bind
 /// to them, and navigation must never be able to disturb them.
 final class PaneStateTests: XCTestCase {
-    private func result(_ name: String) -> DiscoverResult {
-        DiscoverResult(name: name, skillURL: "https://github.com/x/y/blob/main/\(name)")
-    }
-
     private func local(_ slug: String) -> LocalSkill {
         LocalSkill(slug: slug, name: slug, description: "", folder: "/tmp/\(slug)", source: "test")
-    }
-
-    // MARK: Discover
-
-    func testSearchedReplacesResultsSelectsFirstClearsError() {
-        let pane = PaneState.Discover(query: "pdf", searchError: "stale")
-        let next = pane.searched([result("a"), result("b")])
-        XCTAssertEqual(next.results.map(\.name), ["a", "b"])
-        XCTAssertEqual(next.selectedName, "a")
-        XCTAssertEqual(next.selected?.name, "a")
-        XCTAssertNil(next.searchError)
-        XCTAssertTrue(next.didSearch)
-        // The snapshot carries the query/mode along untouched.
-        XCTAssertEqual(next.query, "pdf")
-    }
-
-    func testFailedClearsListAndKeepsMessage() {
-        let pane = PaneState.Discover(query: "pdf", results: [result("a")],
-                                      selectedName: "a", didSearch: true)
-        let next = pane.failed("boom")
-        XCTAssertTrue(next.results.isEmpty)
-        XCTAssertNil(next.selectedName)
-        XCTAssertNil(next.selected)
-        XCTAssertEqual(next.searchError, "boom")
-        XCTAssertTrue(next.didSearch)
-    }
-
-    func testSelectedResolvesAgainstLiveResults() {
-        var pane = PaneState.Discover()
-        XCTAssertNil(pane.selected)
-        pane.results = [result("a"), result("b")]
-        pane.selectedName = "b"
-        XCTAssertEqual(pane.selected?.skillURL, "https://github.com/x/y/blob/main/b")
-        // A selection with no matching row (replaced results) yields nothing.
-        pane.selectedName = "gone"
-        XCTAssertNil(pane.selected)
     }
 
     // MARK: Add

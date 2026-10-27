@@ -198,8 +198,8 @@ struct BrowseView: View {
 }
 
 /// First-run card shown when the registry has no skills yet: names the
-/// registry so the user knows where they are, and offers the three ways to
-/// fill it. Import/Discover deep-link to their sidebar sections; Publish
+/// registry so the user knows where they are, and offers ways to
+/// fill it. Import deep-links to its sidebar section; Publish
 /// reuses the same folder picker as the list header.
 struct WelcomeCard: View {
     @EnvironmentObject var state: AppState
@@ -240,10 +240,6 @@ struct WelcomeCard: View {
                                       subtitle: "Publish a SKILL.md folder",
                                       systemImage: "plus",
                                       id: "welcomePublish") { onPublish() }
-                        welcomeButton(title: "Discover public skills",
-                                      subtitle: "Search the public index",
-                                      systemImage: "sparkle.magnifyingglass",
-                                      id: "welcomeDiscover") { section = .discover }
                     }
                 }
             }
