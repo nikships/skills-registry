@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "skills-registry",
+    "site": "skills-registry-web-2026",
     "public": "out",
     "ignore": [
       "firebase.json",
